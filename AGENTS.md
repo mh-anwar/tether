@@ -101,6 +101,9 @@ the diff and remove unrelated changes.
 - Never commit secrets, keys, certificates or real phone data; treat logs with message contents as sensitive.
 - Keep it publishable: no hardcoded hostnames, usernames or device ids; configuration lives in config files.
   A README a stranger can follow.
+- **Start of a session**: read `QUEUE.md` (the work queue) and `docs/README.md` (knowledge base index), then
+  the docs page for the area you touch. **End of a session**: update `QUEUE.md` (status, new items, what waits
+  on the owner) and add anything learned to `docs/` (traps go in `docs/gotchas.md`, symptom first).
 - Keep docs current as you go, not at the end: a decision or a protocol trap goes in `docs/` with one line on
   why. Unfinished multi-session work gets a root `HANDOFF.md` (scope, what's verified, next steps); delete it
   once done.

@@ -22,10 +22,4 @@ Goal: a Linux desktop app as good as Windows Phone Link, using the stock KDE Con
   Not checked: drag-and-drop sending (no drag in Xvfb), narrow window layouts, the real phone.
 
 ## Next
-1. Next screens, one at a time with a screenshot to the owner: calls, photos/files, phone screen, settings.
-   Tray icon with unread counts. Ideas the owner may like: schedule texts, notification digest.
-2. mDNS announcement (`_kdeconnect._udp`) alongside UDP; network-change and resume triggers for `refresh`.
-3. System clipboard sync (X11 and Wayland), SMS attachments, notification icons in the UI.
-4. Calls: Bluetooth hands-free (PipeWire/BlueZ HFP) for audio, answer and hang up.
-5. Phone screen and apps: Android wireless debugging + scrcpy server, embedded.
-6. Packaging: AppImage/Flatpak/.deb, systemd user service, autostart.
+See `QUEUE.md` (the work queue). How to test: `docs/testing.md`.

@@ -1,0 +1,33 @@
+# Testing
+
+Climb only as far as the change reaches (see AGENTS.md "Checks"). Build with
+`box heavy -- cargo build -p tether -p tether-app` (always that pair, see gotchas.md).
+
+## Unit tests
+`box heavy -- cargo test --workspace`: handshake in both TLS roles, cert/id mismatch, payload roundtrip, SMS
+parsing, vCards, file-name sanitising.
+
+## Two Tether daemons on one box
+Give each its own `XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `XDG_RUNTIME_DIR` (short paths). The second can't bind
+UDP 1716 and runs announce-only on TCP 1717. Broadcast doesn't loop back here, so join them with
+`XDG_RUNTIME_DIR=... tether connect 127.0.0.1` from the second.
+
+## Real KDE Connect (protocol compatibility)
+`testing/kdeconnect-peer/` (README there): KDE Connect 26.08.2 in rootless Docker. For anything with
+payloads (files), run Tether in a second container on the same Docker network; from the host, payload
+connections can't reach in or come back.
+
+## Stand-in phone + the window (UI)
+`crates/tether-core/examples/fake_phone.rs` speaks the real protocol with made-up texts, contacts and
+notifications; sent texts are echoed back and answered after 4 s.
+
+```sh
+box heavy -- cargo build -p tether -p tether-app && box heavy -- cargo build -p tether-core --example fake_phone
+testing/ui/run.sh start            # or: start dark
+testing/ui/run.sh accept           # first time only, pairs the fake phone
+uv run --no-project --with pillow python testing/ui/shot.py :57 /path/to/shot.png
+uv run --no-project --with python-xlib python testing/ui/drive.py :57 click 380 190 type "Hi" key Return
+testing/ui/run.sh stop
+```
+Look at every screenshot you take. Unset `RUST_LOG` when calling `uv` (it changes uv's logging).
+The window is 1200x780 at the top-left (no window manager); there is no drag-and-drop or resizing.

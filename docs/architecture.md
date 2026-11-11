@@ -1,0 +1,42 @@
+# Architecture
+
+```
+ Android phone (stock KDE Connect app)
+        |  UDP 1716 announce, TCP 1716-1764 + TLS, payloads on 1739-1764
+ tether-core  (crates/tether-core)    protocol, pairing, plugins; no UI, no global state
+        |  Service API + broadcast events (Rust)
+ tether daemon (crates/tether)         one per user, lock: $XDG_DATA_HOME/tether/daemon.lock
+        |  JSON lines over $XDG_RUNTIME_DIR/tether/tether.sock (user-only)
+ tether CLI   |   tether-app window (crates/tether-app + ui/)
+```
+
+## tether-core
+- `identity`, `packet`: wire types. `cert`: self-signed cert, CN = device id; verification code.
+- `tls`: accept any cert in the handshake, trust decided after by pinning (see decisions.md).
+- `link`: TCP + TLS + v8 identity exchange, both roles. `payload`: file transfer sockets.
+- `discovery`: UDP 1716 (exclusive bind). `store`: paired devices as JSON in `$XDG_DATA_HOME/tether/devices`.
+- `service`: the state machine. One `Dev` per known device: identity, pinned cert, last address, live link,
+  pair state, plugin data. Links are replaced, never duplicated; redials every 15 s while a paired device
+  is away; pair requests expire after 30 s.
+- `plugins/*`: pure functions from packets to `Update`s and reply packets, plus builders for what we send.
+  Payload-bearing packets (files, icons) are handled in `service`, which owns the network.
+
+## Daemon API (crates/tether/src/api.rs)
+Request `{"id","method","params"}`, reply `{"id","result"|"error"}`, events pushed as `{"event":...}`.
+- Global: `identity`, `devices`, `refresh`, `connect {address}`.
+- Per device (`params.device`): `device_data`, `threads`, `thread {thread_id}`, `contacts`,
+  `contact_name {number}`, `request_thread {thread_id, before?, count?}`, `request_threads`, `pair`, `accept`,
+  `reject`, `unpair`, `ping`, `ring`, `mute`, `sms_send {addresses, body, sub_id?}`,
+  `notification_dismiss {id}`, `notification_reply {reply_id, message}`, `notification_action {id, action}`,
+  `clipboard {content}`, `share_url {url}`, `share_text {text}`, `share_file {path}` (resolves when done).
+- Events: `{"event":"device", ...DeviceSummary}` and `{"event":"update","device_id","update":{"kind":...}}`
+  with kinds battery, signal, notification, notification_removed, messages, call, call_ended, ping,
+  clipboard, shared_text, shared_url, file_received, transfer_failed, contacts.
+
+## Window (crates/tether-app, ui/)
+- Rust side: keeps one socket connection, forwards `call(method, params)`, emits `tether` (daemon events) and
+  `daemon` (`{connected}`) to the page, starts the daemon if missing (retries every 10 s). `copy_text` holds
+  one clipboard handle for the app's life (X11 needs an owner).
+- Page: `ui/app.js` holds all state in `state`, renders regions with `swap()` (keeps focus and typed text).
+  Phone text is only set via `textContent`. Icons are inline SVG in `ui/icons.js`.
+- Messages are cached in memory per thread; the phone is the source of truth and resends on connect.
