@@ -15,3 +15,5 @@ tracing-subscriber.workspace = true
 clap.workspace = true
 dirs.workspace = true
 notify-rust.workspace = true
+# Clipboard sync in the background service; same features as tether-app so builds share it.
+arboard = { version = "3", default-features = false, features = ["wayland-data-control"] }

@@ -13,6 +13,8 @@ pub struct Config {
     pub addresses: Vec<String>,
     /// Show phone notifications as desktop notifications.
     pub mirror_notifications: bool,
+    /// Keep the computer's and the phone's clipboards the same.
+    pub clipboard_sync: bool,
     pub downloads_dir: Option<PathBuf>,
     #[serde(skip)]
     pub data_dir: PathBuf,
@@ -24,6 +26,7 @@ impl Default for Config {
             device_name: hostname(),
             addresses: vec![],
             mirror_notifications: true,
+            clipboard_sync: true,
             downloads_dir: None,
             data_dir: PathBuf::new(),
         }

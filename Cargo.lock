@@ -4033,6 +4033,7 @@ name = "tether"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "arboard",
  "clap",
  "dirs 5.0.1",
  "notify-rust",

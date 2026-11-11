@@ -677,6 +677,14 @@ async function quick(method, done, global = false) {
 }
 const ringPhone = () => quick('ring', 'Ringing your phone');
 
+// The background service syncs the clipboard itself when it can; copying here as well would move
+// ownership to the window, and on X11 the text would vanish when the window closes.
+async function phoneClipboard(text) {
+  try { state.me = await api('identity'); } catch { /* use what we have */ }
+  if (state.me && state.me.clipboardSync) toast('Copied from your phone');
+  else copy(text, 'Copied from your phone');
+}
+
 async function copy(text, done) {
   try { await T.core.invoke('copy_text', { text }); toast(done); } catch (e) { toast(`Couldn't copy: ${e}`, 'error'); }
 }
@@ -813,7 +821,7 @@ function onEvent(ev) {
     case 'call': state.call = u.state === 'missed' ? null : u; renderRail(); break;
     case 'call_ended': state.call = null; renderRail(); break;
     case 'ping': toast(u.message ? `Phone: ${u.message}` : 'Ping from your phone'); break;
-    case 'clipboard': copy(u.content, 'Copied from your phone'); break;
+    case 'clipboard': phoneClipboard(u.content); break;
     case 'shared_text': copy(u.text, 'Text from your phone copied'); break;
     case 'shared_url': copy(u.url, 'Link from your phone copied'); break;
     case 'file_received': toast(`Saved ${u.path.split('/').pop()} to Downloads`); break;

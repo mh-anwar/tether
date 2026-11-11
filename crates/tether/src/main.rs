@@ -3,6 +3,7 @@
 mod api;
 mod autostart;
 mod client;
+mod clipsync;
 mod config;
 mod daemon;
 mod notify;
@@ -75,9 +76,18 @@ pub enum Toggle {
     Off,
 }
 
-#[tokio::main]
-async fn main() -> Result<()> {
+fn main() -> Result<()> {
     let cli = Cli::parse();
+    if let Cmd::Daemon = cli.cmd {
+        clipsync::guess_display_env();
+    }
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()?
+        .block_on(run(cli))
+}
+
+async fn run(cli: Cli) -> Result<()> {
     if let Cmd::Daemon = cli.cmd {
         tracing_subscriber::fmt()
             .with_env_filter(

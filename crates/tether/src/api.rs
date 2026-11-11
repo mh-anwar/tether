@@ -116,6 +116,8 @@ async fn call(svc: &Service, method: &str, p: &Value) -> Result<Value> {
         "identity" => {
             let mut v = serde_json::to_value(svc.identity())?;
             v["discoveryListening"] = json!(svc.discovery_listening());
+            v["clipboardSync"] =
+                json!(crate::clipsync::ACTIVE.load(std::sync::atomic::Ordering::Relaxed));
             Ok(v)
         }
         "devices" => Ok(serde_json::to_value(svc.devices())?),

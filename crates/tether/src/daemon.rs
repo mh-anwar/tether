@@ -21,6 +21,9 @@ pub async fn run(cfg: Config) -> Result<()> {
     if cfg.mirror_notifications {
         tokio::spawn(crate::notify::mirror(service.clone()));
     }
+    if cfg.clipboard_sync {
+        crate::clipsync::start(service.clone());
+    }
     let path = crate::socket_path();
     tokio::select! {
         r = crate::api::serve(service, &path) => r?,

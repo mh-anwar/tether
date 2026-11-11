@@ -586,6 +586,8 @@ impl Inner {
             return; // an older link; a newer one already replaced it
         }
         d.link = None;
+        // Redial on the next tick rather than waiting out the redial interval.
+        d.last_dial = None;
         if !matches!(d.pair, Pair::Paired) {
             let s = DeviceSummary {
                 connected: false,
@@ -897,6 +899,27 @@ impl Inner {
         any_missing
     }
 
+    /// After sleep or a network change: dial paired phones now. After a long sleep, drop links
+    /// first; the phone has usually closed its side, and keepalive would take ~25 s to notice.
+    fn reconnect_all(&self, drop_links: bool) {
+        let mut lost = vec![];
+        let mut devs = self.lock();
+        for d in devs.values_mut() {
+            d.last_dial = None;
+            if drop_links && matches!(d.pair, Pair::Paired) {
+                if let Some(l) = d.link.take() {
+                    info!("dropping link to {} after sleep", d.identity.device_name);
+                    drop(l);
+                    lost.push(self.summary(d));
+                }
+            }
+        }
+        drop(devs);
+        for s in lost {
+            self.emit(Event::Device(s));
+        }
+    }
+
     async fn announce(&self) {
         let line = self.identity.to_packet().to_line();
         for target in discovery::broadcast_targets(&self.config.manual_addresses) {
@@ -988,6 +1011,7 @@ async fn udp_loop(inner: Arc<Inner>, udp: Arc<UdpSocket>) {
 }
 
 async fn maintenance_loop(inner: Arc<Inner>) {
+    let mut watch = crate::netwatch::NetWatch::new();
     inner.announce().await;
     let mut last_announce = Instant::now();
     let mut interval = tokio::time::interval(TICK);
@@ -1005,6 +1029,20 @@ async fn maintenance_loop(inner: Arc<Inner>) {
                 inner.listening.store(true, Ordering::Relaxed);
                 tokio::spawn(udp_loop(inner.clone(), Arc::new(sock)));
             }
+        }
+        let change = watch.poll();
+        if change.woke || change.network {
+            info!(
+                "{}; looking for phones",
+                if change.woke {
+                    "woke from sleep"
+                } else {
+                    "network changed"
+                }
+            );
+            inner.reconnect_all(change.woke);
+            inner.announce().await;
+            last_announce = Instant::now();
         }
         let missing = inner.tick();
         let every = if missing {
