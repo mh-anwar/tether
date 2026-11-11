@@ -34,6 +34,7 @@ const state = {
   pending: [], // outgoing texts not yet confirmed by the phone
   loadingThread: null,
   call: null,
+  media: {}, // player name -> what it plays, from the phone
   feedOverlay: false,
   newTo: [],
   seen: loadSeen(),
@@ -233,6 +234,7 @@ async function loadDevice() {
     state.signal = data.signal || {};
     state.notifications = data.notifications || {};
     state.call = data.call;
+    state.media = data.media || {};
     state.contacts = contacts;
     mergeMessages(threads);
   } catch (e) {
@@ -300,6 +302,7 @@ function renderRail() {
       icon('call', 'pulse'),
       h('div', {}, h('b', { text: state.call.name || prettyNumber(state.call.number || '') || 'Unknown caller' }), h('span', { text: 'Incoming call' })),
       h('button', { class: 'btn', onclick: () => quick('mute', 'Ringer muted') }, icon('mute', 'sm'), 'Mute')) : null,
+    mediaCard(),
     h('nav', { class: 'nav' },
       h('button', { 'aria-current': 'page', onclick: () => $('#filter')?.focus() }, icon('message'), h('span', { class: 'label', text: 'Messages' }),
         unread ? h('span', { class: 'count label', text: String(unread), 'aria-label': `${unread} unread` }) : null),
@@ -518,6 +521,65 @@ function addRecipient(n) {
   $('.composer textarea')?.focus();
 }
 
+// ---------- media ----------
+function activePlayer() {
+  const ps = Object.values(state.media || {}).filter((p) => p.title);
+  return ps.find((p) => p.is_playing) || ps[0] || null;
+}
+
+// The phone reports position only when something changes, so count forward while playing.
+function mediaPosition(p) {
+  const pos = p.position_ms + (p.is_playing ? Date.now() - p.position_at : 0);
+  return p.length_ms > 0 ? Math.min(pos, p.length_ms) : pos;
+}
+
+function clock(ms) {
+  const s = Math.max(0, Math.floor(ms / 1000));
+  const h_ = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = String(s % 60).padStart(2, '0');
+  return h_ ? `${h_}:${String(m).padStart(2, '0')}:${sec}` : `${m}:${sec}`;
+}
+
+function mediaAction(p, action) {
+  api('media_action', { device: state.deviceId, player: p.name, action }).catch((e) => toast(String(e), 'error'));
+}
+
+function mediaCard() {
+  const d = device();
+  const p = activePlayer();
+  if (!p || !(d && d.connected)) return null;
+  const pos = mediaPosition(p);
+  const by = p.artist || p.album || '';
+  return h('section', { class: 'media', 'aria-label': 'Playing on your phone' },
+    h('div', { class: 'media-top' },
+      p.art_path ? h('img', { class: 'art', src: T.core.convertFileSrc(p.art_path), alt: '' })
+        : h('div', { class: 'art placeholder' }, icon('music')),
+      h('div', { class: 'meta', title: `${p.title}${by ? ` by ${by}` : ''}, on ${p.name}` }, h('b', { text: p.title }), h('span', { text: by }))),
+    p.length_ms > 0 ? h('div', { class: 'progress' },
+      h('input', {
+        type: 'range', min: '0', max: String(p.length_ms), step: '1000', value: String(pos),
+        disabled: !p.can_seek, 'aria-label': 'Position in the song', 'aria-valuetext': `${clock(pos)} of ${clock(p.length_ms)}`,
+        oninput: (e) => { const t = $('.media .pos'); if (t) t.textContent = clock(+e.target.value); },
+        onchange: (e) => api('media_seek', { device: state.deviceId, player: p.name, position_ms: +e.target.value }).catch((err) => toast(String(err), 'error')),
+      }),
+      h('div', { class: 'times' }, h('span', { class: 'pos', text: clock(pos) }), h('span', { text: clock(p.length_ms) }))) : null,
+    h('div', { class: 'media-controls' },
+      h('button', { class: 'btn ghost icon-only', disabled: !p.can_go_previous, title: 'Previous', 'aria-label': 'Previous', onclick: () => mediaAction(p, 'Previous') }, icon('prev')),
+      h('button', { class: 'btn primary icon-only play', disabled: !(p.is_playing ? p.can_pause : p.can_play), title: p.is_playing ? 'Pause' : 'Play', 'aria-label': p.is_playing ? 'Pause' : 'Play', onclick: () => mediaAction(p, 'PlayPause') }, icon(p.is_playing ? 'pause' : 'play')),
+      h('button', { class: 'btn ghost icon-only', disabled: !p.can_go_next, title: 'Next', 'aria-label': 'Next', onclick: () => mediaAction(p, 'Next') }, icon('next'))));
+}
+
+// Move the position along without rebuilding the card (which would interrupt a drag).
+setInterval(() => {
+  const p = activePlayer();
+  const range = $('.media input[type=range]');
+  if (!p || !p.is_playing || !range || document.activeElement === range) return;
+  const pos = mediaPosition(p);
+  range.value = String(pos);
+  range.setAttribute('aria-valuetext', `${clock(pos)} of ${clock(p.length_ms)}`);
+  const t = $('.media .pos');
+  if (t) t.textContent = clock(pos);
+}, 1000);
+
 // ---------- banners ----------
 // Another KDE Connect app on this computer holds the discovery port, so the phone may talk to it.
 function portBanner() {
@@ -700,10 +762,13 @@ function toast(text, kind = '', ms = 2600) {
 function commands() {
   const d = device();
   const live = d && d.connected;
+  const player = activePlayer();
   const cmds = [
     { label: 'New message', sub: 'Ctrl+N', icon: 'plus', run: () => openNew() },
     live && { label: 'Ring my phone', icon: 'ring', run: ringPhone },
     live && { label: 'Ping my phone', icon: 'bolt', run: () => quick('ping', 'Ping sent') },
+    live && player && { label: player.is_playing ? `Pause ${player.title}` : `Play ${player.title}`, sub: player.name, icon: player.is_playing ? 'pause' : 'play', run: () => mediaAction(player, 'PlayPause') },
+    live && player && player.can_go_next && { label: 'Next song', sub: player.name, icon: 'next', run: () => mediaAction(player, 'Next') },
     state.call && { label: 'Mute the ringing call', icon: 'mute', run: () => quick('mute', 'Ringer muted') },
     { label: 'Look for my phone', icon: 'refresh', run: () => quick('refresh', 'Looking for your phone', true) },
     { label: 'Show notifications', icon: 'bell', run: toggleFeed },
@@ -803,6 +868,7 @@ function onEvent(ev) {
   const u = ev.update;
   switch (u.kind) {
     case 'battery': state.battery = u; renderRail(); break;
+    case 'media': state.media = Object.fromEntries(u.players.map((p) => [p.name, p])); renderRail(); break;
     case 'signal': state.signal = u.signal; renderRail(); break;
     case 'notification': state.notifications[u.id] = u; renderFeed(); renderRail(); break;
     case 'notification_removed': delete state.notifications[u.id]; renderFeed(); renderRail(); break;

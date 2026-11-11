@@ -58,6 +58,8 @@ enum Cmd {
     Share { target: String },
     /// Copy text to the phone's clipboard.
     Clip { text: String },
+    /// Control what plays on the phone: play, pause, next, previous, or no argument to show it.
+    Media { action: Option<MediaAction> },
     /// Silence a ringing call.
     Mute,
     /// Look for phones now.
@@ -68,6 +70,15 @@ enum Cmd {
     Watch,
     /// Start Tether when you log in: `on`, `off`, or no argument to check.
     Autostart { state: Option<Toggle> },
+}
+
+#[derive(Clone, Copy, clap::ValueEnum)]
+pub enum MediaAction {
+    Play,
+    Pause,
+    Toggle,
+    Next,
+    Previous,
 }
 
 #[derive(Clone, Copy, clap::ValueEnum)]

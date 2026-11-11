@@ -5,6 +5,8 @@
 //!
 //! It dials the daemon, asks to pair (accept with `tether accept`), then answers requests the way
 //! kdeconnect-android does. Sent texts are echoed back as sent, and the contact replies shortly.
+//! It also plays a made-up track in a fake "Spotify" player (MprisReceiverPlugin.kt), with
+//! album art sent as a payload the same way the desktop serves files.
 
 use std::{
     collections::BTreeMap,
@@ -20,13 +22,116 @@ use tether_core::{
     identity::{self, Identity, PROTOCOL_VERSION},
     link,
     packet::now_millis,
-    plugins,
+    payload, plugins,
+    plugins::mpris,
     tls::TlsContext,
     Packet,
 };
 use tokio::sync::mpsc;
 
 type Res<T> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
+
+const PLAYER: &str = "Spotify";
+
+struct Track {
+    title: &'static str,
+    artist: &'static str,
+    album: &'static str,
+    length: i64,
+    /// The phone's key for the art; the desktop echoes it back in `albumArtUrl` requests.
+    art: &'static str,
+    jpeg: &'static [u8],
+}
+
+const TRACKS: &[Track] = &[
+    Track {
+        title: "Blue in Green",
+        artist: "Miles Davis",
+        album: "Kind of Blue",
+        length: 337_000,
+        art: "art-kob",
+        jpeg: include_bytes!("../../../testing/fake-art/art-kob.jpg"),
+    },
+    Track {
+        title: "Clair de Lune",
+        artist: "Claude Debussy",
+        album: "Suite bergamasque",
+        length: 300_000,
+        art: "art-debussy",
+        jpeg: include_bytes!("../../../testing/fake-art/art-debussy.jpg"),
+    },
+    Track {
+        title: "Teardrop",
+        artist: "Massive Attack",
+        album: "Mezzanine",
+        length: 330_000,
+        art: "art-mezz",
+        jpeg: include_bytes!("../../../testing/fake-art/art-mezz.jpg"),
+    },
+];
+
+/// Playback state. The position advances on the wall clock while playing, the same way the
+/// real player does, so the desktop has to extrapolate between metadata packets.
+struct Media {
+    track: usize,
+    playing: bool,
+    volume: i64,
+    /// Position in ms as of `anchor` (Unix ms).
+    pos_ms: i64,
+    anchor: i64,
+}
+
+impl Media {
+    fn new(now: i64) -> Self {
+        Media {
+            track: 0,
+            playing: true,
+            volume: 60,
+            pos_ms: 42_000,
+            anchor: now,
+        }
+    }
+
+    fn current(&self) -> &'static Track {
+        &TRACKS[self.track]
+    }
+
+    fn position(&self, now: i64) -> i64 {
+        let p = if self.playing {
+            self.pos_ms + (now - self.anchor)
+        } else {
+            self.pos_ms
+        };
+        p.clamp(0, self.current().length)
+    }
+
+    /// Freezes the position at `now` before the play state changes.
+    fn set_playing(&mut self, now: i64, playing: bool) {
+        self.pos_ms = self.position(now);
+        self.anchor = now;
+        self.playing = playing;
+    }
+
+    fn seek(&mut self, now: i64, ms: i64) {
+        self.pos_ms = ms.clamp(0, self.current().length);
+        self.anchor = now;
+    }
+
+    fn step(&mut self, now: i64, delta: isize) {
+        let n = TRACKS.len() as isize;
+        self.track = (self.track as isize + delta).rem_euclid(n) as usize;
+        self.pos_ms = 0;
+        self.anchor = now;
+    }
+}
+
+/// Makes sure a capability is declared, even when the mirror lists above it don't include it.
+fn with_capability(mut caps: Vec<String>, cap: &str) -> Vec<String> {
+    if !caps.iter().any(|c| c == cap) {
+        caps.push(cap.into());
+    }
+    caps
+}
 
 #[derive(Clone)]
 struct Msg {
@@ -54,6 +159,7 @@ struct Phone {
     msgs: Vec<Msg>,
     notifications: BTreeMap<String, Value>,
     next_id: i64,
+    media: Media,
 }
 
 const CONTACTS: &[(&str, &str, &str)] = &[
@@ -229,6 +335,7 @@ fn seed() -> Phone {
         next_id: 100,
         msgs,
         notifications,
+        media: Media::new(now),
     }
 }
 
@@ -254,15 +361,16 @@ async fn main() -> Res<()> {
         }
     };
     let cert = LocalCert::load_or_create(&dir, &device_id)?;
-    let tls = TlsContext::new(&cert)?;
-    // The phone's capabilities mirror the desktop's.
+    let tls = Arc::new(TlsContext::new(&cert)?);
+    // The phone's capabilities mirror the desktop's. The mpris entries are declared explicitly
+    // so the fake phone keeps offering the media player even if the mirror changes.
     let me = Identity {
         device_id,
         device_name: "Galaxy S24".into(),
         device_type: "phone".into(),
         protocol_version: PROTOCOL_VERSION,
-        incoming_capabilities: plugins::outgoing_capabilities(),
-        outgoing_capabilities: plugins::incoming_capabilities(),
+        incoming_capabilities: with_capability(plugins::outgoing_capabilities(), mpris::REQUEST),
+        outgoing_capabilities: with_capability(plugins::incoming_capabilities(), mpris::MPRIS),
         tcp_port: Some(1716),
     };
     let phone = Arc::new(Mutex::new(seed()));
@@ -271,7 +379,7 @@ async fn main() -> Res<()> {
         match link::connect(addr, &me, &tls).await {
             Ok(l) => {
                 println!("connected to {}", l.peer.device_name);
-                if let Err(e) = session(l, phone.clone(), &paired_flag).await {
+                if let Err(e) = session(l, phone.clone(), &paired_flag, tls.clone()).await {
                     println!("session ended: {e}");
                 }
             }
@@ -281,7 +389,13 @@ async fn main() -> Res<()> {
     }
 }
 
-async fn session(l: link::Link, phone: Arc<Mutex<Phone>>, paired_flag: &PathBuf) -> Res<()> {
+async fn session(
+    l: link::Link,
+    phone: Arc<Mutex<Phone>>,
+    paired_flag: &PathBuf,
+    tls: Arc<TlsContext>,
+) -> Res<()> {
+    let peer_cert = l.peer_cert.clone();
     let (rd, mut wr) = tokio::io::split(l.stream);
     let (tx, mut rx) = mpsc::channel::<Packet>(64);
     tokio::spawn(async move {
@@ -323,7 +437,7 @@ async fn session(l: link::Link, phone: Arc<Mutex<Phone>>, paired_flag: &PathBuf)
         if !paired {
             continue;
         }
-        handle(&p, &phone, &tx).await;
+        handle(&p, &phone, &tx, &tls, &peer_cert).await;
     }
     Ok(())
 }
@@ -341,12 +455,128 @@ async fn greet(tx: &mpsc::Sender<Packet>) {
             json!({"signalStrengths": {"1": {"networkType": "5G", "signalStrength": 3}}}),
         ))
         .await;
+    let _ = tx.send(player_list()).await;
 }
 
-async fn handle(p: &Packet, phone: &Arc<Mutex<Phone>>, tx: &mpsc::Sender<Packet>) {
+fn player_list() -> Packet {
+    Packet::new(
+        mpris::MPRIS,
+        json!({"playerList": [PLAYER], "supportAlbumArtPayload": true}),
+    )
+}
+
+/// Metadata as MprisReceiverPlugin.kt sends it on every playback callback.
+fn now_playing(m: &Media, now: i64) -> Packet {
+    let t = m.current();
+    Packet::new(
+        mpris::MPRIS,
+        json!({
+            "player": PLAYER, "title": t.title, "artist": t.artist, "album": t.album,
+            "nowPlaying": t.title, "isPlaying": m.playing,
+            "canPlay": true, "canPause": true, "canGoNext": true, "canGoPrevious": true,
+            "canSeek": true, "pos": m.position(now), "length": t.length,
+            "volume": m.volume, "albumArtUrl": t.art
+        }),
+    )
+}
+
+/// Handles `kdeconnect.mpris.request` for everything except album art, which needs the payload
+/// connection and is handled in `send_album_art`.
+fn mpris_request(m: &mut Media, p: &Packet) -> Vec<Packet> {
+    let now = now_millis();
+    if p.bool("requestPlayerList") == Some(true) {
+        return vec![player_list()];
+    }
+    if p.str("player") != Some(PLAYER) {
+        println!("mpris request for an unknown player: ignored");
+        return vec![];
+    }
+    if p.bool("requestNowPlaying") == Some(true) {
+        return vec![now_playing(m, now)];
+    }
+    if let Some(action) = p.str("action") {
+        match action {
+            "PlayPause" => m.set_playing(now, !m.playing),
+            "Play" => m.set_playing(now, true),
+            "Pause" | "Stop" => m.set_playing(now, false),
+            "Next" => m.step(now, 1),
+            "Previous" => m.step(now, -1),
+            other => {
+                println!("mpris action {other:?} is not supported: ignored");
+                return vec![];
+            }
+        }
+    } else if let Some(v) = p.i64("setVolume") {
+        m.volume = v.clamp(0, 100);
+    } else if let Some(ms) = p.i64("SetPosition") {
+        m.seek(now, ms);
+    } else {
+        return vec![];
+    }
+    vec![now_playing(m, now)]
+}
+
+/// Sends the current track's cover as a payload, the way `share_file` serves a file: bind a
+/// payload port, announce it on the packet, then serve the bytes to the paired desktop.
+async fn send_album_art(
+    p: &Packet,
+    phone: &Arc<Mutex<Phone>>,
+    tx: &mpsc::Sender<Packet>,
+    tls: &Arc<TlsContext>,
+    peer_cert: &[u8],
+) {
+    let Some(key) = p.str("albumArtUrl") else {
+        return;
+    };
+    let jpeg = {
+        let ph = phone.lock().unwrap_or_else(|e| e.into_inner());
+        let t = ph.media.current();
+        (p.str("player") == Some(PLAYER) && t.art == key).then_some(t.jpeg)
+    };
+    // The phone only answers for its current art, so a stale request gets no reply.
+    let Some(jpeg) = jpeg else {
+        println!("album art {key:?} is not the current track: ignored");
+        return;
+    };
+    let Ok((listener, port)) = payload::bind_payload_listener().await else {
+        println!("no free payload port for album art");
+        return;
+    };
+    let mut pk = Packet::new(
+        mpris::MPRIS,
+        json!({"player": PLAYER, "transferringAlbumArt": true, "albumArtUrl": key}),
+    );
+    pk.payload_size = Some(jpeg.len() as i64);
+    pk.payload_transfer_info = Some(
+        json!({"port": port})
+            .as_object()
+            .cloned()
+            .unwrap_or_default(),
+    );
+    let _ = tx.send(pk).await;
+    let (tls, peer_cert) = (tls.clone(), peer_cert.to_vec());
+    tokio::spawn(async move {
+        if let Err(e) = payload::serve(listener, &tls, &peer_cert, jpeg).await {
+            println!("album art transfer failed: {e}");
+        }
+    });
+}
+
+async fn handle(
+    p: &Packet,
+    phone: &Arc<Mutex<Phone>>,
+    tx: &mpsc::Sender<Packet>,
+    tls: &Arc<TlsContext>,
+    peer_cert: &[u8],
+) {
+    if p.kind == mpris::REQUEST && p.str("albumArtUrl").is_some() {
+        send_album_art(p, phone, tx, tls, peer_cert).await;
+        return;
+    }
     let out: Vec<Packet> = {
         let mut ph = phone.lock().unwrap_or_else(|e| e.into_inner());
         match p.kind.as_str() {
+            mpris::REQUEST => mpris_request(&mut ph.media, p),
             "kdeconnect.notification.request" if p.bool("request") == Some(true) => ph
                 .notifications
                 .values()

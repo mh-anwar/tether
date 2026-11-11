@@ -2,6 +2,7 @@
 //! packets we send. Packet schemas: see docs/protocol.md.
 
 pub mod contacts;
+pub mod mpris;
 pub mod notification;
 pub mod sms;
 pub mod telephony;
@@ -40,6 +41,7 @@ pub fn incoming_capabilities() -> Vec<String> {
         telephony::TELEPHONY,
         contacts::RESPONSE_UIDS,
         contacts::RESPONSE_VCARDS,
+        mpris::MPRIS,
     ]
     .map(String::from)
     .to_vec()
@@ -63,6 +65,7 @@ pub fn outgoing_capabilities() -> Vec<String> {
         telephony::REQUEST_MUTE,
         contacts::REQUEST_UIDS,
         contacts::REQUEST_VCARDS,
+        mpris::REQUEST,
     ]
     .map(String::from)
     .to_vec()
@@ -95,6 +98,8 @@ pub struct DeviceData {
     pub call: Option<Call>,
     #[serde(skip)]
     pub contacts: contacts::Contacts,
+    /// Media players on the phone, by name.
+    pub media: BTreeMap<String, mpris::Player>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -114,6 +119,7 @@ pub enum Update {
     FileReceived { path: String },
     TransferFailed { name: String, reason: String },
     Contacts { count: usize },
+    Media { players: Vec<mpris::Player> },
 }
 
 /// Packets sent whenever a paired device connects, so our view is fresh. Battery and signal have
@@ -123,6 +129,7 @@ pub fn on_connected() -> Vec<Packet> {
         Packet::new(notification::REQUEST, json!({"request": true})),
         Packet::new(sms::REQUEST_CONVERSATIONS, json!({})),
         Packet::new(contacts::REQUEST_UIDS, json!({})),
+        mpris::request_player_list(),
     ]
 }
 
@@ -191,6 +198,7 @@ pub fn handle(data: &mut DeviceData, p: &Packet) -> Outcome {
         sms::MESSAGES => sms::handle(data, p, &mut out),
         telephony::TELEPHONY => telephony::handle(data, p, &mut out),
         contacts::RESPONSE_UIDS | contacts::RESPONSE_VCARDS => contacts::handle(data, p, &mut out),
+        mpris::MPRIS => mpris::handle(&mut data.media, p, &mut out),
         _ => {}
     }
     out

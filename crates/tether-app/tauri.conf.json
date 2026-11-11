@@ -11,7 +11,7 @@
     ],
     "security": {
       "csp": "default-src 'self'; img-src 'self' asset: http://asset.localhost data:; style-src 'self' 'unsafe-inline'; script-src 'self'",
-      "assetProtocol": { "enable": true, "scope": ["$DATA/tether/icons/**"] }
+      "assetProtocol": { "enable": true, "scope": ["$DATA/tether/icons/**", "$DATA/tether/art/**"] }
     }
   },
   "bundle": { "active": false, "icon": ["icons/icon.png"] }

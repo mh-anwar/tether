@@ -647,6 +647,19 @@ impl Inner {
                     ));
                     return;
                 }
+                plugins::mpris::MPRIS if p.bool("transferringAlbumArt") == Some(true) => {
+                    if let (Some(player), Some(url)) = (p.str("player"), p.str("albumArtUrl")) {
+                        tokio::spawn(self.clone().receive_art(
+                            id.to_string(),
+                            player.to_string(),
+                            url.to_string(),
+                            target,
+                            cert,
+                            size,
+                        ));
+                    }
+                    return;
+                }
                 plugins::notification::NOTIFICATION => {
                     if let Some(hash) = p.str("payloadHash").filter(|h| is_safe_name(h)) {
                         let path = self
@@ -695,6 +708,13 @@ impl Inner {
             }
         }
         let mut updates = out.updates;
+        if p.kind == plugins::mpris::MPRIS && self.fill_art(d) {
+            for u in &mut updates {
+                if let Update::Media { .. } = u {
+                    *u = plugins::mpris::media_update(&d.data.media);
+                }
+            }
+        }
         if p.kind == plugins::notification::NOTIFICATION {
             // Re-read so the update carries the icon path filled in above.
             if let Some(n) = p.str("id").and_then(|nid| d.data.notifications.get(nid)) {
@@ -801,6 +821,89 @@ impl Inner {
         self.emit(Event::Update {
             device_id: id,
             update,
+        });
+    }
+
+    fn art_file(&self, url: &str) -> PathBuf {
+        use sha2::{Digest, Sha256};
+        let hash = hex::encode(Sha256::digest(url.as_bytes()));
+        self.config
+            .data_dir
+            .join("art")
+            .join(format!("{}.jpg", &hash[..32]))
+    }
+
+    /// Points players at album art already on disk, and asks the phone once for missing art.
+    /// Returns whether any player changed.
+    fn fill_art(&self, d: &mut Dev) -> bool {
+        let mut changed = false;
+        let mut ask = vec![];
+        for pl in d.data.media.values_mut() {
+            if pl.art_url.is_empty() || pl.art_path.is_some() {
+                continue;
+            }
+            let path = self.art_file(&pl.art_url);
+            if path.exists() {
+                pl.art_path = Some(path.to_string_lossy().into());
+                changed = true;
+            } else if !pl.art_requested {
+                pl.art_requested = true;
+                ask.push(plugins::mpris::request_art(&pl.name, &pl.art_url));
+            }
+        }
+        if let Some(l) = &d.link {
+            for p in ask {
+                let _ = l.tx.try_send(p);
+            }
+        }
+        changed
+    }
+
+    async fn receive_art(
+        self: Arc<Self>,
+        id: String,
+        player: String,
+        url: String,
+        target: SocketAddr,
+        cert: Vec<u8>,
+        size: i64,
+    ) {
+        // Covers are small; anything huge isn't art.
+        if size > 8 * 1024 * 1024 {
+            return;
+        }
+        let path = self.art_file(&url);
+        let ok: Result<()> = async {
+            let dir = path
+                .parent()
+                .ok_or(Error::Protocol("bad art path".into()))?;
+            tokio::fs::create_dir_all(dir).await?;
+            prune_dir(dir, 300).await;
+            let tmp = path.with_extension("part");
+            let mut f = tokio::fs::File::create(&tmp).await?;
+            payload::fetch(target, &self.tls, &cert, size, &mut f).await?;
+            tokio::fs::rename(&tmp, &path).await?;
+            Ok(())
+        }
+        .await;
+        if let Err(e) = ok {
+            debug!("album art download failed: {e}");
+            return;
+        }
+        let mut devs = self.lock();
+        let Some(d) = devs.get_mut(&id) else { return };
+        let Some(pl) = d.data.media.get_mut(&player) else {
+            return;
+        };
+        if pl.art_url != url {
+            return; // the song changed while downloading
+        }
+        pl.art_path = Some(path.to_string_lossy().into());
+        let u = plugins::mpris::media_update(&d.data.media);
+        drop(devs);
+        self.emit(Event::Update {
+            device_id: id,
+            update: u,
         });
     }
 
@@ -1068,6 +1171,26 @@ fn load_or_create_id(dir: &Path) -> Result<String> {
     let id = identity::new_device_id();
     std::fs::write(&path, &id)?;
     Ok(id)
+}
+
+/// Keeps a cache folder to at most `keep` files, oldest removed first.
+async fn prune_dir(dir: &std::path::Path, keep: usize) {
+    let Ok(mut rd) = tokio::fs::read_dir(dir).await else {
+        return;
+    };
+    let mut files = vec![];
+    while let Ok(Some(e)) = rd.next_entry().await {
+        if let Ok(m) = e.metadata().await {
+            files.push((m.modified().ok(), e.path()));
+        }
+    }
+    if files.len() <= keep {
+        return;
+    }
+    files.sort();
+    for (_, p) in files.iter().take(files.len() - keep) {
+        let _ = tokio::fs::remove_file(p).await;
+    }
 }
 
 fn is_safe_name(s: &str) -> bool {

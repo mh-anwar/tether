@@ -194,6 +194,24 @@ async fn call(svc: &Service, method: &str, p: &Value) -> Result<Value> {
                 "share_text" => Ok(svc
                     .send(dev, plugins::share_text(s(p, "text")?))
                     .map(|_| json!(true))?),
+                "media_action" => {
+                    let pkt = plugins::mpris::action(s(p, "player")?, s(p, "action")?)
+                        .ok_or_else(|| anyhow!("unknown media action"))?;
+                    svc.send(dev, pkt)?;
+                    ok()
+                }
+                "media_volume" => Ok(svc
+                    .send(
+                        dev,
+                        plugins::mpris::set_volume(s(p, "player")?, i(p, "volume")?),
+                    )
+                    .map(|_| json!(true))?),
+                "media_seek" => Ok(svc
+                    .send(
+                        dev,
+                        plugins::mpris::set_position(s(p, "player")?, i(p, "position_ms")?),
+                    )
+                    .map(|_| json!(true))?),
                 "share_file" => {
                     let n = svc.share_file(dev, Path::new(s(p, "path")?)).await?;
                     Ok(json!({"bytes": n}))

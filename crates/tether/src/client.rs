@@ -175,6 +175,46 @@ pub async fn run(device: Option<String>, cmd: Cmd) -> Result<()> {
                 );
             }
         }
+        Cmd::Media { action } => {
+            let d = c.device(&device).await?;
+            let data = c.call("device_data", json!({"device": d})).await?;
+            let players: Vec<Value> = data
+                .get("media")
+                .and_then(Value::as_object)
+                .map(|m| m.values().cloned().collect())
+                .unwrap_or_default();
+            let playing = |p: &&Value| p.get("is_playing").and_then(Value::as_bool) == Some(true);
+            let Some(pl) = players.iter().find(playing).or(players.first()) else {
+                bail!("Nothing is playing on the phone.");
+            };
+            let name = str_of(pl, "name");
+            match action {
+                None => {
+                    let what = match (str_of(pl, "title"), str_of(pl, "artist")) {
+                        (t, _) if t.is_empty() => "nothing yet".to_string(),
+                        (t, a) if a.is_empty() => t,
+                        (t, a) => format!("{t} by {a}"),
+                    };
+                    let state = if playing(&pl) { "playing" } else { "paused" };
+                    println!("{name}: {what} ({state})");
+                }
+                Some(a) => {
+                    use crate::MediaAction::*;
+                    let act = match a {
+                        Play => "Play",
+                        Pause => "Pause",
+                        Toggle => "PlayPause",
+                        Next => "Next",
+                        Previous => "Previous",
+                    };
+                    c.call(
+                        "media_action",
+                        json!({"device": d, "player": name, "action": act}),
+                    )
+                    .await?;
+                }
+            }
+        }
         Cmd::Threads => {
             let d = c.device(&device).await?;
             let v = c.call("threads", json!({"device": d})).await?;

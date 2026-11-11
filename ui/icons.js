@@ -20,6 +20,11 @@ const ICONS = {
   command: '<path d="M9 6a3 3 0 1 0-3 3h12a3 3 0 1 0-3-3v12a3 3 0 1 0 3-3H6a3 3 0 1 0 3 3V6Z"/>',
   alert: '<path d="M12 3 2 20h20L12 3Z"/><path d="M12 10v4M12 17h.01"/>',
   chevron: '<path d="m9 6 6 6-6 6"/>',
+  play: '<path d="M8 5.5v13l10.5-6.5L8 5.5Z" fill="currentColor"/>',
+  pause: '<path d="M8.5 5.5v13M15.5 5.5v13" stroke-width="3"/>',
+  next: '<path d="M6 6.5v11l8-5.5-8-5.5Z" fill="currentColor"/><path d="M18 6v12"/>',
+  prev: '<path d="M18 6.5v11l-8-5.5 8-5.5Z" fill="currentColor"/><path d="M6 6v12"/>',
+  music: '<path d="M9 18V6l11-2v12"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="17.5" cy="16" r="2.5"/>',
   call: '<path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a1 1 0 0 1-1 1A16 16 0 0 1 4 5a1 1 0 0 1 1-1Z"/>',
 };
 
