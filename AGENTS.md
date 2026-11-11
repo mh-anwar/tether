@@ -15,6 +15,9 @@ separately in your global instructions; they still apply.
 - Say in one line what you're doing before anything that takes more than a minute.
 - **Never block the chat.** Builds and tests slower than ~30 s run in the background; keep answering and report
   when they end. A new message from the owner gets answered first.
+- The owner doesn't read messages while you work. Mid-work text is short progress updates only (what you're
+  on now). Every question, decision and result goes in the final message at the end of the turn; never ask
+  mid-turn and wait, pick a sensible default and note it in the final message instead.
 - Questions go in the message itself, in full: what it's about in one line, the question, a concrete example,
   your recommendation. Ask everything in one round. Never "see the docs" or "see my earlier message".
 - Steps only the owner can do (install on their laptop, pair the phone, grant a permission on the phone): one
