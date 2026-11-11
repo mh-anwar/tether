@@ -91,9 +91,11 @@ struct PlayerIface {
 }
 
 impl PlayerIface {
+    /// Sends what `make` builds; `None` means the request is to be ignored (MPRIS says so for
+    /// stale track ids and out-of-range positions).
     fn send(&self, make: impl FnOnce(&Current) -> Option<tether_core::Packet>) -> fdo::Result<()> {
         let c = now_of(&self.shared).ok_or_else(|| fdo::Error::Failed("Nothing playing".into()))?;
-        let p = make(&c).ok_or_else(|| fdo::Error::NotSupported("Not supported".into()))?;
+        let Some(p) = make(&c) else { return Ok(()) };
         self.service
             .send(&c.device, p)
             .map_err(|e| fdo::Error::Failed(e.to_string()))
@@ -134,14 +136,23 @@ impl PlayerIface {
     /// Relative, in microseconds. The phone only takes absolute positions in ms.
     fn seek(&self, offset: i64) -> fdo::Result<()> {
         self.send(|c| {
-            let to = position_ms(&c.player) + offset / 1000;
+            let mut to = (position_ms(&c.player) + offset / 1000).max(0);
+            if c.player.length_ms > 0 {
+                if to > c.player.length_ms {
+                    // Seeking past the end means "next song" in MPRIS.
+                    return mpris::action(&c.player.name, "Next");
+                }
+                to = to.min(c.player.length_ms);
+            }
             Some(mpris::set_position(&c.player.name, to))
         })
     }
     fn set_position(&self, track_id: ObjectPath<'_>, position: i64) -> fdo::Result<()> {
         self.send(|c| {
             // Ignore requests meant for a song that has already changed (spec requirement).
-            (track_id.as_str() == track_path(&c.player))
+            let in_range =
+                position >= 0 && (c.player.length_ms <= 0 || position / 1000 <= c.player.length_ms);
+            (track_id.as_str() == track_path(&c.player) && in_range)
                 .then(|| mpris::set_position(&c.player.name, position / 1000))
         })
     }
@@ -247,9 +258,22 @@ fn metadata(p: &Player) -> HashMap<String, OwnedVariant> {
         put("mpris:length", Variant::from(p.length_ms * 1000));
     }
     if let Some(art) = &p.art_path {
-        put("mpris:artUrl", Variant::from(format!("file://{art}")));
+        put("mpris:artUrl", Variant::from(file_url(art)));
     }
     m
+}
+
+/// `file://` URL with the path percent-encoded, so spaces and `#` don't break it.
+fn file_url(path: &str) -> String {
+    let mut s = String::from("file://");
+    for b in path.bytes() {
+        if b.is_ascii_alphanumeric() || b"/-._~".contains(&b) {
+            s.push(b as char);
+        } else {
+            s.push_str(&format!("%{b:02X}"));
+        }
+    }
+    s
 }
 
 /// The player to show: the first connected phone's playing player, else one with a song.
@@ -346,14 +370,36 @@ async fn announce(
         .await?;
     let player = iface.get().await;
     let em = iface.signal_emitter();
-    player.playback_status_changed(em).await?;
-    player.metadata_changed(em).await?;
-    player.volume_changed(em).await?;
-    player.can_go_next_changed(em).await?;
-    player.can_go_previous_changed(em).await?;
-    player.can_play_changed(em).await?;
-    player.can_pause_changed(em).await?;
-    player.can_seek_changed(em).await?;
+    // Only what changed: device events (battery, signal) arrive often and change nothing here.
+    let old = before.map(|c| &c.player);
+    let new = now.map(|c| &c.player);
+    let differs = |f: fn(&Player) -> String| old.map(f) != new.map(f);
+    if differs(|p| p.is_playing.to_string()) {
+        player.playback_status_changed(em).await?;
+    }
+    if differs(|p| {
+        format!(
+            "{}|{}|{}|{}|{:?}",
+            p.title, p.artist, p.album, p.length_ms, p.art_path
+        )
+    }) {
+        player.metadata_changed(em).await?;
+    }
+    if differs(|p| format!("{:?}", p.volume)) {
+        player.volume_changed(em).await?;
+    }
+    if differs(|p| {
+        format!(
+            "{}{}{}{}{}",
+            p.can_go_next, p.can_go_previous, p.can_play, p.can_pause, p.can_seek
+        )
+    }) {
+        player.can_go_next_changed(em).await?;
+        player.can_go_previous_changed(em).await?;
+        player.can_play_changed(em).await?;
+        player.can_pause_changed(em).await?;
+        player.can_seek_changed(em).await?;
+    }
     // A position that jumped within the same song was a seek; tell listeners (spec: Seeked).
     if let (Some(b), Some(n)) = (before, now) {
         let same = track_path(&b.player) == track_path(&n.player);
@@ -361,10 +407,14 @@ async fn announce(
             PlayerIface::seeked(em, n.player.position_ms * 1000).await?;
         }
     }
-    let root = conn.object_server().interface::<_, Root>(PATH).await?;
-    root.get()
-        .await
-        .identity_changed(root.signal_emitter())
-        .await?;
+    if before.map(|c| (&c.player.name, &c.device_name))
+        != now.map(|c| (&c.player.name, &c.device_name))
+    {
+        let root = conn.object_server().interface::<_, Root>(PATH).await?;
+        root.get()
+            .await
+            .identity_changed(root.signal_emitter())
+            .await?;
+    }
     Ok(())
 }

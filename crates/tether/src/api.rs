@@ -194,6 +194,15 @@ async fn call(svc: &Service, method: &str, p: &Value) -> Result<Value> {
                 "share_text" => Ok(svc
                     .send(dev, plugins::share_text(s(p, "text")?))
                     .map(|_| json!(true))?),
+                "sms_attachment" => {
+                    let path =
+                        svc.sms_attachment(dev, i(p, "part_id")?, s(p, "unique_identifier")?)?;
+                    Ok(json!({"path": path.map(|p| p.to_string_lossy().into_owned())}))
+                }
+                "sms_attachment_save" => {
+                    let to = svc.save_attachment(s(p, "unique_identifier")?)?;
+                    Ok(json!({"path": to.to_string_lossy()}))
+                }
                 "media_action" => {
                     let pkt = plugins::mpris::action(s(p, "player")?, s(p, "action")?)
                         .ok_or_else(|| anyhow!("unknown media action"))?;

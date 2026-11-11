@@ -133,6 +133,48 @@ fn with_capability(mut caps: Vec<String>, cap: &str) -> Vec<String> {
     caps
 }
 
+/// A picture that comes with an MMS. The thumbnail rides on the message; the full file is
+/// fetched later with `kdeconnect.sms.request_attachment`.
+struct Photo {
+    part_id: i64,
+    unique: &'static str,
+    thumb: &'static [u8],
+    jpeg: &'static [u8],
+}
+
+const PHOTOS: &[Photo] = &[
+    Photo {
+        part_id: 9001,
+        unique: "PART_1731300000_dog.jpg",
+        thumb: include_bytes!("../../../testing/fake-art/thumb-dog.jpg"),
+        jpeg: include_bytes!("../../../testing/fake-art/photo-dog.jpg"),
+    },
+    Photo {
+        part_id: 9002,
+        unique: "PART_1731300100_cake.jpg",
+        thumb: include_bytes!("../../../testing/fake-art/thumb-cake.jpg"),
+        jpeg: include_bytes!("../../../testing/fake-art/photo-cake.jpg"),
+    },
+];
+
+/// Standard base64 with padding, the encoding Android uses for thumbnails.
+fn base64(bytes: &[u8]) -> String {
+    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    for chunk in bytes.chunks(3) {
+        let b = |i: usize| u32::from(*chunk.get(i).unwrap_or(&0));
+        let n = (b(0) << 16) | (b(1) << 8) | b(2);
+        for i in 0..4 {
+            if i <= chunk.len() {
+                out.push(char::from(ALPHABET[((n >> (18 - 6 * i)) & 63) as usize]));
+            } else {
+                out.push('=');
+            }
+        }
+    }
+    out
+}
+
 #[derive(Clone)]
 struct Msg {
     id: i64,
@@ -142,16 +184,24 @@ struct Msg {
     date: i64,
     sent: bool,
     read: bool,
+    photo: Option<&'static Photo>,
 }
 
 impl Msg {
     fn json(&self) -> Value {
-        json!({
+        let mut v = json!({
             "_id": self.id, "thread_id": self.thread, "body": self.body, "date": self.date,
             "type": if self.sent { 2 } else { 1 }, "read": if self.read { 1 } else { 0 },
             "addresses": self.addrs.iter().map(|a| json!({"address": a})).collect::<Vec<_>>(),
             "sub_id": 1, "event": 1
-        })
+        });
+        if let Some(p) = self.photo {
+            v["attachments"] = json!([{
+                "part_id": p.part_id, "mime_type": "image/jpeg",
+                "encoded_thumbnail": base64(p.thumb), "unique_identifier": p.unique
+            }]);
+        }
+        v
     }
 }
 
@@ -303,8 +353,32 @@ fn seed() -> Phone {
             date: now - age,
             sent,
             read: sent || !unread_threads.contains(&thread),
+            photo: None,
         });
     }
+    // Maya's picture and the reply with the cake. Both are older than her latest text, so that
+    // text stays the conversation preview.
+    let next = msgs.len() as i64 + 1;
+    msgs.push(Msg {
+        id: next,
+        thread: 1,
+        addrs: vec!["+15555550101"],
+        body: String::new(),
+        date: now - 20 * min,
+        sent: false,
+        read: false,
+        photo: Some(&PHOTOS[0]),
+    });
+    msgs.push(Msg {
+        id: next + 1,
+        thread: 1,
+        addrs: vec!["+15555550101"],
+        body: "Happy birthday!".into(),
+        date: now - 17 * min,
+        sent: true,
+        read: true,
+        photo: Some(&PHOTOS[1]),
+    });
     let mut notifications = BTreeMap::new();
     let mut add = |id: &str, v: Value| {
         notifications.insert(id.to_string(), v);
@@ -538,15 +612,26 @@ async fn send_album_art(
         println!("album art {key:?} is not the current track: ignored");
         return;
     };
+    let body = json!({"player": PLAYER, "transferringAlbumArt": true, "albumArtUrl": key});
+    send_payload(mpris::MPRIS, body, jpeg, tx, tls, peer_cert).await;
+}
+
+/// Sends `bytes` as a payload the way `share_file` serves a file: bind a payload port, announce
+/// it on the packet, then serve the bytes to the paired desktop.
+async fn send_payload(
+    kind: &str,
+    body: Value,
+    bytes: &'static [u8],
+    tx: &mpsc::Sender<Packet>,
+    tls: &Arc<TlsContext>,
+    peer_cert: &[u8],
+) {
     let Ok((listener, port)) = payload::bind_payload_listener().await else {
-        println!("no free payload port for album art");
+        println!("no free payload port for {kind}");
         return;
     };
-    let mut pk = Packet::new(
-        mpris::MPRIS,
-        json!({"player": PLAYER, "transferringAlbumArt": true, "albumArtUrl": key}),
-    );
-    pk.payload_size = Some(jpeg.len() as i64);
+    let mut pk = Packet::new(kind, body);
+    pk.payload_size = Some(bytes.len() as i64);
     pk.payload_transfer_info = Some(
         json!({"port": port})
             .as_object()
@@ -556,10 +641,42 @@ async fn send_album_art(
     let _ = tx.send(pk).await;
     let (tls, peer_cert) = (tls.clone(), peer_cert.to_vec());
     tokio::spawn(async move {
-        if let Err(e) = payload::serve(listener, &tls, &peer_cert, jpeg).await {
-            println!("album art transfer failed: {e}");
+        if let Err(e) = payload::serve(listener, &tls, &peer_cert, bytes).await {
+            println!("payload transfer failed: {e}");
         }
     });
+}
+
+/// Answers `kdeconnect.sms.request_attachment` with the picture's full file. The phone takes a
+/// moment to fetch it from storage, so the reply comes a second later, as on a real phone.
+async fn send_attachment(
+    p: &Packet,
+    tx: &mpsc::Sender<Packet>,
+    tls: &Arc<TlsContext>,
+    peer_cert: &[u8],
+) {
+    let part = p.i64("part_id");
+    let Some(uid) = p.str("unique_identifier") else {
+        return;
+    };
+    let Some(photo) = PHOTOS
+        .iter()
+        .find(|ph| Some(ph.part_id) == part && ph.unique == uid)
+    else {
+        println!("attachment {uid:?} is not one of the fake phone's pictures: ignored");
+        return;
+    };
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    let body = json!({"filename": photo.unique});
+    send_payload(
+        plugins::sms::ATTACHMENT_FILE,
+        body,
+        photo.jpeg,
+        tx,
+        tls,
+        peer_cert,
+    )
+    .await;
 }
 
 async fn handle(
@@ -571,6 +688,12 @@ async fn handle(
 ) {
     if p.kind == mpris::REQUEST && p.str("albumArtUrl").is_some() {
         send_album_art(p, phone, tx, tls, peer_cert).await;
+        return;
+    }
+    if p.kind == plugins::sms::REQUEST_ATTACHMENT {
+        // Spawned so the one-second delay doesn't hold up the rest of the session.
+        let (p, tx, tls, peer_cert) = (p.clone(), tx.clone(), tls.clone(), peer_cert.to_vec());
+        tokio::spawn(async move { send_attachment(&p, &tx, &tls, &peer_cert).await });
         return;
     }
     let out: Vec<Packet> = {
@@ -655,6 +778,7 @@ async fn handle(
                     date: now_millis(),
                     sent: true,
                     read: true,
+                    photo: None,
                     ..existing.clone()
                 };
                 ph.msgs.push(sent.clone());
@@ -671,6 +795,7 @@ async fn handle(
                             date: now_millis(),
                             sent: false,
                             read: false,
+                            photo: None,
                             ..existing
                         };
                         ph.msgs.push(m.clone());

@@ -416,7 +416,8 @@ function messageNodes(id, msgs) {
     const last = !next || next.type !== m.type || next.date - m.date > 10 * 60e3;
     const row = h('div', { class: `bubble-row ${out ? 'out' : 'in'} ${first ? 'first' : ''} ${m._pending ? m.state : ''}` });
     if (group && !out && first) row.append(h('div', { class: 'sender', text: nameFor(m.addresses?.[0]?.address) }));
-    row.append(h('div', { class: 'bubble', text: m.body || (m.attachments?.length ? 'Picture (open it on your phone)' : '') }));
+    if (m.body || !m.attachments?.length) row.append(h('div', { class: 'bubble', text: m.body || '' }));
+    if (m.attachments?.length) row.append(h('div', { class: 'attachments' }, m.attachments.map(attachmentThumb)));
     const chips = [];
     const code = !out && findCode(m.body);
     if (code) chips.push(h('button', { class: 'chip code', onclick: () => copy(code, 'Code copied') }, icon('key', 'sm'), `Copy ${code}`));
@@ -580,6 +581,59 @@ setInterval(() => {
   const t = $('.media .pos');
   if (t) t.textContent = clock(pos);
 }, 1000);
+
+// ---------- picture messages ----------
+const waitingAttachments = new Map(); // unique_identifier -> resolve(path)
+
+function isVisual(a) { return /^(image|video)\//.test(a.mime_type || ''); }
+
+function attachmentThumb(a) {
+  const video = (a.mime_type || '').startsWith('video/');
+  // The phone sends a small JPEG inline; only base64 characters may reach the data URL.
+  const thumb = a.encoded_thumbnail && /^[A-Za-z0-9+/=\s]+$/.test(a.encoded_thumbnail) ? `data:image/jpeg;base64,${a.encoded_thumbnail}` : null;
+  if (!isVisual(a)) {
+    return h('button', { class: 'attach file', onclick: () => openAttachment(a) }, icon('download', 'sm'), 'Attachment');
+  }
+  return h('button', { class: 'attach', title: video ? 'Open the video' : 'Open the picture', 'aria-label': video ? 'Open the video' : 'Open the picture', onclick: () => openAttachment(a) },
+    thumb ? h('img', { src: thumb, alt: '' }) : icon('image'),
+    video ? h('span', { class: 'badge' }, icon('play', 'sm')) : null);
+}
+
+async function fetchAttachment(a) {
+  const r = await api('sms_attachment', { device: state.deviceId, part_id: a.part_id, unique_identifier: a.unique_identifier });
+  if (r && r.path) return r.path;
+  return new Promise((resolve, reject) => {
+    const t = setTimeout(() => { waitingAttachments.delete(a.unique_identifier); reject(new Error('Your phone didn\'t send it. Try again with the phone unlocked.')); }, 60000);
+    waitingAttachments.set(a.unique_identifier, { resolve: (p) => { clearTimeout(t); resolve(p); }, reject: (e) => { clearTimeout(t); reject(e); } });
+  });
+}
+
+function openAttachment(a) {
+  const root = $('#palette-root');
+  const back = document.activeElement;
+  const close = () => { root.replaceChildren(); back?.focus?.(); };
+  const body = h('div', { class: 'viewer-body' }, h('div', { class: 'spinner' }), h('p', { text: 'Getting it from your phone' }));
+  const save = h('button', { class: 'btn', disabled: true, onclick: async () => {
+    try { const r = await api('sms_attachment_save', { device: state.deviceId, unique_identifier: a.unique_identifier }); toast(`Saved to ${r.path.split('/').slice(-2).join('/')}`); } catch (e) { toast(String(e), 'error'); }
+  } }, icon('download', 'sm'), 'Save to Downloads');
+  const closeBtn = h('button', { class: 'btn ghost icon-only', title: 'Close (Esc)', 'aria-label': 'Close', onclick: close }, icon('x'));
+  root.replaceChildren(h('div', { class: 'palette-backdrop viewer-backdrop', onclick: (e) => { if (e.target === e.currentTarget) close(); },
+    onkeydown: (e) => { if (e.key === 'Escape') close(); } },
+  h('div', { class: 'viewer', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Picture message' },
+    h('div', { class: 'viewer-bar' }, save, closeBtn), body)));
+  closeBtn.focus();
+  fetchAttachment(a).then((path) => {
+    const src = T.core.convertFileSrc(path);
+    const kind = a.mime_type || '';
+    body.replaceChildren(kind.startsWith('video/') ? h('video', { src, controls: true, autoplay: true })
+      : kind.startsWith('image/') ? h('img', { src, alt: 'Picture from the conversation' })
+        : h('p', { text: 'Downloaded. Save it to open it with another app.' }));
+    save.disabled = false;
+  }).catch((e) => {
+    body.replaceChildren(icon('alert', 'lg'), h('p', { text: e.message || String(e) }),
+      h('button', { class: 'btn', onclick: () => { close(); openAttachment(a); } }, icon('refresh', 'sm'), 'Try again'));
+  });
+}
 
 // ---------- banners ----------
 // Another KDE Connect app on this computer holds the discovery port, so the phone may talk to it.
@@ -869,6 +923,7 @@ function onEvent(ev) {
   const u = ev.update;
   switch (u.kind) {
     case 'battery': state.battery = u; renderRail(); break;
+    case 'attachment': waitingAttachments.get(u.unique_identifier)?.resolve(u.path); waitingAttachments.delete(u.unique_identifier); break;
     case 'media': state.media = Object.fromEntries(u.players.map((p) => [p.name, p])); renderRail(); break;
     case 'signal': state.signal = u.signal; renderRail(); break;
     case 'notification': state.notifications[u.id] = u; renderFeed(); renderRail(); break;

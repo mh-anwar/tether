@@ -106,20 +106,48 @@ pub struct DeviceData {
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Update {
     Battery(Battery),
-    Signal { signal: BTreeMap<String, Signal> },
+    Signal {
+        signal: BTreeMap<String, Signal>,
+    },
     Notification(Notification),
-    NotificationRemoved { id: String },
-    Messages { messages: Vec<Message> },
+    NotificationRemoved {
+        id: String,
+    },
+    Messages {
+        messages: Vec<Message>,
+    },
     Call(Call),
     CallEnded,
-    Ping { message: Option<String> },
-    Clipboard { content: String },
-    SharedText { text: String },
-    SharedUrl { url: String },
-    FileReceived { path: String },
-    TransferFailed { name: String, reason: String },
-    Contacts { count: usize },
-    Media { players: Vec<mpris::Player> },
+    Ping {
+        message: Option<String>,
+    },
+    Clipboard {
+        content: String,
+    },
+    SharedText {
+        text: String,
+    },
+    SharedUrl {
+        url: String,
+    },
+    FileReceived {
+        path: String,
+    },
+    TransferFailed {
+        name: String,
+        reason: String,
+    },
+    Contacts {
+        count: usize,
+    },
+    Media {
+        players: Vec<mpris::Player>,
+    },
+    /// A picture message's full file arrived.
+    Attachment {
+        unique_identifier: String,
+        path: String,
+    },
 }
 
 /// Packets sent whenever a paired device connects, so our view is fresh. Battery and signal have

@@ -356,6 +356,32 @@ impl Service {
     }
 
     /// Sends a packet to a paired, connected device.
+    /// A picture message's full file: the cached copy if there is one, otherwise asks the phone
+    /// and returns None; an `Attachment` update follows when it arrives.
+    pub fn sms_attachment(
+        &self,
+        id: &str,
+        part_id: i64,
+        unique_identifier: &str,
+    ) -> Result<Option<PathBuf>> {
+        let path = self.inner.attachment_file(unique_identifier);
+        if path.exists() {
+            return Ok(Some(path));
+        }
+        self.send(id, sms::request_attachment(part_id, unique_identifier))?;
+        Ok(None)
+    }
+
+    /// Copies a downloaded picture message into the downloads folder; returns where it went.
+    pub fn save_attachment(&self, unique_identifier: &str) -> Result<PathBuf> {
+        let from = self.inner.attachment_file(unique_identifier);
+        let dir = &self.inner.config.downloads_dir;
+        std::fs::create_dir_all(dir)?;
+        let to = unique_path(dir, &safe_file_name(unique_identifier));
+        std::fs::copy(&from, &to)?;
+        Ok(to)
+    }
+
     pub fn send(&self, id: &str, p: Packet) -> Result<()> {
         let devs = self.inner.lock();
         let d = devs
@@ -652,6 +678,18 @@ impl Inner {
                     ));
                     return;
                 }
+                plugins::sms::ATTACHMENT_FILE => {
+                    if let Some(name) = p.str("filename") {
+                        tokio::spawn(self.clone().receive_attachment(
+                            id.to_string(),
+                            name.to_string(),
+                            target,
+                            cert,
+                            size,
+                        ));
+                    }
+                    return;
+                }
                 plugins::mpris::MPRIS if p.bool("transferringAlbumArt") == Some(true) => {
                     if let (Some(player), Some(url)) = (p.str("player"), p.str("albumArtUrl")) {
                         tokio::spawn(self.clone().receive_art(
@@ -877,6 +915,11 @@ impl Inner {
         cert: Vec<u8>,
         size: i64,
     ) {
+        if !(0..=IMAGE_MAX).contains(&size) {
+            // Leave art_requested set: asking again would get the same oversized cover.
+            debug!("album art of {size} bytes refused");
+            return;
+        }
         let path = self.art_file(&url);
         let ok = async {
             let dir = path
@@ -884,7 +927,7 @@ impl Inner {
                 .ok_or(Error::Protocol("bad art path".into()))?;
             tokio::fs::create_dir_all(dir).await?;
             prune_dir(dir, 300).await;
-            download_small(&self, target, &cert, size, &path).await
+            download_capped(&self, target, &cert, size, &path, IMAGE_MAX).await
         }
         .await;
         if let Err(e) = ok {
@@ -916,6 +959,50 @@ impl Inner {
         });
     }
 
+    fn attachment_file(&self, unique_identifier: &str) -> PathBuf {
+        self.config
+            .data_dir
+            .join("attachments")
+            .join(safe_file_name(unique_identifier))
+    }
+
+    async fn receive_attachment(
+        self: Arc<Self>,
+        id: String,
+        unique_identifier: String,
+        target: SocketAddr,
+        cert: Vec<u8>,
+        size: i64,
+    ) {
+        let path = self.attachment_file(&unique_identifier);
+        let ok = async {
+            let dir = path
+                .parent()
+                .ok_or(Error::Protocol("bad attachment path".into()))?;
+            tokio::fs::create_dir_all(dir).await?;
+            prune_dir(dir, 500).await;
+            download_capped(&self, target, &cert, size, &path, ATTACHMENT_MAX).await
+        }
+        .await;
+        let update = match ok {
+            Ok(()) => Update::Attachment {
+                unique_identifier,
+                path: path.to_string_lossy().into(),
+            },
+            Err(e) => {
+                debug!("attachment download failed: {e}");
+                Update::TransferFailed {
+                    name: unique_identifier,
+                    reason: e.to_string(),
+                }
+            }
+        };
+        self.emit(Event::Update {
+            device_id: id,
+            update,
+        });
+    }
+
     async fn receive_icon(
         self: Arc<Self>,
         id: String,
@@ -929,7 +1016,7 @@ impl Inner {
             if let Some(dir) = path.parent() {
                 tokio::fs::create_dir_all(dir).await?;
             }
-            download_small(&self, target, &cert, size, &path).await
+            download_capped(&self, target, &cert, size, &path, IMAGE_MAX).await
         }
         .await;
         if let Err(e) = ok {
@@ -1190,21 +1277,30 @@ fn clear_live_state(d: &mut Dev) -> Update {
     plugins::mpris::media_update(&d.data.media)
 }
 
-/// Downloads a small payload (icon, album art) into `path` through a unique temporary file, so
+const IMAGE_MAX: i64 = 8 * 1024 * 1024;
+/// MMS carriers cap messages at a few MB; leave room for RCS videos.
+const ATTACHMENT_MAX: i64 = 200 * 1024 * 1024;
+
+/// Downloads a payload of known, bounded size into `path` through a unique temporary file, so
 /// two downloads of the same thing can't interleave. A missing or huge size is refused: a
 /// negative size would mean "read until the sender stops".
-async fn download_small(
+async fn download_capped(
     inner: &Inner,
     target: SocketAddr,
     cert: &[u8],
     size: i64,
     path: &std::path::Path,
+    max: i64,
 ) -> Result<()> {
     static NEXT: AtomicU64 = AtomicU64::new(0);
-    if !(0..=8 * 1024 * 1024).contains(&size) {
-        return Err(Error::Protocol(format!("refusing a {size} byte image")));
+    if !(0..=max).contains(&size) {
+        return Err(Error::Protocol(format!("refusing a {size} byte download")));
     }
-    let tmp = path.with_extension(format!("{}.part", NEXT.fetch_add(1, Ordering::Relaxed)));
+    let tmp = path.with_extension(format!(
+        "{}-{}.part",
+        std::process::id(),
+        NEXT.fetch_add(1, Ordering::Relaxed)
+    ));
     let res = async {
         let mut f = tokio::fs::File::create(&tmp).await?;
         payload::fetch(target, &inner.tls, cert, size, &mut f).await?;

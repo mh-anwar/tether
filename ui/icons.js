@@ -24,6 +24,8 @@ const ICONS = {
   pause: '<path d="M8.5 5.5v13M15.5 5.5v13" stroke-width="3"/>',
   next: '<path d="M6 6.5v11l8-5.5-8-5.5Z" fill="currentColor"/><path d="M18 6v12"/>',
   prev: '<path d="M18 6.5v11l-8-5.5 8-5.5Z" fill="currentColor"/><path d="M6 6v12"/>',
+  image: '<rect x="3.5" y="4.5" width="17" height="15" rx="2"/><circle cx="9" cy="10" r="1.6"/><path d="m4 18 5-5 4 4 2.5-2.5L20 18"/>',
+  download: '<path d="M12 4v12M7 11l5 5 5-5M5 20h14"/>',
   music: '<path d="M9 18V6l11-2v12"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="17.5" cy="16" r="2.5"/>',
   call: '<path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a1 1 0 0 1-1 1A16 16 0 0 1 4 5a1 1 0 0 1 1-1Z"/>',
 };
