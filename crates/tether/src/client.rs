@@ -78,7 +78,7 @@ impl Client {
 pub async fn run(device: Option<String>, cmd: Cmd) -> Result<()> {
     let mut c = Client::connect().await?;
     match cmd {
-        Cmd::Daemon => unreachable!("handled in main"),
+        Cmd::Daemon | Cmd::Autostart { .. } => unreachable!("handled in main"),
         Cmd::Devices => {
             let me = c.call("identity", json!({})).await?;
             println!(

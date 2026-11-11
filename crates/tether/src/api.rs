@@ -113,7 +113,11 @@ fn i(p: &Value, key: &str) -> Result<i64> {
 async fn call(svc: &Service, method: &str, p: &Value) -> Result<Value> {
     let ok = || Ok(json!(true));
     match method {
-        "identity" => Ok(serde_json::to_value(svc.identity())?),
+        "identity" => {
+            let mut v = serde_json::to_value(svc.identity())?;
+            v["discoveryListening"] = json!(svc.discovery_listening());
+            Ok(v)
+        }
         "devices" => Ok(serde_json::to_value(svc.devices())?),
         "refresh" => {
             svc.refresh();

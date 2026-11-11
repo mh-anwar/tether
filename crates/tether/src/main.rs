@@ -1,6 +1,7 @@
 //! `tether daemon` runs the background service; the other subcommands talk to it.
 
 mod api;
+mod autostart;
 mod client;
 mod config;
 mod daemon;
@@ -64,6 +65,14 @@ enum Cmd {
     Connect { address: String },
     /// Print events as they happen.
     Watch,
+    /// Start Tether when you log in: `on`, `off`, or no argument to check.
+    Autostart { state: Option<Toggle> },
+}
+
+#[derive(Clone, Copy, clap::ValueEnum)]
+pub enum Toggle {
+    On,
+    Off,
 }
 
 #[tokio::main]
@@ -77,6 +86,21 @@ async fn main() -> Result<()> {
             )
             .init();
         return daemon::run(config::Config::load()?).await;
+    }
+    if let Cmd::Autostart { state } = cli.cmd {
+        match state {
+            Some(Toggle::On) => {
+                autostart::enable()?;
+                println!("Tether will start when you log in.");
+            }
+            Some(Toggle::Off) => {
+                autostart::disable()?;
+                println!("Tether won't start at login any more.");
+            }
+            None if autostart::is_enabled() => println!("On: Tether starts when you log in."),
+            None => println!("Off. Turn it on with `tether autostart on`."),
+        }
+        return Ok(());
     }
     client::run(cli.device, cli.cmd).await
 }

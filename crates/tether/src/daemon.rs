@@ -1,4 +1,4 @@
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result};
 use tether_core::Service;
 use tracing::info;
 
@@ -11,7 +11,10 @@ pub async fn run(cfg: Config) -> Result<()> {
     let lock =
         std::fs::File::create(cfg.data_dir.join("daemon.lock")).context("creating lock file")?;
     if lock.try_lock().is_err() {
-        bail!("Tether is already running.");
+        // Exit cleanly: a login service set to restart on failure would otherwise retry forever
+        // while the window's copy runs.
+        eprintln!("Tether is already running.");
+        return Ok(());
     }
     let service = Service::start(cfg.core()).await?;
     info!("running as \"{}\"", service.identity().device_name);

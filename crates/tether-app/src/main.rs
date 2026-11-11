@@ -35,14 +35,17 @@ fn socket_path() -> PathBuf {
         .join("tether.sock")
 }
 
-/// Runs `tether daemon` from next to this binary, or from PATH.
-fn start_daemon() {
-    let sibling = std::env::current_exe()
+/// The `tether` binary next to this one (packages and AppImages ship them together), or from PATH.
+fn tether_bin() -> PathBuf {
+    std::env::current_exe()
         .ok()
         .and_then(|p| p.parent().map(|d| d.join("tether")))
-        .filter(|p| p.exists());
-    let bin = sibling.unwrap_or_else(|| PathBuf::from("tether"));
-    let _ = std::process::Command::new(bin)
+        .filter(|p| p.exists())
+        .unwrap_or_else(|| PathBuf::from("tether"))
+}
+
+fn start_daemon() {
+    let _ = std::process::Command::new(tether_bin())
         .arg("daemon")
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
@@ -140,7 +143,42 @@ fn copy_text(clip: State<'_, Clip>, text: String) -> Result<(), String> {
     }
 }
 
+/// Phone Link starts with the computer; do the same, turning it on at the first launch only, so
+/// `tether autostart off` sticks. While it's on, rewrite the entry each launch so it follows an
+/// AppImage that was moved or updated.
+fn sync_autostart() {
+    let Some(marker) = dirs::data_dir().map(|d| d.join("tether").join("autostart-offered")) else {
+        return;
+    };
+    let enabled = dirs::config_dir().is_some_and(|c| {
+        c.join("systemd/user/tether.service").exists()
+            || c.join("autostart/tether.desktop").exists()
+    });
+    if marker.exists() && !enabled {
+        return;
+    }
+    let ok = std::process::Command::new(tether_bin())
+        .args(["autostart", "on"])
+        .stdout(std::process::Stdio::null())
+        .status()
+        .is_ok_and(|s| s.success());
+    if ok && !marker.exists() {
+        if let Some(dir) = marker.parent() {
+            let _ = std::fs::create_dir_all(dir);
+        }
+        let _ = std::fs::write(&marker, b"");
+    }
+}
+
 fn main() {
+    // The login entry of an AppImage can only name the AppImage itself, which runs this binary.
+    if std::env::args().nth(1).as_deref() == Some("--daemon") {
+        let status = std::process::Command::new(tether_bin())
+            .arg("daemon")
+            .status();
+        std::process::exit(status.ok().and_then(|s| s.code()).unwrap_or(1));
+    }
+    std::thread::spawn(sync_autostart);
     tauri::Builder::default()
         .manage(Daemon::default())
         .manage(Clip::default())

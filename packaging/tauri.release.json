@@ -1,0 +1,19 @@
+{
+  "bundle": {
+    "active": true,
+    "targets": [
+      "deb",
+      "rpm",
+      "appimage"
+    ],
+    "externalBin": [
+      "binaries/tether"
+    ],
+    "category": "Utility",
+    "shortDescription": "Your phone on your Linux desktop",
+    "longDescription": "Texts, notifications, files and clipboard from your Android phone, using the KDE Connect app.",
+    "icon": [
+      "icons/icon.png"
+    ]
+  }
+}

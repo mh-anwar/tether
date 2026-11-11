@@ -519,12 +519,20 @@ function addRecipient(n) {
 }
 
 // ---------- banners ----------
+// Another KDE Connect app on this computer holds the discovery port, so the phone may talk to it.
+function portBanner() {
+  if (!state.me || state.me.discoveryListening !== false) return null;
+  return h('div', { class: 'banner warn' }, icon('alert', 'sm'),
+    'KDE Connect or Valent is also running on this computer, so your phone may connect to it instead. Quit it and Tether takes over within a few seconds.');
+}
+
 function renderBanners() {
   const slot = $('.thread .banners');
   if (!slot) return;
   const d = device();
   const asking = state.devices.filter((x) => x.pair === 'requested_by_peer');
   swap(slot, () => [
+    portBanner(),
     d && !d.connected ? h('div', { class: 'banner warn' }, icon('wifi', 'sm'),
       `${d.name} is out of reach. Tether keeps trying; check the phone is on the same Wi-Fi.`,
       h('button', { class: 'btn', onclick: () => quick('refresh', 'Looking for your phone', true) }, icon('refresh', 'sm'), 'Look now')) : null,
@@ -622,6 +630,7 @@ function renderPairPage(app) {
   swap(app, () => h('div', { class: 'pair-page' },
     h('header', {}, h('h1', { text: 'Connect your phone' }),
       h('p', { text: 'Tether works with the KDE Connect app on Android. Your texts, notifications and files stay on your own network.' })),
+    portBanner(),
     h('ol', { class: 'steps' },
       h('li', { text: 'Install KDE Connect from Google Play or F-Droid.' }),
       h('li', { text: 'Open it while your phone is on the same Wi-Fi as this computer.' }),
@@ -811,6 +820,12 @@ function onEvent(ev) {
     case 'transfer_failed': toast(`${u.name} didn't arrive: ${u.reason}`, 'error'); break;
   }
 }
+
+// Notice when the other KDE Connect app quits, so its warning goes away.
+setInterval(async () => {
+  if (!state.daemon || !state.me || state.me.discoveryListening !== false) return;
+  try { state.me = await api('identity'); render(); } catch { /* daemon restarting */ }
+}, 5000);
 
 // Relative times ("5 min") go stale; refresh them once a minute.
 setInterval(() => { if (state.deviceId && $('.rail')) { renderList(); renderFeed(); } }, 60000);

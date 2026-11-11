@@ -8,7 +8,23 @@ Tether is a new desktop side for the KDE Connect protocol. On the phone you keep
 
 > Status: early. The background service, the command-line tool and the Messages window work.
 
-## Install (from source)
+## Install
+
+Download from the [Releases page](../../releases) (x86_64):
+
+- **Ubuntu, Debian, Mint, Pop!_OS**: the `.deb`. Open it, or `sudo apt install ./Tether_*.deb`.
+- **Fedora, openSUSE**: the `.rpm`. `sudo dnf install ./Tether-*.rpm`.
+- **Anything else**: the `.AppImage`. `chmod +x Tether_*.AppImage`, then run it.
+- **No admin rights**: the `.tar.gz`. Unpack it and run `./install.sh` (installs into `~/.local`;
+  `./install.sh --remove` uninstalls). It needs WebKitGTK 4.1 from your distribution.
+
+Then open **Tether** from your app menu. It starts itself at every login from then on, so your phone stays
+linked with the window closed. `tether autostart off` stops that.
+
+Quit KDE Connect or Valent first: they use the same network ports. Tether warns you if one is running.
+If your firewall blocks them, open ports 1714-1764 (TCP and UDP).
+
+### From source
 
 Build dependencies (Debian/Ubuntu names): `pkg-config libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev
 libsoup-3.0-dev libjavascriptcoregtk-4.1-dev`.
@@ -18,19 +34,17 @@ cargo build --release -p tether -p tether-app
 ./target/release/tether-app           # the window; starts the background service itself
 ```
 
-`tether daemon` runs the background service on its own (only one copy can run at a time).
-
-Quit KDE Connect or Valent first: they use the same network ports (UDP and TCP 1716).
-
-Open ports 1714-1764 (TCP and UDP) if your firewall blocks them.
+`tether daemon` runs the background service on its own (only one copy can run at a time). Packages are
+built by `.github/workflows/release.yml` (push a `v*` tag, or run it by hand).
 
 ## Pair your phone
 
 1. Install KDE Connect on the phone and open it, on the same Wi-Fi as the computer.
-2. Run `tether devices`. Your phone shows up as "not paired".
-3. Run `tether pair -d <phone name>` and accept on the phone. Both screens show the same code.
+2. Open Tether. Your phone appears under "Connect your phone"; click **Pair**.
+3. Accept on the phone. Both screens show the same code.
 
-Or start pairing from the phone and run `tether accept`.
+Or tap the computer's name in the KDE Connect app and click **Accept** in Tether. From a terminal:
+`tether devices`, then `tether pair -d <phone name>` or `tether accept`.
 
 If the phone never shows up (VPNs, guest Wi-Fi), run `tether connect <phone IP>`, or add the address to
 `~/.config/tether/config.json`:

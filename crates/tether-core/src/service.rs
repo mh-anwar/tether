@@ -5,7 +5,7 @@ use std::{
     net::SocketAddr,
     path::{Path, PathBuf},
     sync::{
-        atomic::{AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
         Arc, Mutex, MutexGuard,
     },
     time::{Duration, Instant},
@@ -125,7 +125,9 @@ struct Inner {
     devices: Mutex<HashMap<String, Dev>>,
     events: broadcast::Sender<Event>,
     next_gen: AtomicU64,
-    udp: UdpSocket,
+    udp: Arc<UdpSocket>,
+    /// False while another app (KDE Connect, Valent) holds UDP 1716; retried every tick.
+    listening: AtomicBool,
     announce_now: tokio::sync::Notify,
 }
 
@@ -147,10 +149,10 @@ impl Service {
 
         let (listener, tcp_port) = bind_tcp().await?;
         let (udp, udp_listening) = match discovery::bind() {
-            Ok(s) => (s, true),
+            Ok(s) => (Arc::new(s), true),
             Err(e) => {
                 warn!("UDP {UDP_PORT} is busy ({e}); is KDE Connect or Valent running? Announcing only.");
-                (discovery::bind_send_only().await?, false)
+                (Arc::new(discovery::bind_send_only().await?), false)
             }
         };
 
@@ -193,13 +195,14 @@ impl Service {
             devices: Mutex::new(devices),
             events,
             next_gen: AtomicU64::new(1),
-            udp,
+            udp: udp.clone(),
+            listening: AtomicBool::new(udp_listening),
             announce_now: tokio::sync::Notify::new(),
         });
 
         tokio::spawn(accept_loop(inner.clone(), listener));
         if udp_listening {
-            tokio::spawn(udp_loop(inner.clone()));
+            tokio::spawn(udp_loop(inner.clone(), udp));
         }
         tokio::spawn(maintenance_loop(inner.clone()));
         Ok(Service { inner })
@@ -207,6 +210,12 @@ impl Service {
 
     pub fn identity(&self) -> &Identity {
         &self.inner.identity
+    }
+
+    /// False while another KDE Connect app on this computer holds the discovery port, so phones
+    /// may connect to it instead of us.
+    pub fn discovery_listening(&self) -> bool {
+        self.inner.listening.load(Ordering::Relaxed)
     }
 
     pub fn subscribe(&self) -> broadcast::Receiver<Event> {
@@ -929,11 +938,11 @@ async fn accept_loop(inner: Arc<Inner>, listener: TcpListener) {
     }
 }
 
-async fn udp_loop(inner: Arc<Inner>) {
+async fn udp_loop(inner: Arc<Inner>, udp: Arc<UdpSocket>) {
     let mut buf = vec![0u8; 64 * 1024];
     let mut recent: HashMap<String, Instant> = HashMap::new();
     loop {
-        let (n, from) = match inner.udp.recv_from(&mut buf).await {
+        let (n, from) = match udp.recv_from(&mut buf).await {
             Ok(x) => x,
             Err(e) => {
                 warn!("udp receive failed: {e}");
@@ -988,6 +997,13 @@ async fn maintenance_loop(inner: Arc<Inner>) {
             _ = inner.announce_now.notified() => {
                 inner.announce().await;
                 last_announce = Instant::now();
+            }
+        }
+        if !inner.listening.load(Ordering::Relaxed) {
+            if let Ok(sock) = discovery::bind() {
+                info!("UDP {UDP_PORT} is free now; listening for phones");
+                inner.listening.store(true, Ordering::Relaxed);
+                tokio::spawn(udp_loop(inner.clone(), Arc::new(sock)));
             }
         }
         let missing = inner.tick();
