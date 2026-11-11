@@ -218,6 +218,8 @@ impl Service {
         self.inner.announce_now.notify_one();
     }
 
+    /// Reaches a device by address: announces to it and also dials it directly, because on VPNs
+    /// and NATed setups the device may hear us but be unable to connect back.
     pub fn add_manual_address(&self, addr: SocketAddr) {
         let inner = self.inner.clone();
         tokio::spawn(async move {
@@ -225,6 +227,10 @@ impl Service {
                 .udp
                 .send_to(&inner.identity.to_packet().to_line(), addr)
                 .await;
+            match link::connect(addr, &inner.identity, &inner.tls).await {
+                Ok(l) => inner.on_link_at(l, Some(addr)),
+                Err(e) => debug!("direct connect to {addr} failed: {e}"),
+            }
         });
     }
 
@@ -446,6 +452,12 @@ impl Inner {
     }
 
     fn on_link(self: &Arc<Self>, link: Link) {
+        self.on_link_at(link, None)
+    }
+
+    /// `dialed` is the address we connected to; it beats the announced port when they differ
+    /// (port forwarding, containers), so redials go to the address that actually worked.
+    fn on_link_at(self: &Arc<Self>, link: Link, dialed: Option<SocketAddr>) {
         let Link {
             peer,
             peer_cert,
@@ -515,10 +527,11 @@ impl Inner {
             tasks: [writer, reader],
         };
 
-        let tcp_addr = peer
-            .tcp_port
-            .filter(|p| (MIN_TCP_PORT..=MAX_TCP_PORT).contains(p))
-            .map(|p| SocketAddr::new(addr.ip(), p));
+        let tcp_addr = dialed.or_else(|| {
+            peer.tcp_port
+                .filter(|p| (MIN_TCP_PORT..=MAX_TCP_PORT).contains(p))
+                .map(|p| SocketAddr::new(addr.ip(), p))
+        });
         let d = devs.entry(id.clone()).or_insert_with(|| Dev {
             identity: peer.clone(),
             trusted_cert: None,
@@ -859,7 +872,7 @@ impl Inner {
                     )
                     .await;
                 match link::connect(addr, &inner.identity, &inner.tls).await {
-                    Ok(l) => inner.on_link(l),
+                    Ok(l) => inner.on_link_at(l, Some(addr)),
                     Err(e) => debug!("redial {addr} failed: {e}"),
                 }
             });
