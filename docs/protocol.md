@@ -250,6 +250,16 @@ Direction: P->D = phone sends, D->P = desktop (us) sends. Android files under `A
   `{player, Seek|SetPosition|setVolume|setLoopStatus|setShuffle: value}`; D->P `kdeconnect.mpris`: `playerList`,
   `supportAlbumArtPayload`, per player `title`, `artist`, `album`, `isPlaying`, `pos`, `length`, `volume`, `can*`,
   `albumArtUrl`; album art as payload with `transferringAlbumArt: true`. Reverse direction in `mprisreceiver/`.
+- **mprisreceiver** (phone's media for us to control; `plugins/mprisreceiver/MprisReceiverPlugin.kt`, desktop
+  `K:plugins/mprisremote/`): P->D `kdeconnect.mpris` `{playerList:[..], supportAlbumArtPayload:true}` on session
+  changes; per-player `{player, title, artist, album, nowPlaying, isPlaying, canPlay, canPause, canGoNext,
+  canGoPrevious, canSeek, pos (ms), length (ms), volume (0-100), albumArtUrl (key, "" if none)}` on every playback
+  callback (no periodic position: extrapolate). D->P `kdeconnect.mpris.request`: `{requestPlayerList:true}`,
+  `{player, requestNowPlaying:true}`, `{player, action: Play|Pause|PlayPause|Next|Previous|Stop}`,
+  `{player, setVolume}`, `{player, SetPosition (ms, absolute)}`; relative `Seek` is ignored by the phone.
+  Art: `{player, albumArtUrl}` alone (the phone returns early, so no other field) -> `kdeconnect.mpris`
+  `{player, transferringAlbumArt:true, albumArtUrl}` + JPEG payload, only if the key is still current.
+  Capabilities: our incoming `kdeconnect.mpris`, outgoing `kdeconnect.mpris.request`.
 - **sftp** (`sftp/SftpPlugin.kt`, `sftp/SimpleSftpServer.kt`): D->P `kdeconnect.sftp.request` `{startBrowsing: true}`.
   P->D `kdeconnect.sftp`: `ip`, `port` (1739..1764), `user: "kdeconnect"`, `password` (fresh each time), `path`
   (single root or `/`), `multiPaths: string[]`, `pathNames: string[]`; or `{errorMessage}`; `{serverRunning: false}` sent on
@@ -295,6 +305,7 @@ Direction: P->D = phone sends, D->P = desktop (us) sends. Android files under `A
   | contacts | `kdeconnect.contacts.response_uids_timestamps`, `.response_vcards` | `kdeconnect.contacts.request_all_uids_timestamps`, `.request_vcards_by_uid` |
   | connectivity | `kdeconnect.connectivity_report` | - |
   | sftp | `kdeconnect.sftp` | `kdeconnect.sftp.request` |
+  | we control the phone's media | `kdeconnect.mpris` | `kdeconnect.mpris.request` |
   | phone controls our media | `kdeconnect.mpris.request` | `kdeconnect.mpris` |
   | phone as touchpad | `kdeconnect.mousepad.request` | `kdeconnect.mousepad.keyboardstate` |
   | run commands | `kdeconnect.runcommand.request` | `kdeconnect.runcommand`, `kdeconnect.runcommand.output` |

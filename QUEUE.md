@@ -8,17 +8,15 @@ Status marks: `[ ]` open, `[~]` in progress (say who/which branch), `[x]` done (
 
 ## Waiting on the owner
 
-- Q1 **Pick the next big feature**: calls on the PC (recommended), phone screen and apps, photos, or an
-  installable package to try Tether with the real phone.
+- Q1 **Pick the next big feature**: calls on the PC (recommended), phone screen and apps, or photos.
 - Q2 **Extra ideas to approve or drop**: schedule a text to send later; quiet mode (phone notifications
   collected into one summary instead of popping up all day).
 
 ## Now
 
-- [ ] Q3 **Try it on the real Samsung phone**: an installable build for the owner's laptop (AppImage or .deb,
-  plus a systemd user service and autostart) and a short pairing guide. Everything so far is tested against a
-  stand-in phone and real KDE Connect desktop only. Done when: the owner pairs the phone and texts from the
-  laptop.
+- [~] Q3 **Try it on the real Samsung phone**: packages are built by `.github/workflows/release.yml`
+  (.deb, .rpm, AppImage, tarball + install.sh), start at login is on, README has install and pairing steps.
+  Waiting on the owner to install and pair. Done when: the owner pairs the phone and texts from the laptop.
 
 ## Next
 
@@ -31,25 +29,30 @@ Status marks: `[ ]` open, `[~]` in progress (say who/which branch), `[x]` done (
   clickable from the laptop.
 - [ ] Q6 **Photos**: recent photos from the phone (SFTP plugin, see docs/protocol.md) in a grid; drag a photo
   out to save it. Done when: the last 50 photos show within a few seconds.
-- [ ] Q7 **mDNS discovery** (`_kdeconnect._udp`) alongside UDP broadcast; trigger `refresh` on network change
-  and resume from suspend. Done when: the phone reconnects within 10 s after the laptop wakes up.
-- [ ] Q8 **Clipboard sync in the daemon** (X11 and Wayland), so it works with the window closed; a setting to
-  turn it off. Done when: copying on either side pastes on the other with the window closed.
+- [ ] Q7 **mDNS discovery** (`_kdeconnect._udp`) alongside UDP broadcast, for networks that drop broadcast.
+  Wake and network-change reconnects are done (netwatch). Done when: a phone on a broadcast-blocking network
+  connects without `tether connect`.
 
 ## Later
 
-- [ ] Q9 **Picture messages**: download MMS attachments (`sms.request_attachment`) and show them in threads.
-- [ ] Q10 **Tray icon** with unread count; closing the window keeps Tether running.
+- [ ] Q10 **Tray icon** with unread count. Closing the window already keeps the service running. Care on i3:
+  i3bar shows only XEmbed icons, Tauri's tray is AppIndicator (SNI).
 - [ ] Q11 **Settings screen**: device name, phone addresses for VPNs, notification mirroring, downloads folder,
-  unpair.
+  unpair, clipboard sync on/off, start at login (both exist as config/CLI only).
 - [ ] Q12 **Narrow window layouts** checked with screenshots (720 px and 1000 px wide).
 - [ ] Q13 **Drag-and-drop send** verified for real (needs a session with a window manager or the owner).
 - [ ] Q14 **Notification icons** shown in the column (payload download exists; check with the real phone).
-- [ ] Q15 **Media controls** for what plays on the phone (mpris plugin).
 - [ ] Q16 **Forked Android app** only if a feature can't go through KDE Connect (for example call control
   without Bluetooth).
 
+
 ## Done
+
+- 2026-11-11 Packages (CI), start at login, warning + takeover when KDE Connect holds the port.
+- 2026-11-11 Clipboard sync in the daemon (window closed too); reconnect after sleep and network changes.
+- 2026-11-11 Media: player card (art, seek, controls), `tether media`, phone's player on desktop media keys
+  (MPRIS: playerctl, GNOME/KDE widgets, bar modules).
+- 2026-11-11 Picture messages: thumbnails in threads, full picture or video on click, save to Downloads.
 
 - 2026-11-11 Protocol core: discovery, TLS, pairing, payloads, plugins; verified against KDE Connect 26.08.2.
 - 2026-11-11 Daemon with local API, CLI, desktop notification mirroring, auto-redial.
