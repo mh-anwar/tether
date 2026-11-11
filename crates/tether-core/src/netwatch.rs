@@ -76,9 +76,18 @@ fn boot_uptime() -> Option<f64> {
 fn network_fingerprint() -> Option<u64> {
     let mut h = DefaultHasher::new();
     let mut any = false;
-    for path in ["/proc/net/route", "/proc/net/ipv6_route"] {
+    // Only the columns that describe a route; RefCnt and Use are counters.
+    for (path, cols) in [
+        ("/proc/net/route", &[0usize, 1, 2, 3, 6, 7][..]),
+        ("/proc/net/ipv6_route", &[0, 1, 2, 3, 4, 5, 8, 9][..]),
+    ] {
         if let Ok(s) = std::fs::read_to_string(path) {
-            s.hash(&mut h);
+            for line in s.lines() {
+                let f: Vec<&str> = line.split_whitespace().collect();
+                for &c in cols {
+                    f.get(c).hash(&mut h);
+                }
+            }
             any = true;
         }
     }

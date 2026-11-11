@@ -72,8 +72,9 @@ fn clipboard_thread(
     from_phone: mpsc::Receiver<String>,
     to_phone: tokio::sync::mpsc::UnboundedSender<String>,
 ) {
-    let mut clip = None;
+    let mut clip: Option<arboard::Clipboard> = None;
     let mut last: Option<String> = None;
+    let mut baselined = false;
     let mut warned = false;
     loop {
         // Retry until a display is reachable: at login the service can start before the session.
@@ -96,8 +97,15 @@ fn clipboard_thread(
             Ok(text) => {
                 if let Some(c) = clip.as_mut() {
                     if c.set_text(text.clone()).is_ok() {
-                        // Remember it so the next poll doesn't send it straight back.
-                        last = Some(text);
+                        // Remember what the clipboard now reports (it may normalise line endings),
+                        // so the next poll doesn't send it straight back to the phone.
+                        last = Some(c.get_text().unwrap_or(text));
+                        baselined = true;
+                    } else {
+                        // Display gone (session ended, compositor restarted): reconnect, and let
+                        // the window copy in the meantime.
+                        ACTIVE.store(false, Ordering::Relaxed);
+                        clip = None;
                     }
                 }
                 continue;
@@ -106,15 +114,22 @@ fn clipboard_thread(
             Err(mpsc::RecvTimeoutError::Timeout) => {}
         }
         let Some(c) = clip.as_mut() else { continue };
-        let Ok(now) = c.get_text() else { continue };
-        if now.is_empty() || now.len() > MAX_LEN || last.as_deref() == Some(now.as_str()) {
+        // Empty or not text (an image, files) reads as None.
+        let now = c.get_text().ok().filter(|t| !t.is_empty());
+        if !baselined {
+            // What was there before we started watching wasn't copied for the phone.
+            baselined = true;
+            last = now;
             continue;
         }
-        // The first read only records what was already there; it wasn't copied while we watched.
-        let first = last.is_none();
-        last = Some(now.clone());
-        if !first && to_phone.send(now).is_err() {
-            return;
+        if now == last {
+            continue;
+        }
+        last = now.clone();
+        if let Some(text) = now.filter(|t| t.len() <= MAX_LEN) {
+            if to_phone.send(text).is_err() {
+                return;
+            }
         }
     }
 }

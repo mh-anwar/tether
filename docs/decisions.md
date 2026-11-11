@@ -17,5 +17,14 @@
   the UI builds with cargo alone. Phone text is only ever inserted as text, never as HTML.
 - **The window is a client of the daemon** and starts it if needed; the daemon holds an exclusive lock
   (`daemon.lock`) so two copies can never share one identity.
+- **Packages built on GitHub Actions, Ubuntu 22.04** (`.github/workflows/release.yml`): this box has glibc
+  2.43, so binaries built here won't run on most laptops. Tauri's bundler makes .deb, .rpm and AppImage; a
+  tarball with `packaging/install.sh` covers installs without admin rights.
+- **Start at login by default**, like Phone Link: systemd user unit (i3 and other bare WMs don't run XDG
+  autostart), falling back to XDG autostart. Not started on enable: the window's daemon may be running.
+- **Clipboard sync lives in the daemon**, not the window, so it works with the window closed. The window
+  only copies itself when the daemon reports it can't.
+- **Wake/network detection by polling /proc**, not logind or NetworkManager D-Bus signals, so it behaves the
+  same on every desktop.
 - **Build the same package set every time** (`-p tether -p tether-app`): building them separately changes
   dependency features and recompiles everything (5 min instead of 1 s).

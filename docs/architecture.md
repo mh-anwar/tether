@@ -18,12 +18,21 @@
 - `service`: the state machine. One `Dev` per known device: identity, pinned cert, last address, live link,
   pair state, plugin data. Links are replaced, never duplicated; redials every 15 s while a paired device
   is away; pair requests expire after 30 s.
+- `netwatch`: notices wake from sleep (boot clock vs monotonic clock) and network changes (routing table +
+  outgoing address) by polling each 5 s tick; the service then redials, dropping links after long sleeps.
 - `plugins/*`: pure functions from packets to `Update`s and reply packets, plus builders for what we send.
   Payload-bearing packets (files, icons) are handled in `service`, which owns the network.
 
+## Daemon extras (crates/tether/src)
+- `clipsync`: two-way clipboard sync on its own thread (arboard, polled each second). Guesses `DISPLAY` /
+  `WAYLAND_DISPLAY` when started by systemd without them. `"clipboard_sync": false` turns it off.
+- `autostart`: `tether autostart on|off` writes a systemd user unit (XDG autostart fallback). The window
+  turns it on at first launch and rewrites it each launch while on (follows a moved AppImage).
+
 ## Daemon API (crates/tether/src/api.rs)
 Request `{"id","method","params"}`, reply `{"id","result"|"error"}`, events pushed as `{"event":...}`.
-- Global: `identity`, `devices`, `refresh`, `connect {address}`.
+- Global: `identity` (plus `discoveryListening`: false while another KDE Connect app holds UDP 1716;
+  `clipboardSync`: the daemon owns clipboard sync), `devices`, `refresh`, `connect {address}`.
 - Per device (`params.device`): `device_data`, `threads`, `thread {thread_id}`, `contacts`,
   `contact_name {number}`, `request_thread {thread_id, before?, count?}`, `request_threads`, `pair`, `accept`,
   `reject`, `unpair`, `ping`, `ring`, `mute`, `sms_send {addresses, body, sub_id?}`,

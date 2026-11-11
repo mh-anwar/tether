@@ -22,10 +22,22 @@ Traps that already cost time. Add new ones here with the symptom first.
 - **Text in a typewriter font**: only Liberation fonts are installed and `system-ui` resolved to the mono face;
   the CSS lists named sans fonts before `system-ui`.
 
+- **Binaries from this box fail on the laptop** ("GLIBC_2.4x not found"): build releases in CI on Ubuntu
+  22.04, never ship `target/` from here.
+- **`ldconfig: not found` in scripts**: it's in /sbin, often not on a user's PATH.
+- **Clipboard sync silent under systemd**: the user manager may lack `DISPLAY`; clipsync guesses `:0` and
+  `wayland-0`. GNOME Wayland has no data-control protocol, so background clipboard reads can't work there.
+- **X11 clipboard empty after a test tool exits**: no clipboard manager on Xvfb; the owner leaving clears it.
+  `testing/ui/clip.py :N get|set` reads and sets it.
+
 ## Protocol (details in protocol.md)
 - The phone speaks TLS 1.2 only; the side that opened TCP is the TLS **server**.
 - `pair:true` to a phone that thinks it's paired makes it **unpair**; a re-request with a timestamp after a
   reset must be treated as a new request.
+- **Device vanishes right after `tether connect` between two Tethers**: both sides dialed at once and each
+  kept a different socket ("last link wins", same as upstream lanlinkprovider.cpp `addLink` and Android
+  `addOrUpdateLink`, no id tie-break). Paired devices redial on the next tick; unpaired ones reappear at the
+  next announcement. Run `connect` again.
 - Telephony `isCancel` is the string `"true"`; there is no request packet for battery or signal.
 - Sharing UDP 1716 with KDE Connect/Valent (SO_REUSEADDR) splits the phone's announcements; bind exclusively.
 

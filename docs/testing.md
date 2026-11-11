@@ -17,6 +17,15 @@ UDP 1716 and runs announce-only on TCP 1717. Broadcast doesn't loop back here, s
 payloads (files), run Tether in a second container on the same Docker network; from the host, payload
 connections can't reach in or come back.
 
+## Clipboard sync
+Two daemons as above, the first on its own Xvfb (`DISPLAY=:58`), the second with `"clipboard_sync": false`.
+Phone to desktop: `tether clip "x"` from the second, then `testing/ui/clip.py :58 get`. Desktop to phone:
+`tether watch` on the second, `clip.py :58 set "y" 4` and look for a `clipboard` update.
+
+## Packages
+`gh workflow run release.yml` builds them on GitHub; `gh run download <id>` fetches them. `install.sh` can be
+tried with a temporary `HOME` (it falls back to XDG autostart there, since systemd can't see that home).
+
 ## Stand-in phone + the window (UI)
 `crates/tether-core/examples/fake_phone.rs` speaks the real protocol with made-up texts, contacts and
 notifications; sent texts are echoed back and answered after 4 s.
