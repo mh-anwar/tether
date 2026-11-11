@@ -17,3 +17,5 @@ dirs.workspace = true
 notify-rust.workspace = true
 # Clipboard sync in the background service; same features as tether-app so builds share it.
 arboard = { version = "3", default-features = false, features = ["wayland-data-control"] }
+# The phone's media player on the desktop's D-Bus (media keys). Already built for notify-rust.
+zbus = { version = "6", default-features = false, features = ["default-rt", "proxy", "service"] }

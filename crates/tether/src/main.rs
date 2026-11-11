@@ -6,6 +6,7 @@ mod client;
 mod clipsync;
 mod config;
 mod daemon;
+mod mprisd;
 mod notify;
 
 use std::path::PathBuf;

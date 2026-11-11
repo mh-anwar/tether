@@ -529,6 +529,7 @@ function activePlayer() {
 
 // The phone reports position only when something changes, so count forward while playing.
 function mediaPosition(p) {
+  if (!p.position_at) return p.position_ms;
   const pos = p.position_ms + (p.is_playing ? Date.now() - p.position_at : 0);
   return p.length_ms > 0 ? Math.min(pos, p.length_ms) : pos;
 }

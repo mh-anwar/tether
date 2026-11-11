@@ -58,7 +58,8 @@ pub fn handle(players: &mut BTreeMap<String, Player>, p: &Packet, out: &mut Outc
             .map(String::from)
             .collect();
         players.retain(|k, _| names.contains(k));
-        for n in names {
+        // A phone has a handful of players; don't let a bad list grow without bound.
+        for n in names.into_iter().take(32) {
             if !players.contains_key(&n) {
                 players.insert(
                     n.clone(),

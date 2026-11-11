@@ -600,8 +600,13 @@ impl Inner {
         }
         info!("lost {}", d.identity.device_name);
         let s = self.summary(d);
+        let media = clear_live_state(d);
         drop(devs);
         self.emit(Event::Device(s));
+        self.emit(Event::Update {
+            device_id: id.to_string(),
+            update: media,
+        });
         self.announce_now.notify_one();
     }
 
@@ -847,13 +852,17 @@ impl Inner {
                 pl.art_path = Some(path.to_string_lossy().into());
                 changed = true;
             } else if !pl.art_requested {
-                pl.art_requested = true;
-                ask.push(plugins::mpris::request_art(&pl.name, &pl.art_url));
+                ask.push(pl.name.clone());
             }
         }
         if let Some(l) = &d.link {
-            for p in ask {
-                let _ = l.tx.try_send(p);
+            for name in ask {
+                if let Some(pl) = d.data.media.get_mut(&name) {
+                    // Marked only once it's queued, so a dropped request is retried next time.
+                    pl.art_requested =
+                        l.tx.try_send(plugins::mpris::request_art(&pl.name, &pl.art_url))
+                            .is_ok();
+                }
             }
         }
         changed
@@ -868,26 +877,26 @@ impl Inner {
         cert: Vec<u8>,
         size: i64,
     ) {
-        // Covers are small; anything huge isn't art.
-        if size > 8 * 1024 * 1024 {
-            return;
-        }
         let path = self.art_file(&url);
-        let ok: Result<()> = async {
+        let ok = async {
             let dir = path
                 .parent()
                 .ok_or(Error::Protocol("bad art path".into()))?;
             tokio::fs::create_dir_all(dir).await?;
             prune_dir(dir, 300).await;
-            let tmp = path.with_extension("part");
-            let mut f = tokio::fs::File::create(&tmp).await?;
-            payload::fetch(target, &self.tls, &cert, size, &mut f).await?;
-            tokio::fs::rename(&tmp, &path).await?;
-            Ok(())
+            download_small(&self, target, &cert, size, &path).await
         }
         .await;
         if let Err(e) = ok {
             debug!("album art download failed: {e}");
+            // Let the next update for this song ask again.
+            if let Some(pl) = self
+                .lock()
+                .get_mut(&id)
+                .and_then(|d| d.data.media.get_mut(&player))
+            {
+                pl.art_requested = false;
+            }
             return;
         }
         let mut devs = self.lock();
@@ -920,11 +929,7 @@ impl Inner {
             if let Some(dir) = path.parent() {
                 tokio::fs::create_dir_all(dir).await?;
             }
-            let tmp = path.with_extension("part");
-            let mut f = tokio::fs::File::create(&tmp).await?;
-            payload::fetch(target, &self.tls, &cert, size, &mut f).await?;
-            tokio::fs::rename(&tmp, &path).await?;
-            Ok(())
+            download_small(&self, target, &cert, size, &path).await
         }
         .await;
         if let Err(e) = ok {
@@ -1013,13 +1018,18 @@ impl Inner {
                 if let Some(l) = d.link.take() {
                     info!("dropping link to {} after sleep", d.identity.device_name);
                     drop(l);
-                    lost.push(self.summary(d));
+                    lost.push((self.summary(d), clear_live_state(d)));
                 }
             }
         }
         drop(devs);
-        for s in lost {
+        for (s, media) in lost {
+            let device_id = s.id.clone();
             self.emit(Event::Device(s));
+            self.emit(Event::Update {
+                device_id,
+                update: media,
+            });
         }
     }
 
@@ -1171,6 +1181,41 @@ fn load_or_create_id(dir: &Path) -> Result<String> {
     let id = identity::new_device_id();
     std::fs::write(&path, &id)?;
     Ok(id)
+}
+
+/// State that only holds while connected; the phone resends it on the next connection. Returns
+/// the update telling listeners the players are gone.
+fn clear_live_state(d: &mut Dev) -> Update {
+    d.data.media.clear();
+    plugins::mpris::media_update(&d.data.media)
+}
+
+/// Downloads a small payload (icon, album art) into `path` through a unique temporary file, so
+/// two downloads of the same thing can't interleave. A missing or huge size is refused: a
+/// negative size would mean "read until the sender stops".
+async fn download_small(
+    inner: &Inner,
+    target: SocketAddr,
+    cert: &[u8],
+    size: i64,
+    path: &std::path::Path,
+) -> Result<()> {
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+    if !(0..=8 * 1024 * 1024).contains(&size) {
+        return Err(Error::Protocol(format!("refusing a {size} byte image")));
+    }
+    let tmp = path.with_extension(format!("{}.part", NEXT.fetch_add(1, Ordering::Relaxed)));
+    let res = async {
+        let mut f = tokio::fs::File::create(&tmp).await?;
+        payload::fetch(target, &inner.tls, cert, size, &mut f).await?;
+        tokio::fs::rename(&tmp, path).await?;
+        Ok(())
+    }
+    .await;
+    if res.is_err() {
+        let _ = tokio::fs::remove_file(&tmp).await;
+    }
+    res
 }
 
 /// Keeps a cache folder to at most `keep` files, oldest removed first.
