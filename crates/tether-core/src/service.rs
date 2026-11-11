@@ -264,6 +264,14 @@ impl Service {
         Ok(sms::thread(&d.data, thread_id))
     }
 
+    pub fn contacts(&self, id: &str) -> Result<Vec<(String, String)>> {
+        let devs = self.inner.lock();
+        let d = devs
+            .get(id)
+            .ok_or_else(|| Error::UnknownDevice(id.into()))?;
+        Ok(d.data.contacts.all())
+    }
+
     pub fn contact_name(&self, id: &str, number: &str) -> Option<String> {
         let devs = self.inner.lock();
         devs.get(id).and_then(|d| d.data.contacts.name_for(number))

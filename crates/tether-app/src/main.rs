@@ -1,0 +1,154 @@
+//! The Tether window. A thin client of `tether daemon`: it forwards API calls from the page to the
+//! daemon's socket and pushes daemon events to the page. Starts the daemon if it isn't running.
+
+use std::{
+    collections::HashMap,
+    path::PathBuf,
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc,
+    },
+    time::Duration,
+};
+
+use serde_json::{json, Value};
+use tauri::{Emitter, Manager, State};
+use tokio::{
+    io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
+    net::{unix::OwnedWriteHalf, UnixStream},
+    sync::{oneshot, Mutex},
+};
+
+type Pending = Arc<Mutex<HashMap<u64, oneshot::Sender<Value>>>>;
+
+#[derive(Default)]
+struct Daemon {
+    writer: Mutex<Option<OwnedWriteHalf>>,
+    pending: Pending,
+    next: AtomicU64,
+}
+
+fn socket_path() -> PathBuf {
+    dirs::runtime_dir()
+        .unwrap_or_else(std::env::temp_dir)
+        .join("tether")
+        .join("tether.sock")
+}
+
+/// Runs `tether daemon` from next to this binary, or from PATH.
+fn start_daemon() {
+    let sibling = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|d| d.join("tether")))
+        .filter(|p| p.exists());
+    let bin = sibling.unwrap_or_else(|| PathBuf::from("tether"));
+    let _ = std::process::Command::new(bin)
+        .arg("daemon")
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn();
+}
+
+/// Keeps a connection to the daemon, reconnecting and (re)starting it as needed.
+async fn connection_loop(app: tauri::AppHandle) {
+    let mut last_start: Option<std::time::Instant> = None;
+    loop {
+        let stream = match UnixStream::connect(socket_path()).await {
+            Ok(s) => s,
+            Err(_) => {
+                // Retry the start now and then in case the daemon crashed, without spawning a
+                // second copy while the first is still coming up.
+                if last_start.is_none_or(|t| t.elapsed() > Duration::from_secs(10)) {
+                    last_start = Some(std::time::Instant::now());
+                    start_daemon();
+                }
+                let _ = app.emit("daemon", json!({"connected": false}));
+                tokio::time::sleep(Duration::from_millis(700)).await;
+                continue;
+            }
+        };
+        let (rd, wr) = stream.into_split();
+        let state = app.state::<Daemon>();
+        *state.writer.lock().await = Some(wr);
+        let _ = app.emit("daemon", json!({"connected": true}));
+
+        let mut lines = BufReader::new(rd).lines();
+        while let Ok(Some(line)) = lines.next_line().await {
+            let Ok(v) = serde_json::from_str::<Value>(&line) else {
+                continue;
+            };
+            if let Some(id) = v.get("id").and_then(Value::as_u64) {
+                if let Some(tx) = state.pending.lock().await.remove(&id) {
+                    let _ = tx.send(v);
+                }
+            } else if v.get("event").is_some() {
+                let _ = app.emit("tether", v);
+            }
+        }
+        *state.writer.lock().await = None;
+        // Fail whatever was waiting so the page doesn't hang.
+        for (_, tx) in state.pending.lock().await.drain() {
+            let _ = tx.send(json!({"error": "Tether's background service stopped"}));
+        }
+        let _ = app.emit("daemon", json!({"connected": false}));
+        tokio::time::sleep(Duration::from_millis(500)).await;
+    }
+}
+
+#[tauri::command]
+async fn call(daemon: State<'_, Daemon>, method: String, params: Value) -> Result<Value, String> {
+    let id = daemon.next.fetch_add(1, Ordering::Relaxed) + 1;
+    let (tx, rx) = oneshot::channel();
+    daemon.pending.lock().await.insert(id, tx);
+    let mut line = serde_json::to_vec(&json!({"id": id, "method": method, "params": params}))
+        .map_err(|e| e.to_string())?;
+    line.push(b'\n');
+    {
+        let mut w = daemon.writer.lock().await;
+        let Some(w) = w.as_mut() else {
+            daemon.pending.lock().await.remove(&id);
+            return Err("Tether's background service isn't running".into());
+        };
+        w.write_all(&line).await.map_err(|e| e.to_string())?;
+    }
+    // File transfers can take a while; everything else answers immediately.
+    let reply = tokio::time::timeout(Duration::from_secs(600), rx)
+        .await
+        .map_err(|_| "Timed out".to_string())?
+        .map_err(|_| "No answer".to_string())?;
+    if let Some(e) = reply.get("error").and_then(Value::as_str) {
+        return Err(e.to_string());
+    }
+    Ok(reply.get("result").cloned().unwrap_or(Value::Null))
+}
+
+/// On X11 the clipboard content lives only as long as its owner, so keep one handle for the
+/// whole app instead of dropping it right after copying.
+#[derive(Default)]
+struct Clip(std::sync::Mutex<Option<arboard::Clipboard>>);
+
+#[tauri::command]
+fn copy_text(clip: State<'_, Clip>, text: String) -> Result<(), String> {
+    let mut guard = clip.0.lock().unwrap_or_else(|e| e.into_inner());
+    if guard.is_none() {
+        *guard = Some(arboard::Clipboard::new().map_err(|e| e.to_string())?);
+    }
+    match guard.as_mut() {
+        Some(cb) => cb.set_text(text).map_err(|e| e.to_string()),
+        None => Err("No clipboard".into()),
+    }
+}
+
+fn main() {
+    tauri::Builder::default()
+        .manage(Daemon::default())
+        .manage(Clip::default())
+        .invoke_handler(tauri::generate_handler![call, copy_text])
+        .setup(|app| {
+            tauri::async_runtime::spawn(connection_loop(app.handle().clone()));
+            Ok(())
+        })
+        .run(tauri::generate_context!())
+        .unwrap_or_else(|e| eprintln!("Tether could not start: {e}"));
+}

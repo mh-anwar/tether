@@ -35,6 +35,17 @@ impl Contacts {
         })
     }
 
+    /// (name, number) pairs sorted by name, for pickers.
+    pub fn all(&self) -> Vec<(String, String)> {
+        let mut v: Vec<_> = self
+            .by_number
+            .iter()
+            .map(|(n, name)| (name.clone(), n.clone()))
+            .collect();
+        v.sort();
+        v
+    }
+
     pub fn len(&self) -> usize {
         self.by_number.len()
     }

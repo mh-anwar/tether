@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Tether</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="app" class="app" aria-busy="true">
+    <div class="boot" id="boot">
+      <div class="spinner" aria-hidden="true"></div>
+      <p>Starting Tether</p>
+    </div>
+  </div>
+  <div id="palette-root"></div>
+  <div id="drop" class="drop" hidden>
+    <div class="drop-card">
+      <div class="drop-icon" data-icon="upload"></div>
+      <p id="drop-text">Drop to send to your phone</p>
+    </div>
+  </div>
+  <div id="toasts" class="toasts" role="status" aria-live="polite"></div>
+  <script src="icons.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

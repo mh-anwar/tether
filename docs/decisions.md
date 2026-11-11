@@ -13,3 +13,9 @@
 - **Calls and screen mirroring are separate channels.** KDE Connect only reports calls; audio and answering
   will go over Bluetooth hands-free (the way Phone Link does it). Screen and apps will use Android's wireless
   debugging (scrcpy-style), which needs no root.
+- **Window: Tauri with plain HTML/CSS/JS, no npm or bundler.** Uses the system WebKitGTK (small binary), and
+  the UI builds with cargo alone. Phone text is only ever inserted as text, never as HTML.
+- **The window is a client of the daemon** and starts it if needed; the daemon holds an exclusive lock
+  (`daemon.lock`) so two copies can never share one identity.
+- **Build the same package set every time** (`-p tether -p tether-app`): building them separately changes
+  dependency features and recompiles everything (5 min instead of 1 s).

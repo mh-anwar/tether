@@ -15,9 +15,15 @@ Goal: a Linux desktop app as good as Windows Phone Link, using the stock KDE Con
 - Not yet: a real phone. Verification code formula matches the upstream source but wasn't compared on screen.
 - Note: broadcast UDP doesn't loop back on this server; local tests use `tether connect 127.0.0.1`.
 
+- Window (Messages screen + notifications column), checked under Xvfb with the fake phone
+  (`crates/tether-core/examples/fake_phone.rs`): pairing screen and code, thread list with contact names and
+  unread, opening a thread loads history, sending a text (confirmed by the phone, reply arrives), inline
+  notification reply reaches the phone, Ctrl+K palette, copy code, dark theme.
+  Not checked: drag-and-drop sending (no drag in Xvfb), narrow window layouts, the real phone.
+
 ## Next
-1. Desktop app (Tauri, client of the daemon socket): agree the screen design with the owner first.
-   Screens: messages, notifications, calls, files/photos, phone screen, settings.
+1. Next screens, one at a time with a screenshot to the owner: calls, photos/files, phone screen, settings.
+   Tray icon with unread counts. Ideas the owner may like: schedule texts, notification digest.
 2. mDNS announcement (`_kdeconnect._udp`) alongside UDP; network-change and resume triggers for `refresh`.
 3. System clipboard sync (X11 and Wayland), SMS attachments, notification icons in the UI.
 4. Calls: Bluetooth hands-free (PipeWire/BlueZ HFP) for audio, answer and hang up.

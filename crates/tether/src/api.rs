@@ -131,6 +131,11 @@ async fn call(svc: &Service, method: &str, p: &Value) -> Result<Value> {
                 "device_data" => Ok(serde_json::to_value(svc.device_data(dev)?)?),
                 "threads" => Ok(serde_json::to_value(svc.threads(dev)?)?),
                 "thread" => Ok(serde_json::to_value(svc.thread(dev, i(p, "thread_id")?)?)?),
+                "contacts" => Ok(json!(svc
+                    .contacts(dev)?
+                    .into_iter()
+                    .map(|(name, number)| json!({"name": name, "number": number}))
+                    .collect::<Vec<_>>())),
                 "contact_name" => Ok(json!(svc.contact_name(dev, s(p, "number")?))),
                 "request_thread" => {
                     let before = p.get("before").and_then(Value::as_i64);
