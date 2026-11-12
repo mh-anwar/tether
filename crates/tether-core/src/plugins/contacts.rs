@@ -3,6 +3,7 @@
 
 use std::collections::HashMap;
 
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use super::{DeviceData, Outcome, Update};
@@ -13,7 +14,7 @@ pub const REQUEST_VCARDS: &str = "kdeconnect.contacts.request_vcards_by_uid";
 pub const RESPONSE_UIDS: &str = "kdeconnect.contacts.response_uids_timestamps";
 pub const RESPONSE_VCARDS: &str = "kdeconnect.contacts.response_vcards";
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Contacts {
     /// Normalized number -> display name.
     by_number: HashMap<String, String>,

@@ -28,6 +28,7 @@ use crate::{
     packet::Packet,
     payload,
     plugins::{self, sms, DeviceData, Update},
+    cache::{Cache, Snapshot},
     store::{Store, TrustedDevice},
     tls::TlsContext,
     Error, Result,
@@ -114,6 +115,8 @@ struct Dev {
     pair: Pair,
     data: DeviceData,
     last_dial: Option<Instant>,
+    /// Texts or contacts changed since the last write of the on-disk cache.
+    cache_dirty: bool,
 }
 
 struct Inner {
@@ -122,6 +125,7 @@ struct Inner {
     cert: LocalCert,
     tls: TlsContext,
     store: Store,
+    cache: Cache,
     devices: Mutex<HashMap<String, Dev>>,
     events: broadcast::Sender<Event>,
     next_gen: AtomicU64,
@@ -169,7 +173,12 @@ impl Service {
 
         let store = Store::new(config.data_dir.join("devices"));
         let mut devices = HashMap::new();
+        let cache = Cache::new(config.data_dir.join("cache"));
         for t in store.load_all() {
+            let mut data = DeviceData::default();
+            if let Some(snap) = cache.load(&t.identity.device_id) {
+                snap.restore(&mut data);
+            }
             let last_address = t.last_address.as_deref().and_then(|a| a.parse().ok());
             devices.insert(
                 t.identity.device_id.clone(),
@@ -179,8 +188,9 @@ impl Service {
                     last_address,
                     link: None,
                     pair: Pair::Paired,
-                    data: DeviceData::default(),
+                    data,
                     last_dial: None,
+                    cache_dirty: false,
                 },
             );
         }
@@ -192,6 +202,7 @@ impl Service {
             cert,
             tls,
             store,
+            cache,
             devices: Mutex::new(devices),
             events,
             next_gen: AtomicU64::new(1),
@@ -483,6 +494,10 @@ impl Inner {
         if let Err(e) = self.store.remove(&d.identity.device_id) {
             warn!("could not forget device: {e}");
         }
+        d.cache_dirty = false;
+        if let Err(e) = self.cache.remove(&d.identity.device_id) {
+            warn!("could not delete cached texts: {e}");
+        }
     }
 
     fn persist(&self, d: &Dev) {
@@ -597,6 +612,7 @@ impl Inner {
             pair: Pair::None,
             data: DeviceData::default(),
             last_dial: None,
+            cache_dirty: false,
         });
         d.identity = peer;
         if tcp_addr.is_some() {
@@ -741,6 +757,9 @@ impl Inner {
         }
 
         let out = plugins::handle(&mut d.data, &p);
+        if p.kind == plugins::sms::MESSAGES || p.kind == plugins::contacts::RESPONSE_VCARDS {
+            d.cache_dirty = true;
+        }
         // Fill in icons we already have on disk.
         if p.kind == plugins::notification::NOTIFICATION {
             if let Some(n) = p
@@ -1070,8 +1089,13 @@ impl Inner {
         let mut changed = vec![];
         let mut dial = vec![];
         let mut any_missing = false;
+        let mut to_cache = vec![];
         let mut devs = self.lock();
         for d in devs.values_mut() {
+            if d.cache_dirty && matches!(d.pair, Pair::Paired) {
+                d.cache_dirty = false;
+                to_cache.push((d.identity.device_id.clone(), Snapshot::of(&d.data)));
+            }
             let expired = match d.pair {
                 Pair::RequestedByUs { at, .. } | Pair::RequestedByPeer { at, .. } => {
                     at.elapsed() > PAIR_TIMEOUT
@@ -1096,6 +1120,16 @@ impl Inner {
             }
         }
         drop(devs);
+        if !to_cache.is_empty() {
+            let inner = self.clone();
+            tokio::task::spawn_blocking(move || {
+                for (id, snap) in to_cache {
+                    if let Err(e) = inner.cache.save(&id, &snap) {
+                        warn!("could not cache texts: {e}");
+                    }
+                }
+            });
+        }
         for s in changed {
             self.emit(Event::Device(s));
         }

@@ -3,6 +3,7 @@
 //! Upstream references are cited as `kdeconnect-kde:<path>` (desktop) and
 //! `kdeconnect-android:<path>` (phone) so behaviour can be checked against the source.
 
+pub mod cache;
 pub mod cert;
 pub mod discovery;
 pub mod error;
