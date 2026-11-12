@@ -803,14 +803,32 @@ pub fn menu_entries() -> Value {
     json!(out)
 }
 
-pub fn set_menu_entry(package: &str, name: &str, on: bool) -> Result<Value> {
+/// The app's own icon for its menu entry: copied out of the notification-icon cache (which is
+/// pruned) into a per-app file. Only files from that cache are accepted.
+fn app_icon_copy(package: &str, from: &str) -> Option<PathBuf> {
+    let data = dirs::data_dir()?.join("tether");
+    let from = std::fs::canonicalize(from).ok()?;
+    if !from.starts_with(std::fs::canonicalize(data.join("icons")).ok()?) {
+        return None;
+    }
+    let to = data.join("menu-icons").join(format!("{package}.png"));
+    std::fs::create_dir_all(to.parent()?).ok()?;
+    std::fs::copy(&from, &to).ok()?;
+    Some(to)
+}
+
+pub fn set_menu_entry(package: &str, name: &str, icon: Option<&str>, on: bool) -> Result<Value> {
     if !valid_package(package) {
         bail!("not an app package name");
     }
     let path = menu_file(package).ok_or_else(|| anyhow!("no data folder"))?;
     if on {
         std::fs::create_dir_all(path.parent().ok_or_else(|| anyhow!("no data folder"))?)?;
-        std::fs::write(&path, menu_entry(package, name, &menu_icon()?)?)?;
+        let icon = match icon.and_then(|i| app_icon_copy(package, i)) {
+            Some(i) => i,
+            None => menu_icon()?,
+        };
+        std::fs::write(&path, menu_entry(package, name, &icon)?)?;
     } else {
         match std::fs::remove_file(&path) {
             Err(e) if e.kind() != std::io::ErrorKind::NotFound => return Err(e.into()),
@@ -841,7 +859,13 @@ pub fn refresh_menu_entries() {
             .find_map(|l| l.strip_prefix("Name="))
             .unwrap_or(pkg)
             .to_string();
-        let Ok(icon) = menu_icon() else { return };
+        let icon = match text.lines().find_map(|l| l.strip_prefix("Icon=")) {
+            Some(i) if Path::new(i).exists() => PathBuf::from(i),
+            _ => match menu_icon() {
+                Ok(i) => i,
+                Err(_) => return,
+            },
+        };
         if valid_package(pkg) {
             if let Ok(entry) = menu_entry(pkg, &name, &icon) {
                 if entry != text {

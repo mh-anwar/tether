@@ -647,6 +647,41 @@ async fn send_payload(
     });
 }
 
+/// Icons of the apps behind the notifications, made-up stand-ins for what Android sends.
+const ICONS: &[(&str, &[u8])] = &[
+    (
+        "com.whatsapp",
+        include_bytes!("../../../testing/fake-art/icon-whatsapp.png"),
+    ),
+    (
+        "com.spotify",
+        include_bytes!("../../../testing/fake-art/icon-spotify.png"),
+    ),
+];
+
+/// Resends notifications that have an app icon with the icon as a payload, like Android does
+/// (`payloadHash` = MD5 of the icon; here any stable name works).
+async fn send_notification_icons(
+    phone: &Arc<Mutex<Phone>>,
+    tx: &mpsc::Sender<Packet>,
+    tls: &Arc<TlsContext>,
+    peer_cert: &[u8],
+) {
+    let notes: Vec<Value> = {
+        let ph = phone.lock().unwrap_or_else(|e| e.into_inner());
+        ph.notifications.values().cloned().collect()
+    };
+    for mut n in notes {
+        let id = n["id"].as_str().unwrap_or("").to_string();
+        let Some((pkg, bytes)) = ICONS.iter().find(|(pkg, _)| id.contains(pkg)) else {
+            continue;
+        };
+        n["silent"] = json!(true);
+        n["payloadHash"] = json!(format!("fakeicon{}", pkg.replace('.', "")));
+        send_payload("kdeconnect.notification", n, bytes, tx, tls, peer_cert).await;
+    }
+}
+
 /// Answers `kdeconnect.sms.request_attachment` with the picture's full file. The phone takes a
 /// moment to fetch it from storage, so the reply comes a second later, as on a real phone.
 async fn send_attachment(
@@ -689,6 +724,9 @@ async fn handle(
     if p.kind == mpris::REQUEST && p.str("albumArtUrl").is_some() {
         send_album_art(p, phone, tx, tls, peer_cert).await;
         return;
+    }
+    if p.kind == "kdeconnect.notification.request" && p.bool("request") == Some(true) {
+        send_notification_icons(phone, tx, tls, peer_cert).await;
     }
     if p.kind == plugins::sms::REQUEST_ATTACHMENT {
         // Spawned so the one-second delay doesn't hold up the rest of the session.

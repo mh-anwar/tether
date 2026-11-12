@@ -686,6 +686,8 @@ const apps = {
   timer: null,
   polling: false,
   serial: null, // adb device the list belongs to
+  // App name (lower case) -> icon file, learned from phone notifications, kept between runs.
+  icons: (() => { try { return JSON.parse(localStorage.getItem('tether.appIcons') || '{}'); } catch { return {}; } })(),
   menu: new Set(), // packages with an entry in the desktop's app menu
   recent: (() => { try { return JSON.parse(localStorage.getItem('tether.recentApps') || '[]'); } catch { return []; } })(),
 };
@@ -854,12 +856,36 @@ function codeForm(st) {
       busy ? h('span', { class: 'spinner sm', 'aria-hidden': 'true' }) : null, busy ? (st.phase === 'pairing' ? 'Pairing' : 'Connecting') : 'Pair'));
 }
 
+/** Phone notifications carry the app's icon; remember it so the Apps page shows real icons. */
+function learnAppIcons() {
+  let changed = false;
+  for (const n of Object.values(state.notifications)) {
+    const key = (n.app || '').toLowerCase();
+    if (key && n.icon_path && apps.icons[key] !== n.icon_path) { apps.icons[key] = n.icon_path; changed = true; }
+  }
+  if (!changed) return;
+  try { localStorage.setItem('tether.appIcons', JSON.stringify(apps.icons)); } catch { /* private mode */ }
+  if (state.view === 'apps') renderApps();
+}
+
+function appIcon(a) {
+  const path = apps.icons[a.name.toLowerCase()];
+  if (!path) return avatar(a.name, false);
+  const img = h('img', { class: 'avatar app-icon', alt: '', src: T.core.convertFileSrc(path) });
+  // The icon file may have been pruned; fall back to letters and forget it.
+  img.addEventListener('error', () => {
+    delete apps.icons[a.name.toLowerCase()];
+    img.replaceWith(avatar(a.name, false));
+  }, { once: true });
+  return img;
+}
+
 function appTile(a) {
   const opening = apps.opening === a.package;
   const inMenu = apps.menu.has(a.package);
   return h('div', { class: 'app-tile-wrap' },
     h('button', { class: 'app-tile', 'data-key': `app-${a.package}`, title: a.package, disabled: !!apps.opening && !opening, onclick: () => openApp(a) },
-      opening ? h('div', { class: 'avatar' }, h('span', { class: 'spinner sm', 'aria-hidden': 'true' })) : avatar(a.name, false),
+      opening ? h('div', { class: 'avatar' }, h('span', { class: 'spinner sm', 'aria-hidden': 'true' })) : appIcon(a),
       h('span', { class: 'name', text: opening ? 'Opening' : a.name })),
     h('button', { class: `pin ${inMenu ? 'on' : ''}`, 'data-key': `pin-${a.package}`,
       title: inMenu ? `Remove ${a.name} from this computer's app menu` : `Add ${a.name} to this computer's app menu`,
@@ -870,7 +896,7 @@ function appTile(a) {
 async function toggleMenuEntry(a) {
   const on = !apps.menu.has(a.package);
   try {
-    await api('apps_menu_set', { package: a.package, name: a.name, on });
+    await api('apps_menu_set', { package: a.package, name: a.name, icon: apps.icons[a.name.toLowerCase()] || null, on });
     if (on) apps.menu.add(a.package); else apps.menu.delete(a.package);
     toast(on ? `${a.name} is in your app menu` : `${a.name} removed from your app menu`);
   } catch (e) {
@@ -923,6 +949,7 @@ function recentCode() {
 }
 
 function renderFeed() {
+  learnAppIcons();
   const feed = $('.feed');
   const notes = Object.values(state.notifications).sort((a, b) => b.time - a.time);
   const clearable = notes.filter((n) => n.dismissable);

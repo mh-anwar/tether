@@ -140,7 +140,8 @@ async fn call(svc: &Service, method: &str, p: &Value) -> Result<Value> {
         "apps_menu" => Ok(crate::apps::menu_entries()),
         "apps_menu_set" => {
             let on = p.get("on").and_then(Value::as_bool).unwrap_or(true);
-            crate::apps::set_menu_entry(s(p, "package")?, s(p, "name")?, on)
+            let icon = p.get("icon").and_then(Value::as_str);
+            crate::apps::set_menu_entry(s(p, "package")?, s(p, "name")?, icon, on)
         }
         "apps_open" => {
             let package = p.get("package").and_then(Value::as_str);
