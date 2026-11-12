@@ -60,9 +60,11 @@ daemons on one box. No KVM here, so no Android emulator. Never run the real adb 
 shared with other users). Gotchas in `docs/gotchas.md` (e.g. don't `pgrep -f`/`pkill -f` a pattern that
 appears in your own command line).
 
-## Session 2026-11-11 (branch t3/read-handoff-queue, not pushed)
-Points 3 and 4 are built and checked with stand-ins (commit 008d6ce); they wait on the owner's real phone.
-The owner asked whether Tether auto-updates: it doesn't. Question and plan are QUEUE Q29a/Q29. Next up:
-Q27 (slow window, measure first), then Q28 (thread cache), then Q10 (tray).
+## Session 2026-11-11/12 (released as v0.3.0)
+- Points 3 and 4 are built and checked with stand-ins; they wait on the owner's real phone.
+- Auto-update (QUEUE Q29) shipped in 0.3.0; it can only see releases once the repo is public.
+- Window tests now run over WebDriver (`testing/ui/wd.sh`, docs/testing.md); grow them (Q30).
+- Next up: Q27 (slow window, measure first; write the timing as a WebDriver check), then Q28 (thread
+  cache), then Q10 (tray).
 
 Delete this file once the five points above are done or moved into QUEUE/docs.
