@@ -21,7 +21,7 @@ Status marks: `[ ]` open, `[~]` in progress (say who/which branch), `[x]` done (
 
 Owner feedback on v0.2.0 with the real phone (2026-11-12). Details and hypotheses: HANDOFF.md.
 
-- [~] Q31 (built 2026-11-12, commit bca5e69; not yet tried on the owner's laptop) **After an upgrade the new window talks to the old background service** (found 2026-11-12 from the
+- [~] Q31 (built 2026-11-12, released in 0.3.1; not yet tried on the owner's laptop) **After an upgrade the new window talks to the old background service** (found 2026-11-12 from the
   owner's screenshot on 0.3.0: the error text was 0.2.0's, and the phone IP wasn't filled in because the
   old service doesn't send it). The old service (login service or the previous window's copy) keeps
   running, so none of 0.3.0's pairing fixes were actually live. Fix: `identity` returns the service's
@@ -113,6 +113,7 @@ Owner feedback on v0.2.0 with the real phone (2026-11-12). Details and hypothese
 
 ## Done
 
+- 2026-11-12 v0.3.1: phone found past firewalls (QU from :5353, port sweep), 6-digit-only code pairing, "Show details" in the window, new window replaces an outdated service. Waits on the real phone.
 - 2026-11-12 v0.3.0: auto-update, phone-apps pairing fixes (Q25/Q26 wait on the real phone).
 - 2026-11-11 Phone-apps pairing: direct phone query past firewalls, `tether apps doctor`, code form that
   needs only the 6 digits (verified with stand-ins; Q25/Q26 wait on the real phone).
