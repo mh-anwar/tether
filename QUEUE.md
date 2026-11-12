@@ -13,6 +13,9 @@ Status marks: `[ ]` open, `[~]` in progress (say who/which branch), `[x]` done (
 - Q20 **Launch plan** (docs/positioning.md, "Going viral"): approve the order: public repo, Flathub, demo
   video, then posts.
 - Q17a **Make the GitHub repo public**: owner said not yet (2026-11-12), more to build first. Flathub waits on it.
+- Q29a **Build auto-update now?** (asked 2026-11-11) It can only check for new versions once the repo is
+  public (Q17a): a private repo's releases aren't visible without a GitHub login. Recommended: build it now
+  so it switches on the moment the repo goes public.
 - Q2 **Extra ideas to approve or drop**: schedule a text to send later; quiet mode (phone notifications
   collected into one summary instead of popping up all day).
 
@@ -54,6 +57,14 @@ Owner feedback on v0.2.0 with the real phone (2026-11-12). Details and hypothese
 - [ ] Q7 **mDNS discovery** (`_kdeconnect._udp`) alongside UDP broadcast, for networks that drop broadcast.
   Wake and network-change reconnects are done (netwatch). Done when: a phone on a broadcast-blocking network
   connects without `tether connect`.
+
+- [ ] Q29 **Auto-update** (needs Q29a yes and Q17a for it to do anything). Today every version is installed
+  by hand; nothing checks for updates. Plan: check GitHub's latest release at start and daily; the no-admin
+  `.tar.gz` install and AppImage download, verify (checksum from the release) and replace themselves,
+  then say "Updated to x.y.z"; `.deb`/`.rpm` show "Update available" with a button that downloads and
+  opens the installer (needs the owner's password). Flatpak/Flathub updates come from the store, so the
+  check is off there. Done when: a 0.x.y install on the laptop picks up a newer release with at most one
+  click.
 
 ## Later
 
