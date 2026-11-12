@@ -1,6 +1,7 @@
 //! `tether daemon` runs the background service; the other subcommands talk to it.
 
 mod api;
+mod apps;
 mod autostart;
 mod client;
 mod clipsync;
@@ -61,6 +62,9 @@ enum Cmd {
     Clip { text: String },
     /// Control what plays on the phone: play, pause, next, previous, or no argument to show it.
     Media { action: Option<MediaAction> },
+    /// Open a phone app in its own window, by name. No name lists the apps; `screen` shows the whole
+    /// phone screen. Set up once from the Apps page in the window.
+    Apps { app: Option<String> },
     /// Silence a ringing call.
     Mute,
     /// Look for phones now.

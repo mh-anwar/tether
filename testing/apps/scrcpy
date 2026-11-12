@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+# Stand-in for scrcpy (see testing/apps/adb). Opening an app just records the arguments and stays
+# running like a real window would, until killed.
+D=${FAKE_APPS_DIR:?set FAKE_APPS_DIR}
+echo "scrcpy $*" >> "$D/calls.log"
+case " $* " in
+  *" --version "*) echo "scrcpy 5.0.1 <https://github.com/Genymobile/scrcpy>" ;;
+  *" --list-apps "*)
+    sleep 1
+    cat <<'LIST'
+scrcpy 5.0.1 <https://github.com/Genymobile/scrcpy>
+INFO: ADB device found:
+INFO:     -->   (tcpip)  127.0.0.1:37199             device  SM_S911B
+[server] INFO: List of apps:
+ * Calculator                     com.sec.android.app.popupcalculator
+ * Camera                         com.sec.android.app.camera
+ * Clock                          com.sec.android.app.clockpackage
+ * Gallery                        com.sec.android.gallery3d
+ * Phone                          com.samsung.android.dialer
+ * Settings                       com.android.settings
+ - Authenticator                  com.google.android.apps.authenticator2
+ - Duolingo                       com.duolingo
+ - Google Maps                    com.google.android.apps.maps
+ - Instagram                      com.instagram.android
+ - Spotify                        com.spotify.music
+ - Uber                           com.ubercab
+ - WhatsApp                       com.whatsapp
+ - YouTube                        com.google.android.youtube
+LIST
+    ;;
+  *"--start-app=com.example.broken"*) echo "ERROR: Could not create virtual display" >&2; exit 1 ;;
+  *) exec sleep 600 ;;
+esac

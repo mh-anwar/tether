@@ -19,3 +19,8 @@ notify-rust.workspace = true
 arboard = { version = "3", default-features = false, features = ["wayland-data-control"] }
 # The phone's media player on the desktop's D-Bus (media keys). Already built for notify-rust.
 zbus = { version = "6", default-features = false, features = ["default-rt", "proxy", "service"] }
+# Phone apps: QR code for wireless-debugging pairing (no image deps), helper checksum, random secrets.
+qrcode = { version = "0.14", default-features = false }
+sha2.workspace = true
+hex.workspace = true
+uuid.workspace = true

@@ -24,8 +24,8 @@ while args:
         xtest.fake_input(d, X.ButtonPress, 1); xtest.fake_input(d, X.ButtonRelease, 1); d.sync()
     elif cmd == 'type':
         for ch in args.pop(0):
-            name = {' ': 'space', '!': 'exclam', ',': 'comma', '.': 'period', '?': 'question', "'": 'apostrophe'}.get(ch, ch)
-            press(keysym(name), shift=ch.isupper() or ch in '!?')
+            name = {' ': 'space', '!': 'exclam', ',': 'comma', '.': 'period', '?': 'question', "'": 'apostrophe', ':': 'colon'}.get(ch, ch)
+            press(keysym(name), shift=ch.isupper() or ch in '!?:')
     elif cmd == 'key':
         parts = args.pop(0).split('+'); mods = [d.keysym_to_keycode(XK.string_to_keysym({'ctrl': 'Control_L', 'shift': 'Shift_L'}[m])) for m in parts[:-1]]
         for m in mods: xtest.fake_input(d, X.KeyPress, m)

@@ -175,6 +175,50 @@ pub async fn run(device: Option<String>, cmd: Cmd) -> Result<()> {
                 );
             }
         }
+        Cmd::Apps { app } => {
+            let st = c.call("apps_status", json!({})).await?;
+            if st.get("device").is_none_or(Value::is_null) {
+                bail!("The phone isn't connected for apps. Set it up from the Apps page in the Tether window.");
+            }
+            match app.as_deref() {
+                Some("screen") => {
+                    c.call("apps_open", json!({"title": "Phone screen"}))
+                        .await?;
+                    println!("Opening the phone screen.");
+                }
+                Some(want) => {
+                    let list = c.call("apps_list", json!({})).await?;
+                    let want_l = want.to_lowercase();
+                    let apps = list.as_array().cloned().unwrap_or_default();
+                    let found = apps
+                        .iter()
+                        .find(|a| {
+                            str_of(a, "name").to_lowercase() == want_l
+                                || str_of(a, "package") == want
+                        })
+                        .or_else(|| {
+                            apps.iter()
+                                .find(|a| str_of(a, "name").to_lowercase().starts_with(&want_l))
+                        });
+                    let Some(a) = found else {
+                        bail!("No app called \"{want}\" on the phone.");
+                    };
+                    let name = str_of(a, "name");
+                    c.call(
+                        "apps_open",
+                        json!({"package": str_of(a, "package"), "title": name}),
+                    )
+                    .await?;
+                    println!("Opening {name}.");
+                }
+                None => {
+                    let list = c.call("apps_list", json!({})).await?;
+                    for a in list.as_array().cloned().unwrap_or_default() {
+                        println!("{:<32} {}", str_of(&a, "name"), str_of(&a, "package"));
+                    }
+                }
+            }
+        }
         Cmd::Media { action } => {
             let d = c.device(&device).await?;
             let data = c.call("device_data", json!({"device": d})).await?;

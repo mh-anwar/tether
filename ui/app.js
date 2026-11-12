@@ -38,6 +38,7 @@ const state = {
   feedOverlay: false,
   newTo: [],
   seen: loadSeen(),
+  view: 'messages', // or 'apps'
 };
 
 function loadSeen() {
@@ -256,10 +257,10 @@ function render() {
   }
   if (!state.deviceId) return renderPairPage(app);
   if (!$('.rail', app)) buildLayout(app);
-  app.className = `app ${state.feedOverlay ? 'feed-overlay' : ''}`;
+  app.className = `app ${state.feedOverlay ? 'feed-overlay' : ''} ${state.view === 'apps' ? 'view-apps' : ''}`;
   renderRail();
-  renderList();
-  renderThreadPane(false);
+  if (state.view === 'apps') renderApps();
+  else { renderList(); renderThreadPane(false); }
   renderFeed();
 }
 
@@ -277,6 +278,7 @@ function buildLayout(app) {
             onkeydown: (e) => { if (e.key === 'ArrowDown') { e.preventDefault(); $('.thread-item')?.focus(); } } }))),
       h('div', { class: 'threads', role: 'listbox', 'aria-label': 'Conversations', onkeydown: listKeys })),
     h('main', { class: 'thread' }),
+    h('main', { class: 'apps-page', 'aria-label': 'Phone apps' }),
     h('aside', { class: 'feed', 'aria-label': 'Notifications' }),
   );
 }
@@ -304,8 +306,9 @@ function renderRail() {
       h('button', { class: 'btn', onclick: () => quick('mute', 'Ringer muted') }, icon('mute', 'sm'), 'Mute')) : null,
     mediaCard(),
     h('nav', { class: 'nav' },
-      h('button', { 'aria-current': 'page', onclick: () => $('#filter')?.focus() }, icon('message'), h('span', { class: 'label', text: 'Messages' }),
+      h('button', { 'aria-current': state.view === 'messages' ? 'page' : null, onclick: () => showView('messages') }, icon('message'), h('span', { class: 'label', text: 'Messages' }),
         unread ? h('span', { class: 'count label', text: String(unread), 'aria-label': `${unread} unread` }) : null),
+      h('button', { 'aria-current': state.view === 'apps' ? 'page' : null, onclick: () => showView('apps') }, icon('apps'), h('span', { class: 'label', text: 'Apps' })),
       h('button', { onclick: toggleFeed }, icon('bell'), h('span', { class: 'label', text: 'Notifications' }),
         notes ? h('span', { class: 'count label', text: String(notes) }) : null)),
     h('div', { class: 'spacer' }),
@@ -350,6 +353,7 @@ function listKeys(e) {
 }
 
 function selectThread(id) {
+  if (state.view !== 'messages') showView('messages');
   state.selected = id;
   const msgs = threadMessages(id);
   if (msgs.length) state.seen[id] = msgs[msgs.length - 1].date;
@@ -484,6 +488,7 @@ function retry(p) {
 
 // ---------- new message ----------
 function openNew(contact) {
+  if (state.view !== 'messages') showView('messages');
   state.selected = 'new';
   state.newTo = contact ? [contact.number] : [];
   renderList();
@@ -660,6 +665,215 @@ function renderBanners() {
   ]);
 }
 
+// ---------- phone apps (each in its own window, over wireless debugging + scrcpy) ----------
+const apps = {
+  status: null,
+  list: null, // [{name, package, system}]
+  loading: false,
+  error: null,
+  filter: '',
+  opening: null, // package being opened
+  setup: false, // "Set up again" pressed
+  byCode: false,
+  addr: '',
+  code: '',
+  formError: null,
+  timer: null,
+  polling: false,
+  recent: (() => { try { return JSON.parse(localStorage.getItem('tether.recentApps') || '[]'); } catch { return []; } })(),
+};
+
+function showView(view) {
+  state.view = view;
+  clearTimeout(apps.timer);
+  if (view === 'apps') pollApps();
+  render();
+  if (view === 'messages') $('#filter')?.focus();
+}
+
+async function pollApps() {
+  clearTimeout(apps.timer);
+  // One poll at a time: several buttons call this, and two loops would each keep a timer.
+  if (state.view !== 'apps' || apps.polling) return;
+  apps.polling = true;
+  try {
+    apps.status = await api('apps_status');
+  } catch (e) {
+    apps.status = { failed: String(e) };
+  }
+  apps.polling = false;
+  if (state.view !== 'apps') return;
+  const st = apps.status;
+  if (st.device) {
+    apps.setup = false;
+    if (!apps.list && !apps.loading && !apps.error) loadApps();
+  } else if (st.adb && st.scrcpy && !st.scrcpyTooOld && st.phase === 'idle' && !st.error && wantsSetup()) {
+    // The setup screen shows the QR code straight away; nothing to click first.
+    api('apps_pair_qr').then(pollApps).catch(() => {});
+  }
+  renderApps();
+  const busy = st.phase && st.phase !== 'idle';
+  clearTimeout(apps.timer);
+  apps.timer = setTimeout(pollApps, busy || !st.device ? 1500 : 10000);
+}
+
+function wantsSetup() {
+  return !apps.byCode && (!apps.status.pairedBefore || apps.setup);
+}
+
+async function loadApps() {
+  apps.loading = true;
+  apps.error = null;
+  renderApps();
+  try { apps.list = await api('apps_list'); } catch (e) { apps.error = String(e); }
+  apps.loading = false;
+  renderApps();
+}
+
+async function openApp(app) {
+  if (apps.opening) return;
+  apps.opening = app ? app.package : 'screen';
+  renderApps();
+  toast(app ? `Opening ${app.name}` : 'Opening your phone screen', 'progress', 4000);
+  try {
+    await api('apps_open', app ? { package: app.package, title: app.name } : { title: 'Phone screen' });
+    if (app) {
+      apps.recent = [app.package, ...apps.recent.filter((p) => p !== app.package)].slice(0, 6);
+      try { localStorage.setItem('tether.recentApps', JSON.stringify(apps.recent)); } catch { /* private mode */ }
+    }
+  } catch (e) {
+    toast(String(e), 'error', 5000);
+  }
+  apps.opening = null;
+  renderApps();
+}
+
+function renderApps() {
+  const page = $('.apps-page');
+  if (!page || state.view !== 'apps') return;
+  const st = apps.status;
+  swap(page, () => {
+    if (!st) return h('div', { class: 'empty' }, h('div', { class: 'spinner' }), h('p', { text: 'Checking your phone' }));
+    if (st.failed) return h('div', { class: 'empty' }, icon('alert'), h('p', { text: st.failed }),
+      h('button', { class: 'btn', onclick: pollApps }, icon('refresh', 'sm'), 'Try again'));
+    if (!st.adb || !st.scrcpy || st.scrcpyTooOld) return appsHelper(st);
+    if (!st.device) return appsSetup(st);
+    return appsGrid(st);
+  });
+}
+
+function appsIntro(title, text) {
+  return h('div', { class: 'apps-intro' }, h('h1', { text: title }), h('p', { text }));
+}
+
+function appsHelper(st) {
+  const downloading = st.phase === 'downloading';
+  return h('div', { class: 'apps-setup narrow' },
+    appsIntro("Use your phone's apps on this computer",
+      'Each app opens in its own window. This needs scrcpy, a free open-source helper.'),
+    st.scrcpyTooOld ? h('p', { class: 'note', text: 'The scrcpy installed here is too old for app windows. Version 3.0 or newer is needed.' }) : null,
+    st.error ? h('p', { class: 'note error', role: 'alert' }, icon('alert', 'sm'), st.error) : null,
+    st.canDownload
+      ? h('div', { class: 'row' },
+        h('button', { class: 'btn primary', disabled: downloading, onclick: () => api('apps_download').then(pollApps).catch((e) => toast(String(e), 'error')) },
+          downloading ? h('span', { class: 'spinner sm', 'aria-hidden': 'true' }) : icon('download', 'sm'),
+          downloading ? 'Downloading (18 MB)' : 'Download helper (18 MB)'),
+        h('span', { class: 'hint', text: 'Or install scrcpy 3.0 or newer yourself.' }))
+      : h('div', { class: 'row' },
+        h('button', { class: 'btn', onclick: pollApps }, icon('refresh', 'sm'), 'Check again'),
+        h('span', { class: 'hint', text: 'Install scrcpy 3.0 or newer and adb first.' })));
+}
+
+function appsSetup(st) {
+  if (st.pairedBefore && !apps.setup && !apps.byCode) {
+    return h('div', { class: 'apps-setup narrow' },
+      appsIntro('Reconnecting to your phone', "Your phone reconnects by itself when Wireless debugging is on and it's on the same Wi-Fi as this computer."),
+      h('ol', { class: 'steps' }, h('li', { text: 'On your phone, open Settings, then Developer options.' }), h('li', { text: 'Turn on Wireless debugging.' })),
+      st.error ? h('p', { class: 'note error', role: 'alert' }, icon('alert', 'sm'), st.error)
+        : h('div', { class: 'row' }, h('span', { class: 'spinner sm', 'aria-hidden': 'true' }), h('span', { class: 'hint', text: 'Looking for your phone' })),
+      h('div', { class: 'row' }, h('button', { class: 'btn', onclick: () => { apps.setup = true; api('apps_cancel').then(pollApps); } }, 'Set up again')));
+  }
+  const phase = st.phase;
+  let side;
+  if (apps.byCode) side = codeForm(st);
+  else if (phase === 'waiting' && st.qr) {
+    side = h('div', { class: 'qr-card' },
+      h('img', { class: 'qr', alt: 'QR code to scan with your phone', src: `data:image/svg+xml;utf8,${encodeURIComponent(st.qr)}` }),
+      h('div', { class: 'row' }, h('span', { class: 'spinner sm', 'aria-hidden': 'true' }), h('span', { text: 'Waiting for your phone' })));
+  } else if (phase === 'pairing' || phase === 'connecting') {
+    side = h('div', { class: 'qr-card' }, h('div', { class: 'spinner' }), h('p', { text: phase === 'pairing' ? 'Pairing with your phone' : 'Connecting to your phone' }));
+  } else {
+    side = h('div', { class: 'qr-card' },
+      st.error ? h('p', { class: 'note error', role: 'alert' }, icon('alert', 'sm'), st.error) : h('div', { class: 'spinner' }),
+      st.error ? h('button', { class: 'btn primary', onclick: () => api('apps_pair_qr').then(pollApps) }, icon('refresh', 'sm'), 'Show a new code') : null);
+  }
+  return h('div', { class: 'apps-setup' },
+    appsIntro("Use your phone's apps on this computer", 'Each app opens in its own window, with its sound on Android 11 or newer. Set it up once; it takes a minute.'),
+    h('div', { class: 'setup-cols' },
+      h('ol', { class: 'steps' },
+        h('li', {}, h('b', { text: 'Turn on Developer options. ' }), 'On your phone, open Settings, About phone, Software information, and tap Build number seven times.'),
+        h('li', {}, h('b', { text: 'Turn on Wireless debugging. ' }), 'Open Settings, Developer options, Wireless debugging. Your phone must be on the same Wi-Fi as this computer.'),
+        apps.byCode
+          ? h('li', {}, h('b', { text: 'Tap Pair device with pairing code. ' }), 'Type the address and the code it shows.')
+          : h('li', {}, h('b', { text: 'Tap Pair device with QR code ' }), 'and scan the code here.')),
+      side),
+    h('button', { class: 'btn ghost link-btn', onclick: () => { apps.byCode = !apps.byCode; api(apps.byCode ? 'apps_cancel' : 'apps_pair_qr').then(pollApps); } },
+      apps.byCode ? 'Scan a QR code instead' : 'Pair with a code instead'));
+}
+
+function codeForm(st) {
+  const busy = st.phase === 'pairing' || st.phase === 'connecting';
+  const submit = async (e) => {
+    e.preventDefault();
+    const f = e.target;
+    apps.formError = null;
+    try { await api('apps_pair_code', { address: f.address.value, code: f.code.value }); } catch (err) { apps.formError = String(err); }
+    pollApps();
+  };
+  return h('form', { class: 'qr-card code-form', onsubmit: submit },
+    h('label', {}, h('span', { text: 'IP address and port' }), h('input', { name: 'address', 'data-key': 'apps-addr', placeholder: '192.168.1.20:41234', required: true, autocomplete: 'off', value: apps.addr, oninput: (e) => { apps.addr = e.target.value; } })),
+    h('label', {}, h('span', { text: 'Wi-Fi pairing code' }), h('input', { name: 'code', 'data-key': 'apps-code', inputmode: 'numeric', placeholder: '123456', required: true, autocomplete: 'off', value: apps.code, oninput: (e) => { apps.code = e.target.value; } })),
+    apps.formError || st.error ? h('p', { class: 'note error', role: 'alert' }, icon('alert', 'sm'), apps.formError || st.error) : null,
+    h('button', { class: 'btn primary', type: 'submit', disabled: busy },
+      busy ? h('span', { class: 'spinner sm', 'aria-hidden': 'true' }) : null, busy ? (st.phase === 'pairing' ? 'Pairing' : 'Connecting') : 'Pair'));
+}
+
+function appTile(a) {
+  const opening = apps.opening === a.package;
+  return h('button', { class: 'app-tile', 'data-key': `app-${a.package}`, title: a.package, disabled: !!apps.opening && !opening, onclick: () => openApp(a) },
+    opening ? h('div', { class: 'avatar' }, h('span', { class: 'spinner sm', 'aria-hidden': 'true' })) : avatar(a.name, false),
+    h('span', { class: 'name', text: opening ? 'Opening' : a.name }));
+}
+
+function appsGrid(st) {
+  const q = apps.filter.trim().toLowerCase();
+  const all = (apps.list || []).slice().sort((a, b) => a.name.localeCompare(b.name));
+  const shown = all.filter((a) => !q || a.name.toLowerCase().includes(q));
+  const recent = q ? [] : apps.recent.map((p) => all.find((a) => a.package === p)).filter(Boolean);
+  let body;
+  if (apps.loading && !apps.list) body = h('div', { class: 'empty' }, h('div', { class: 'spinner' }), h('p', { text: 'Getting the list of apps from your phone' }));
+  else if (apps.error) body = h('div', { class: 'empty' }, icon('alert'), h('p', { text: apps.error }), h('button', { class: 'btn', onclick: loadApps }, icon('refresh', 'sm'), 'Try again'));
+  else if (!shown.length) body = h('div', { class: 'empty' }, h('p', { text: q ? `No app matches "${apps.filter}".` : 'No apps found on the phone.' }));
+  else {
+    body = h('div', { class: 'apps-body' },
+      recent.length ? [h('h2', { text: 'Recent' }), h('div', { class: 'app-grid' }, recent.map(appTile))] : null,
+      recent.length ? h('h2', { text: 'All apps' }) : null,
+      h('div', { class: 'app-grid' }, shown.map(appTile)));
+  }
+  return [
+    h('div', { class: 'apps-head' },
+      h('div', { class: 'row' },
+        h('div', {}, h('h1', { text: 'Apps' }), h('p', { class: 'sub', text: `From ${device()?.name || st.device.model || 'your phone'}. Each app opens in its own window.` })),
+        h('button', { class: 'btn', disabled: !!apps.opening, onclick: () => openApp(null) },
+          apps.opening === 'screen' ? h('span', { class: 'spinner sm', 'aria-hidden': 'true' }) : icon('phone', 'sm'), 'Phone screen')),
+      h('label', { class: 'search' }, icon('search', 'sm'),
+        h('input', { type: 'search', 'data-key': 'apps-filter', placeholder: 'Search apps', 'aria-label': 'Search apps', value: apps.filter,
+          oninput: (e) => { apps.filter = e.target.value; renderApps(); },
+          onkeydown: (e) => { if (e.key === 'Enter' && shown[0]) openApp(shown[0]); } }))),
+    body,
+  ];
+}
+
 // ---------- notifications ----------
 function toggleFeed() {
   if (window.innerWidth > 1180) { $('.feed button, .feed input')?.focus(); return; }
@@ -829,6 +1043,11 @@ function commands() {
     { label: 'Show notifications', icon: 'bell', run: toggleFeed },
     recentCode() && { label: `Copy code ${recentCode().code}`, sub: recentCode().from, icon: 'key', run: () => copy(recentCode().code, 'Code copied') },
   ].filter(Boolean);
+  cmds.push({ label: 'Show phone apps', icon: 'apps', run: () => showView('apps') });
+  if (apps.status?.device) {
+    cmds.push({ label: 'Show phone screen', icon: 'phone', run: () => openApp(null) });
+    for (const a of apps.list || []) cmds.push({ label: `Open ${a.name}`, sub: 'Phone app', icon: 'apps', run: () => openApp(a) });
+  }
   for (const m of heads()) cmds.push({ label: threadTitle(m.addresses), sub: 'Conversation', icon: 'message', run: () => selectThread(m.thread_id) });
   for (const c of state.contacts) cmds.push({ label: `Text ${c.name}`, sub: prettyNumber(c.number), icon: 'send', run: () => openNew(c) });
   return cmds;

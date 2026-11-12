@@ -131,6 +131,17 @@ async fn call(svc: &Service, method: &str, p: &Value) -> Result<Value> {
             svc.add_manual_address(addr);
             ok()
         }
+        "apps_status" => crate::apps::status(svc).await,
+        "apps_pair_qr" => crate::apps::pair_qr(svc),
+        "apps_pair_code" => crate::apps::pair_code(svc, s(p, "address")?, s(p, "code")?).await,
+        "apps_cancel" => Ok(crate::apps::cancel()),
+        "apps_download" => crate::apps::download(svc),
+        "apps_list" => crate::apps::list(svc).await,
+        "apps_open" => {
+            let package = p.get("package").and_then(Value::as_str);
+            let title = p.get("title").and_then(Value::as_str).unwrap_or("Phone");
+            crate::apps::open(svc, package, title).await
+        }
         _ => {
             let dev = s(p, "device")?;
             match method {

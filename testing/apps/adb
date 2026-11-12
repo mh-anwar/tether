@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+# Stand-in for adb, for testing the Apps page without a phone. State lives in $FAKE_APPS_DIR:
+#   scanned    "<name> <password>" written by the test to act as the phone scanning the QR code
+#   paired     created by a successful `adb pair`; connected: created by `adb connect`
+# Every call is appended to calls.log.
+D=${FAKE_APPS_DIR:?set FAKE_APPS_DIR}
+mkdir -p "$D"; echo "adb $*" >> "$D/calls.log"
+PHONE=127.0.0.1
+case "$1" in
+  devices)
+    echo "List of devices attached"
+    [ -f "$D/connected" ] && echo "$PHONE:37199          device product:dm1qxxx model:SM_S911B device:dm1q transport_id:1"
+    echo ;;
+  mdns)
+    echo "List of discovered mdns services"
+    [ -f "$D/scanned" ] && [ ! -f "$D/paired" ] && printf '%s\t_adb-tls-pairing._tcp\t%s:41234\n' "$(cut -d' ' -f1 "$D/scanned")" "$PHONE"
+    [ -f "$D/paired" ] && printf 'adb-R5CW123-AbCdEf\t_adb-tls-connect._tcp\t%s:37199\n' "$PHONE"
+    true ;;
+  pair)
+    want=$( [ -f "$D/scanned" ] && cut -d' ' -f2 "$D/scanned" || echo 123456 )
+    code=$3; [ -z "$code" ] && read -r code   # real adb reads the code from stdin when it's left out
+    if [ "$code" = "$want" ]; then touch "$D/paired"; echo "Successfully paired to $2 [guid=adb-R5CW123-AbCdEf]"
+    else echo "Failed: Wrong password or connection was dropped."; exit 1; fi ;;
+  connect)
+    [ -f "$D/paired" ] && { touch "$D/connected"; echo "connected to $2"; } || { echo "failed to connect to $2"; exit 1; } ;;
+  *) echo "fake adb: unsupported $*" >&2; exit 1 ;;
+esac
