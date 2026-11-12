@@ -40,3 +40,15 @@ testing/ui/run.sh stop
 ```
 Look at every screenshot you take. Unset `RUST_LOG` when calling `uv` (it changes uv's logging).
 The window is 1200x780 at the top-left (no window manager); there is no drag-and-drop or resizing.
+
+## Phone apps (no phone needed)
+`testing/apps/adb` and `testing/apps/scrcpy` stand in for the real helpers; their state is files in
+`$FAKE_APPS_DIR` and every call is logged to `calls.log`. Export before `run.sh start` (the window starts the
+daemon, which inherits them):
+```sh
+export FAKE_APPS_DIR=/tmp/tether-ui-$USER/apps TETHER_ADB=$PWD/testing/apps/adb TETHER_SCRCPY=$PWD/testing/apps/scrcpy
+```
+Act as the phone scanning the QR: decode it from a screenshot (`uv run --no-project --with zxing-cpp --with
+pillow`), write `"<name> <password>" > $FAKE_APPS_DIR/scanned`. Pair-by-code accepts `123456`. The package
+`com.example.broken` fails like an old phone. `TETHER_SCRCPY=` (empty) shows the helper-download screen.
+Don't run the real adb here: its server listens on localhost:5037, shared with everyone on the box.

@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Tether
+Comment=Your Android phone on your desktop: texts, notifications, apps and files
+Exec=tether-app
+Icon=io.github.mh_anwar.Tether
+Categories=Network;Utility;
+Keywords=phone;android;sms;messages;kdeconnect;notifications;
+StartupNotify=true
+StartupWMClass=tether-app

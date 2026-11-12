@@ -1,7 +1,7 @@
 # Tether
 
-Your Android phone on your Linux desktop: notifications, texts, calls, files, clipboard, and (planned)
-your phone's screen and apps, on any desktop (GNOME, KDE, i3, Sway, and the rest).
+Your Android phone on your Linux desktop: texts, notifications, files, clipboard, and your phone's apps
+in their own windows, on any desktop (GNOME, KDE, i3, Sway, and the rest).
 
 Tether is a new desktop side for the KDE Connect protocol. On the phone you keep using the stock
 **KDE Connect** app from Google Play or F-Droid; Tether replaces KDE Connect or Valent on the computer.
@@ -63,6 +63,7 @@ tether sms --to +15551234567 "On my way"
 tether share ~/Pictures/photo.jpg     # or a https:// link
 tether clip "some text"               # copy to the phone's clipboard
 tether ring                           # find your phone
+tether apps spotify                   # open a phone app in its own window (after setup in the window)
 tether watch                          # live events, as JSON lines
 ```
 
@@ -78,6 +79,10 @@ Phone notifications also appear as normal desktop notifications. Turn that off w
 - One-time codes from texts and notifications are pulled out with a Copy button.
 - `Ctrl+K`: jump to a conversation, text a contact, ring or ping the phone.
 - Drop files anywhere on the window to send them to the phone.
+- Apps: open any phone app in its own window (with its sound on Android 11+), or the whole phone screen. Setup is once:
+  turn on Wireless debugging on the phone and scan the QR code the Apps page shows. Needs Android 10 or
+  newer and scrcpy 3.0 or newer, which the Apps page can download for you (or `TETHER_SCRCPY` and
+  `TETHER_ADB` point at your own).
 - Follows the system's light or dark theme.
 
 ## Development

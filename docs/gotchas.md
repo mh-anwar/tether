@@ -9,6 +9,11 @@ Traps that already cost time. Add new ones here with the symptom first.
   binaries. Build binaries and examples in separate commands.
 - **`target/` size**: ~3.3 GB with the window app. `cargo clean` past ~15 GB.
 
+## Testing
+- **`run.sh start` says Xvfb runs but the window can't open the display**: `pgrep -f "Xvfb :57"` also
+  matches your own shell when the command line you ran contains that text. Don't mention it in the same
+  command.
+
 ## This box
 - **Phones/daemons don't find each other locally**: broadcast UDP doesn't loop back on this host. Use
   `tether connect 127.0.0.1`.

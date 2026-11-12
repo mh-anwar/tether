@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.mh_anwar.Tether</id>
+  <name>Tether</name>
+  <summary>Your Android phone on your desktop</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+  <developer id="io.github.mh_anwar">
+    <name>Tether contributors</name>
+  </developer>
+  <description>
+    <p>
+      Tether puts your Android phone on your Linux desktop. Text from your computer, see and answer phone
+      notifications, and open your phone's apps in their own windows. It works on any desktop, including
+      GNOME, KDE Plasma, Sway and i3.
+    </p>
+    <p>On the phone you use the free KDE Connect app. Tether is the computer side.</p>
+    <ul>
+      <li>Messages: your conversations with names from your contacts, picture messages, and a copy button for one-time codes</li>
+      <li>Phone apps in their own windows, set up by scanning one QR code</li>
+      <li>Notifications from the phone, with replies and actions</li>
+      <li>Clipboard shared both ways, files and links sent by dropping them on the window</li>
+      <li>What plays on the phone, on your keyboard's media keys</li>
+      <li>Ring your phone to find it</li>
+    </ul>
+  </description>
+  <launchable type="desktop-id">io.github.mh_anwar.Tether.desktop</launchable>
+  <url type="homepage">https://github.com/mh-anwar/tether</url>
+  <url type="bugtracker">https://github.com/mh-anwar/tether/issues</url>
+  <url type="vcs-browser">https://github.com/mh-anwar/tether</url>
+  <content_rating type="oars-1.1">
+    <content_attribute id="social-chat">intense</content_attribute>
+  </content_rating>
+  <supports>
+    <control>pointing</control>
+    <control>keyboard</control>
+  </supports>
+  <requires>
+    <display_length compare="ge">720</display_length>
+  </requires>
+  <branding>
+    <color type="primary" scheme_preference="light">#dfe6f3</color>
+    <color type="primary" scheme_preference="dark">#1f2a40</color>
+  </branding>
+  <releases>
+    <release version="0.1.0" date="2026-11-11">
+      <description>
+        <p>First release: messages, notifications, clipboard, files and media controls.</p>
+      </description>
+    </release>
+  </releases>
+</component>

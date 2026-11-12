@@ -28,3 +28,12 @@
   same on every desktop.
 - **Build the same package set every time** (`-p tether -p tether-app`): building them separately changes
   dependency features and recompiles everything (5 min instead of 1 s).
+- **Phone apps through adb + scrcpy, not our own video pipeline.** scrcpy already starts an app on a
+  virtual display (`--new-display --start-app`, scrcpy 3.0+, Android 10+) and opens a fast native window
+  with sound; rewriting that buys nothing. Tether owns the parts scrcpy lacks: QR pairing, finding the phone,
+  the app list, errors in plain words. Helpers come from `TETHER_ADB`/`TETHER_SCRCPY`, our download, next to
+  the binary, then PATH.
+- **One-click helper download, pinned and checksummed** (scrcpy 5.0.1 static build, includes adb), because
+  Ubuntu 24.04 and Debian 12 ship scrcpy 1.25, too old for app windows. Flatpak will bundle them instead.
+- **Positioning**: Tether's reason to exist is what other KDE Connect desktops can't do (phone apps, calls),
+  not a nicer copy of what they do. See positioning.md.
