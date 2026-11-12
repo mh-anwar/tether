@@ -43,6 +43,11 @@
     <color type="primary" scheme_preference="dark">#1f2a40</color>
   </branding>
   <releases>
+    <release version="0.3.0" date="2026-11-12">
+      <description>
+        <p>Updates itself. Phone-app pairing finds the phone even when the network blocks the usual discovery, and pairing by code needs only the 6 digits.</p>
+      </description>
+    </release>
     <release version="0.2.0" date="2026-11-12">
       <description>
         <p>Phone apps in their own windows, set up by scanning a QR code. Pin phone apps to the computer's app menu. Safer pairing and file transfers.</p>
