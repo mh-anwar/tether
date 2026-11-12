@@ -10,6 +10,8 @@ Status marks: `[ ]` open, `[~]` in progress (say who/which branch), `[x]` done (
 
 - Q1 **Next big feature after phone apps**: calls on the PC (recommended) or photos. Phone apps was picked
   on 2026-11-11 as the differentiator (docs/positioning.md).
+- Q20 **Launch plan** (docs/positioning.md, "Going viral"): approve the order: public repo, Flathub, demo
+  video, then posts.
 - Q17a **Make the GitHub repo public** when ready: Flathub needs it (docs/flathub.md).
 - Q2 **Extra ideas to approve or drop**: schedule a text to send later; quiet mode (phone notifications
   collected into one summary instead of popping up all day).
@@ -50,15 +52,14 @@ Status marks: `[ ]` open, `[~]` in progress (say who/which branch), `[x]` done (
 - [ ] Q14 **Notification icons** shown in the column (payload download exists; check with the real phone).
 - [ ] Q18 **Real app icons in the Apps page**: start with icons the phone already sends with notifications,
   matched by app name; letters are the fallback.
-- [ ] Q19 **Phone apps in the desktop's app menu**: "Add to app menu" writes a `.desktop` file running
-  `tether apps <name>`, so rofi, GNOME and KDE launchers start phone apps directly.
 - [ ] Q16 **Forked Android app** only if a feature can't go through KDE Connect (for example call control
   without Bluetooth).
 
 
 ## Done
 
-- 2026-11-11 Phone apps (Apps page, QR pairing, helper download), positioning, Flathub store listing.
+- 2026-11-11 Phone apps (Apps page, QR pairing, helper download, pin to the desktop's app menu),
+  positioning, Flathub store listing.
 - 2026-11-11 Packages (CI), start at login, warning + takeover when KDE Connect holds the port.
 - 2026-11-11 Clipboard sync in the daemon (window closed too); reconnect after sleep and network changes.
 - 2026-11-11 Media: player card (art, seek, controls), `tether media`, phone's player on desktop media keys

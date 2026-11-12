@@ -40,7 +40,9 @@ Request `{"id","method","params"}`, reply `{"id","result"|"error"}`, events push
 - Phone apps (no device param): `apps_status` (helpers found, phase idle/waiting/pairing/connecting/
   downloading, error, QR as SVG while waiting, connected adb device), `apps_pair_qr`, `apps_pair_code
   {address, code}`, `apps_cancel`, `apps_download`, `apps_list`, `apps_open {package?, title}` (no package:
-  the whole screen). The window polls `apps_status` while the Apps page is open.
+  the whole screen), `apps_menu` (pinned packages), `apps_menu_set {package, name, on}` (writes
+  `$XDG_DATA_HOME/applications/tether-app-<package>.desktop` running `tether apps <package>`; the daemon
+  rewrites their Exec at start so a moved AppImage still works, via `Tether.AppImage --tether ...`). The window polls `apps_status` while the Apps page is open.
 - Per device (`params.device`): `device_data`, `threads`, `thread {thread_id}`, `contacts`,
   `contact_name {number}`, `request_thread {thread_id, before?, count?}`, `request_threads`, `pair`, `accept`,
   `reject`, `unpair`, `ping`, `ring`, `mute`, `sms_send {addresses, body, sub_id?}`,

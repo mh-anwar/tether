@@ -30,8 +30,30 @@ already does. Doing them in a nicer window is worth having, but it isn't a reaso
 ## Ideas that would widen the gap (not built)
 
 - Real app icons in the Apps page (from notification icons first, then pulled from the phone).
-- Pin a phone app to the desktop's launcher (a `.desktop` file per app that runs `tether apps <name>`).
 - Scheduled texts; a quiet mode that bundles phone notifications into one summary.
+
+Built since: pin a phone app to the desktop's app menu, so WhatsApp from the phone starts from GNOME's
+overview, KDE's launcher or rofi like an installed app.
+
+## GNOME Circle (apps.gnome.org)
+
+apps.gnome.org lists GNOME's core apps (made by GNOME) and GNOME Circle (outside apps GNOME endorses).
+Circle requires GTK 4 + libadwaita, the GNOME runtime on Flathub, the GNOME design guidelines and Orca
+support (AppCriteria.md in Teams/Releng/AppOrganization), and submissions were closed as of 2026-11-11.
+Our window is HTML in a WebView, so joining means rewriting the whole window in GTK 4 + libadwaita. The
+daemon, protocol and CLI would stay as they are. Decision: not now. Flathub reaches the same people (GNOME
+Software and KDE Discover show it) without the rewrite. Revisit once there are users and submissions reopen.
+
+## Going viral (plan)
+
+The hook: "Phone Link's app windows only work on some Samsung phones on Windows. Tether does it for any
+Android 10+ phone, on Linux, and pins phone apps into your app menu."
+1. Public repo with a README that opens on a short video: scan QR, WhatsApp opens in a window, pin it,
+   start it from the launcher.
+2. Flathub, so the post can say "one click in GNOME Software / Discover".
+3. Posts the same week: r/linux, r/kde, r/gnome, r/unixporn (tiling-WM demo), Hacker News (Show HN),
+   OMG! Ubuntu and It's FOSS tips.
+4. Keep the next headline ready: calls through the laptop.
 
 ## Distribution
 

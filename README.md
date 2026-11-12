@@ -80,7 +80,8 @@ Phone notifications also appear as normal desktop notifications. Turn that off w
 - `Ctrl+K`: jump to a conversation, text a contact, ring or ping the phone.
 - Drop files anywhere on the window to send them to the phone.
 - Apps: open any phone app in its own window (with its sound on Android 11+), or the whole phone screen. Setup is once:
-  turn on Wireless debugging on the phone and scan the QR code the Apps page shows. Needs Android 10 or
+  turn on Wireless debugging on the phone and scan the QR code the Apps page shows. The pin on an app
+  adds it to the computer's app menu (GNOME, KDE, rofi and others), so it starts like any other app. Needs Android 10 or
   newer and scrcpy 3.0 or newer, which the Apps page can download for you (or `TETHER_SCRCPY` and
   `TETHER_ADB` point at your own).
 - Follows the system's light or dark theme.
