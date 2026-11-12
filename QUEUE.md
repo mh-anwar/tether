@@ -18,9 +18,20 @@ Status marks: `[ ]` open, `[~]` in progress (say who/which branch), `[x]` done (
 
 ## Now
 
-- [~] Q3 **Try it on the real Samsung phone**: packages are built by `.github/workflows/release.yml`
-  (.deb, .rpm, AppImage, tarball + install.sh), start at login is on, README has install and pairing steps.
-  Waiting on the owner to install and pair. Done when: the owner pairs the phone and texts from the laptop.
+Owner feedback on v0.2.0 with the real phone (2026-11-12). Details and hypotheses: HANDOFF.md.
+
+- [ ] Q25 **QR pairing for phone apps fails on the real phone** (same Wi-Fi). Add diagnostics first
+  (`tether apps doctor`: helper versions, `adb mdns check`, services seen), then fix. Done when: the owner
+  scans the QR and an app opens.
+- [ ] Q26 **Pairing by code is too hard**: prefill the phone's IP from KDE Connect, ask only for port and
+  6 digits, plain words. Done when: the owner pairs by code without help.
+- [ ] Q27 **Window feels slow**: measure (open-to-first-paint, render time with 500 threads), then batch
+  renders and render only what changed. Done when: numbers before/after, and the owner says it's snappy.
+- [ ] Q28 **Notifications and messages appear late**: cache the thread list on disk so the window opens
+  full, show cached data while the phone answers. Done when: reopening the window shows texts at once.
+- [ ] Q10 **Icon in the status bar / tray** with unread count (owner asked). Closing the window already
+  keeps the service running. Care on i3: i3bar shows only XEmbed icons, Tauri's tray is AppIndicator (SNI);
+  GNOME needs the AppIndicator extension. Done when: the icon shows on the owner's i3 and on KDE/GNOME.
 - [~] Q5 **Phone apps in their own windows** (branch t3/find-tether-differentiator): Apps page, QR or code
   pairing over wireless debugging, app list, open an app or the whole screen, one-click scrcpy download,
   `tether apps <name>`, pins with real icons. Released in v0.2.0; verified only with stand-in adb/scrcpy.
@@ -43,8 +54,6 @@ Status marks: `[ ]` open, `[~]` in progress (say who/which branch), `[x]` done (
 
 ## Later
 
-- [ ] Q10 **Tray icon** with unread count. Closing the window already keeps the service running. Care on i3:
-  i3bar shows only XEmbed icons, Tauri's tray is AppIndicator (SNI).
 - [ ] Q11 **Settings screen**: device name, phone addresses for VPNs, notification mirroring, downloads folder,
   unpair, clipboard sync on/off, start at login (both exist as config/CLI only).
 - [ ] Q12 **Narrow window layouts** checked with screenshots (720 px and 1000 px wide).
@@ -66,6 +75,7 @@ Status marks: `[ ]` open, `[~]` in progress (say who/which branch), `[x]` done (
 
 ## Done
 
+- 2026-11-12 v0.2.0 released; owner installed it, paired the Samsung, texts and notifications work.
 - 2026-11-11 Phone apps (Apps page, QR pairing, helper download, pin to the desktop's app menu),
   positioning, Flathub store listing.
 - 2026-11-11 Packages (CI), start at login, warning + takeover when KDE Connect holds the port.

@@ -50,3 +50,10 @@ Traps that already cost time. Add new ones here with the symptom first.
 - **Copied text vanishes on X11**: the clipboard owner must stay alive; keep one `arboard::Clipboard`.
 - **Page stuck on "Starting Tether"**: the "connected" event can fire before the page listens; the page also
   polls `identity` every 1.5 s until connected.
+
+## Phone apps (adb)
+- **QR pairing never finds the phone**: adb (37, from the scrcpy bundle) finds phones over multicast DNS
+  (Openscreen, on by default; `ADB_MDNS_OPENSCREEN=0` switches to the system's Bonjour). A firewall that
+  drops UDP 5353 hides the phone. First check: `adb mdns check` and `adb mdns services` on that machine.
+- **`adb pair` code in arguments**: visible to other users in /proc; we pass it on stdin (adb reads it
+  when the argument is left out, `client/commandline.cpp`).
