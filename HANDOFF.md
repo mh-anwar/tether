@@ -64,7 +64,10 @@ appears in your own command line).
 - Points 3 and 4 are built and checked with stand-ins; they wait on the owner's real phone.
 - Auto-update (QUEUE Q29) shipped in 0.3.0; it can only see releases once the repo is public.
 - Window tests now run over WebDriver (`testing/ui/wd.sh`, docs/testing.md); grow them (Q30).
-- Next up: Q27 (slow window, measure first; write the timing as a WebDriver check), then Q28 (thread
+- **Start with Q31, then Q26b** (owner feedback on 0.3.0 with a screenshot): the 0.3.0 window was talking
+  to the still-running 0.2.0 background service, so the owner never saw 0.3.0's pairing fixes, and the code
+  form shows too many fields. Q25 (QR) can only be judged after Q31 is fixed. Release 0.3.1 once both are done.
+- Then: Q27 (slow window, measure first; write the timing as a WebDriver check), then Q28 (thread
   cache), then Q10 (tray).
 
 Delete this file once the five points above are done or moved into QUEUE/docs.

@@ -21,14 +21,28 @@ Status marks: `[ ]` open, `[~]` in progress (say who/which branch), `[x]` done (
 
 Owner feedback on v0.2.0 with the real phone (2026-11-12). Details and hypotheses: HANDOFF.md.
 
+- [ ] Q31 **After an upgrade the new window talks to the old background service** (found 2026-11-12 from the
+  owner's screenshot on 0.3.0: the error text was 0.2.0's, and the phone IP wasn't filled in because the
+  old service doesn't send it). The old service (login service or the previous window's copy) keeps
+  running, so none of 0.3.0's pairing fixes were actually live. Fix: `identity` returns the service's
+  version; when it differs from the window's, the window stops it (`shutdown`, already used by the update
+  restart) and starts its own copy; also re-point the login service at the new install (`autostart on`
+  already runs at each launch). Done when: installing a new version over a running old one shows the new
+  behaviour without a reboot.
+- [ ] Q26b **Pairing by code is still too much** (owner, 2026-11-12, screenshot: "no one is going to do
+  this"). The form showed IP, port and code fields at once, plus a QR-mode error ("scan again") in code mode.
+  Direction: one 6-digit field and nothing else; Tether finds the phone's port itself (works once Q31 is
+  fixed: the 0.3.0 service asks the phone directly). If the phone can't be found, say what to check on the
+  phone instead of showing more fields; keep manual IP/port only behind a small "Enter the address
+  yourself" link. Clear QR errors when switching mode. Show a sketch or screenshot to the owner first.
+  Done when: the owner pairs by typing only the 6 digits.
 - [~] Q25 **QR pairing for phone apps fails on the real phone** (same Wi-Fi). Done on this box: Tether now
   also asks the phone directly for its wireless-debugging ports (unicast to `<phone IP>:5353`, gets past
   firewalls that drop multicast), logs what it sees, and `tether apps doctor` prints a diagnosis. Not yet
   tried on the real phone. Done when: the owner scans the QR and an app opens; if it still fails, the
   owner's `tether apps doctor` output says why.
-- [~] Q26 **Pairing by code is too hard**: the form now finds the phone's pairing port by itself and asks
-  only for the 6 digits; if it can't, it asks for the port only (IP from KDE Connect), and pasting
-  "IP:port" fills both. Checked with stand-in adb. Done when: the owner pairs by code without help.
+- [~] Q26 **Pairing by code is too hard**: 0.3.0 finds the port itself when it can, else asks for port (and IP
+  if unknown). Owner found it still too much; continued as Q26b.
 - [ ] Q27 **Window feels slow**: measure (open-to-first-paint, render time with 500 threads), then batch
   renders and render only what changed. Done when: numbers before/after, and the owner says it's snappy.
 - [ ] Q28 **Notifications and messages appear late**: cache the thread list on disk so the window opens
