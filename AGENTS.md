@@ -95,7 +95,8 @@ Run the cheapest check that proves the change; climb only as far as the change r
 | `cargo check -p <crate>`, the touched tests | while iterating |
 | `cargo fmt --check`, `cargo clippy --workspace -- -D warnings`, `cargo test --workspace` | once, before finishing |
 | A real run against the phone or a protocol test double | protocol, pairing, plugins |
-| A screenshot under Xvfb, actually looked at | anything visible |
+| `testing/ui/wd.sh` (WebDriver test of the real window; add a check for new flows) | anything in the window |
+| A screenshot under Xvfb, actually looked at | how anything visible looks |
 
 Report a check as passed only if it ran in this session; a subagent's "tested" isn't proof. Before finishing,
 review the full diff and remove unrelated changes.

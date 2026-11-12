@@ -61,6 +61,11 @@ Owner feedback on v0.2.0 with the real phone (2026-11-12). Details and hypothese
   private repo's releases can't be seen. AppImage, .deb and .rpm paths are unit-tested only. Done when: the
   owner's install picks up a newer release by itself.
 
+- [ ] Q30 **Grow the WebDriver tests** (`testing/ui/test_window.py`, started 2026-11-12 with 5 checks): send a
+  text and see the reply, QR and code pairing through to the app grid, the update card with a stand-in
+  release, notification actions. Then run them in CI under Xvfb. Done when: every screen has a check and
+  CI runs them.
+
 ## Later
 
 - [ ] Q11 **Settings screen**: device name, phone addresses for VPNs, notification mirroring, downloads folder,

@@ -51,6 +51,11 @@ Traps that already cost time. Add new ones here with the symptom first.
 - **Page stuck on "Starting Tether"**: the "connected" event can fire before the page listens; the page also
   polls `identity` every 1.5 s until connected.
 
+## Window tests
+- **WebDriver package not found**: on Debian/Ubuntu it's `webkitgtk-webdriver`, not `webkit2gtk-driver`.
+- **Apps page shows "Reconnecting" in a test**: an earlier run left `$XDG_DATA_HOME/tether/apps-paired`;
+  `wd.sh` removes it, `run.sh` doesn't.
+
 ## Updates
 - **Restart after an update starts nothing**: once a running binary's file is replaced, Linux reports its
   path as `<path> (deleted)`; strip that suffix before re-running it (`update::exe_path`, `relaunch`).

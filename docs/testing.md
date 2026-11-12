@@ -26,6 +26,20 @@ Phone to desktop: `tether clip "x"` from the second, then `testing/ui/clip.py :5
 `gh workflow run release.yml` builds them on GitHub; `gh run download <id>` fetches them. `install.sh` can be
 tried with a temporary `HOME` (it falls back to XDG autostart there, since systemd can't see that home).
 
+## Window tests over WebDriver (preferred)
+`testing/ui/wd.sh` runs `testing/ui/test_window.py` against the real window: virtual screen `:59`, fake
+phone, `tauri-driver` on port 14444 (it starts the window through WebKitWebDriver). Tests find elements by
+role and text and report every step, so layout changes don't break them and nothing needs eyeballing.
+Each run resets phone-apps state (stand-in adb/scrcpy, not paired for apps).
+```sh
+box heavy -- cargo build -p tether -p tether-app && box heavy -- cargo build -p tether-core --example fake_phone
+testing/ui/run.sh start && testing/ui/run.sh accept && testing/ui/run.sh stop   # first time only: pair the fake phone
+testing/ui/wd.sh                       # or: testing/ui/wd.sh path/to/other_test.py
+```
+Setup on a new machine: `cargo install tauri-driver --locked`; WebKitWebDriver is the package
+`webkitgtk-webdriver` on Debian/Ubuntu (`webkit2gtk4.1-devel` ships it on Fedora). Add a check to
+`test_window.py` for every new screen or flow. Screenshots (below) are still how to judge looks.
+
 ## Stand-in phone + the window (UI)
 `crates/tether-core/examples/fake_phone.rs` speaks the real protocol with made-up texts, contacts and
 notifications (WhatsApp and Spotify with app icons as payloads); sent texts are echoed back and answered
