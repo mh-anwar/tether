@@ -50,8 +50,8 @@ Status marks: `[ ]` open, `[~]` in progress (say who/which branch), `[x]` done (
 - [ ] Q12 **Narrow window layouts** checked with screenshots (720 px and 1000 px wide).
 - [ ] Q13 **Drag-and-drop send** verified for real (needs a session with a window manager or the owner).
 - [ ] Q14 **Notification icons** shown in the column (payload download exists; check with the real phone).
-- [ ] Q18 **Real app icons in the Apps page**: start with icons the phone already sends with notifications,
-  matched by app name; letters are the fallback.
+- [ ] Q18 **Real app icons for every app**: icons now come from notifications (apps that notified at least
+  once); the rest still show letters. Next: pull icons from the phone over adb.
 - [ ] Q21 **Phone readiness checklist** after pairing: notification access, SMS and contacts permissions,
   Samsung battery limits for KDE Connect, each with the exact place to tap on the phone (advisor review).
 - [ ] Q22 **Limits on untrusted input**: cap concurrent unauthenticated handshakes and the local API's line

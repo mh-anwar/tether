@@ -28,7 +28,8 @@ tried with a temporary `HOME` (it falls back to XDG autostart there, since syste
 
 ## Stand-in phone + the window (UI)
 `crates/tether-core/examples/fake_phone.rs` speaks the real protocol with made-up texts, contacts and
-notifications; sent texts are echoed back and answered after 4 s.
+notifications (WhatsApp and Spotify with app icons as payloads); sent texts are echoed back and answered
+after 4 s.
 
 ```sh
 box heavy -- cargo build -p tether -p tether-app && box heavy -- cargo build -p tether-core --example fake_phone
