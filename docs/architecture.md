@@ -30,6 +30,10 @@
   then `adb mdns services` until the phone advertises that name, `adb pair`, `adb connect`), lists apps with
   `scrcpy --list-apps`, opens one with `scrcpy --new-display --start-app=<pkg>`. Pairing state is in memory;
   `$XDG_DATA_HOME/tether/apps-paired` marks that the phone was paired once (then it reconnects by itself).
+  Discovery also asks the phone directly (`mdns_probe.rs`: a unicast DNS-SD query to `<KDE Connect phone
+  IP>:5353`, answered per RFC 6762 6.7), so a firewall that drops multicast doesn't hide the phone. Code
+  pairing uses the same search to fill in the pairing port. Changes in what's in sight are logged at info
+  (`phone apps: services in sight`).
 - `autostart`: `tether autostart on|off` writes a systemd user unit (XDG autostart fallback). The window
   turns it on at first launch and rewrites it each launch while on (follows a moved AppImage).
 
@@ -38,8 +42,9 @@ Request `{"id","method","params"}`, reply `{"id","result"|"error"}`, events push
 - Global: `identity` (plus `discoveryListening`: false while another KDE Connect app holds UDP 1716;
   `clipboardSync`: the daemon owns clipboard sync), `devices`, `refresh`, `connect {address}`.
 - Phone apps (no device param): `apps_status` (helpers found, phase idle/waiting/pairing/connecting/
-  downloading, error, QR as SVG while waiting, connected adb device), `apps_pair_qr`, `apps_pair_code
-  {address, code}`, `apps_cancel`, `apps_download`, `apps_list`, `apps_open {package?, title}` (no package:
+  downloading, error, QR as SVG while waiting, connected adb device, `phoneIp` from KDE Connect,
+  `pairingAddr` once spotted), `apps_pair_qr`, `apps_pair_code {address, code}`, `apps_find_port` (code
+  pairing: look for the phone's pairing port), `apps_doctor` (text report for `tether apps doctor`), `apps_cancel`, `apps_download`, `apps_list`, `apps_open {package?, title}` (no package:
   the whole screen), `apps_menu` (pinned packages), `apps_menu_set {package, name, icon?, on}` (icon: a file from the
   notification-icon cache, copied to `tether/menu-icons/`) (writes
   `$XDG_DATA_HOME/applications/tether-app-<package>.desktop` running `tether apps <package>`; the daemon

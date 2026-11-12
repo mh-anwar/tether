@@ -373,6 +373,13 @@ h2 { font-size: 14px; }
 .code-form input { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 7px 9px; background: var(--bg-raised); color: var(--text); font: inherit; }
 .code-form input:focus-visible { outline: none; border-color: var(--accent); box-shadow: var(--focus); }
 .code-form .btn { justify-content: center; }
+.code-form input.big { font-size: 22px; letter-spacing: 0.08em; padding: 8px 10px; font-variant-numeric: tabular-nums; }
+.code-form .hint { font-size: 12px; color: var(--text-2); }
+.code-form .found { color: var(--text); }
+.code-where { display: grid; gap: 12px; }
+.code-form input { box-sizing: border-box; width: 100%; min-width: 0; }
+.code-where .row { display: flex; flex-wrap: nowrap; gap: 8px; align-items: flex-start; color: var(--text-2); font-size: 13px; }
+.code-where .row .spinner { flex: none; margin-top: 2px; }
 .note { margin: 0; font-size: 13px; color: var(--text-2); display: flex; gap: 6px; align-items: flex-start; }
 .note.error { color: var(--danger); }
 .btn.link-btn { justify-self: start; color: var(--accent); padding-left: 0; }

@@ -51,5 +51,6 @@ export FAKE_APPS_DIR=/tmp/tether-ui-$USER/apps TETHER_ADB=$PWD/testing/apps/adb 
 ```
 Act as the phone scanning the QR: decode it from a screenshot (`uv run --no-project --with zxing-cpp --with
 pillow`), write `"<name> <password>" > $FAKE_APPS_DIR/scanned`. Pair-by-code accepts `123456`. The package
-`com.example.broken` fails like an old phone. `TETHER_SCRCPY=` (empty) shows the helper-download screen.
-Don't run the real adb here: its server listens on localhost:5037, shared with everyone on the box.
+`com.example.broken` fails like an old phone. `touch $FAKE_APPS_DIR/codeopen` acts as the phone showing its
+pairing-code screen (the form then fills in the address). `TETHER_SCRCPY=` (empty) shows the helper-download screen.
+Use the stand-ins here rather than the real adb: its server listens on localhost:5037, shared with everyone on the box.

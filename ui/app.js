@@ -680,7 +680,8 @@ const apps = {
   opening: null, // package being opened
   setup: false, // "Set up again" pressed
   byCode: false,
-  addr: '',
+  ip: '', // phone IP typed by hand when KDE Connect doesn't know it
+  port: '',
   code: '',
   formError: null,
   timer: null,
@@ -832,25 +833,65 @@ function appsSetup(st) {
         h('li', {}, h('b', { text: 'Turn on Developer options. ' }), 'On your phone, open Settings, About phone, Software information, and tap Build number seven times.'),
         h('li', {}, h('b', { text: 'Turn on Wireless debugging. ' }), 'Open Settings, Developer options, Wireless debugging. Your phone must be on the same Wi-Fi as this computer.'),
         apps.byCode
-          ? h('li', {}, h('b', { text: 'Tap Pair device with pairing code. ' }), 'Type the address and the code it shows.')
+          ? h('li', {}, h('b', { text: 'Tap Pair device with pairing code. ' }), st.pairingAddr ? 'Type the 6-digit code it shows.' : 'Type the numbers it shows.')
           : h('li', {}, h('b', { text: 'Tap Pair device with QR code ' }), 'and scan the code here.')),
       side),
-    h('button', { class: 'btn ghost link-btn', 'data-key': 'apps-mode', onclick: () => { apps.byCode = !apps.byCode; api(apps.byCode ? 'apps_cancel' : 'apps_pair_qr').then(pollApps); } },
+    h('button', { class: 'btn ghost link-btn', 'data-key': 'apps-mode', onclick: () => { apps.byCode = !apps.byCode; apps.formError = null; api(apps.byCode ? 'apps_find_port' : 'apps_pair_qr').then(pollApps); } },
       apps.byCode ? 'Scan a QR code instead' : 'Pair with a code instead'));
 }
 
 function codeForm(st) {
   const busy = st.phase === 'pairing' || st.phase === 'connecting';
+  // Tether spots the phone's pairing port by itself most of the time; then only the code is typed.
+  const found = st.pairingAddr;
+  const ip = st.phoneIp || apps.ip;
   const submit = async (e) => {
     e.preventDefault();
-    const f = e.target;
     apps.formError = null;
-    try { await api('apps_pair_code', { address: f.address.value, code: f.code.value }); } catch (err) { apps.formError = String(err); }
+    const address = found || `${ip.trim()}:${apps.port.trim()}`;
+    try {
+      await api('apps_pair_code', { address, code: apps.code });
+    } catch (err) {
+      apps.formError = String(err);
+      // A failed try ends the search for the port; start it again for the next try.
+      api('apps_find_port').catch(() => {});
+    }
     pollApps();
   };
+  // Pasting "192.168.1.20:41234" anywhere fills both parts.
+  const splitAddress = (value) => {
+    const m = value.trim().match(/^(\d{1,3}(?:\.\d{1,3}){3}):(\d{1,5})$/);
+    if (!m) return false;
+    apps.ip = m[1];
+    apps.port = m[2];
+    renderApps();
+    return true;
+  };
+  const field = (label, hint, attrs) => h('label', {},
+    h('span', { text: label }),
+    h('input', { autocomplete: 'off', spellcheck: 'false', ...attrs }),
+    hint ? h('span', { class: 'hint', text: hint }) : null);
+  let where;
+  if (found) {
+    where = h('p', { class: 'found' }, 'Found your phone at ', h('b', { text: found.replace(/:\d+$/, '') }));
+  } else {
+    where = h('div', { class: 'code-where' },
+      h('div', { class: 'row' }, h('span', { class: 'spinner sm', 'aria-hidden': 'true' }), h('span', { text: 'Looking for your phone. If it isn’t found, type the numbers yourself.' })),
+      st.phoneIp ? null : field('Phone IP address', 'The part before the colon, under "IP address and port".', {
+        'data-key': 'apps-ip', inputmode: 'decimal', placeholder: '192.168.1.20', required: true, value: apps.ip,
+        oninput: (e) => { if (!splitAddress(e.target.value)) apps.ip = e.target.value; },
+      }),
+      field('Port', st.phoneIp ? `The numbers after the colon, under "IP address and port". Your phone is ${st.phoneIp}.` : 'The numbers after the colon.', {
+        class: 'big', 'data-key': 'apps-port', inputmode: 'numeric', placeholder: '41234', required: true, maxlength: 21, value: apps.port,
+        oninput: (e) => { if (!splitAddress(e.target.value)) apps.port = e.target.value.replace(/\D/g, ''); },
+      }));
+  }
   return h('form', { class: 'qr-card code-form', onsubmit: submit },
-    h('label', {}, h('span', { text: 'IP address and port' }), h('input', { name: 'address', 'data-key': 'apps-addr', placeholder: '192.168.1.20:41234', required: true, autocomplete: 'off', value: apps.addr, oninput: (e) => { apps.addr = e.target.value; } })),
-    h('label', {}, h('span', { text: 'Wi-Fi pairing code' }), h('input', { name: 'code', 'data-key': 'apps-code', inputmode: 'numeric', placeholder: '123456', required: true, autocomplete: 'off', value: apps.code, oninput: (e) => { apps.code = e.target.value; } })),
+    where,
+    field('Wi-Fi pairing code', '6 digits, shown on the phone.', {
+      class: 'big', 'data-key': 'apps-code', inputmode: 'numeric', placeholder: '123456', required: true, maxlength: 7, value: apps.code,
+      oninput: (e) => { apps.code = e.target.value; },
+    }),
     apps.formError || st.error ? h('p', { class: 'note error', role: 'alert' }, icon('alert', 'sm'), apps.formError || st.error) : null,
     h('button', { class: 'btn primary', type: 'submit', 'data-key': 'apps-pair', disabled: busy },
       busy ? h('span', { class: 'spinner sm', 'aria-hidden': 'true' }) : null, busy ? (st.phase === 'pairing' ? 'Pairing' : 'Connecting') : 'Pair'));

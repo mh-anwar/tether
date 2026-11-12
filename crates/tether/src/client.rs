@@ -175,6 +175,10 @@ pub async fn run(device: Option<String>, cmd: Cmd) -> Result<()> {
                 );
             }
         }
+        Cmd::Apps { app } if app.as_deref() == Some("doctor") => {
+            let report = c.call("apps_doctor", json!({})).await?;
+            println!("{}", report.as_str().unwrap_or_default());
+        }
         Cmd::Apps { app } => {
             let st = c.call("apps_status", json!({})).await?;
             if st.get("device").is_none_or(Value::is_null) {

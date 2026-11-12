@@ -135,6 +135,8 @@ async fn call(svc: &Service, method: &str, p: &Value) -> Result<Value> {
         "apps_pair_qr" => crate::apps::pair_qr(svc),
         "apps_pair_code" => crate::apps::pair_code(svc, s(p, "address")?, s(p, "code")?).await,
         "apps_cancel" => Ok(crate::apps::cancel()),
+        "apps_find_port" => Ok(crate::apps::find_pairing_port(svc)),
+        "apps_doctor" => crate::apps::doctor(svc).await,
         "apps_download" => crate::apps::download(svc),
         "apps_list" => crate::apps::list(svc).await,
         "apps_menu" => Ok(crate::apps::menu_entries()),

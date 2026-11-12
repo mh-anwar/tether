@@ -35,6 +35,9 @@
   the binary, then PATH.
 - **One-click helper download, pinned and checksummed** (scrcpy 5.0.1 static build, includes adb), because
   Ubuntu 24.04 and Debian 12 ship scrcpy 1.25, too old for app windows. Flatpak will bundle them instead.
+- **Ask the phone directly as well as adb's multicast DNS**: we already know its IP from KDE Connect, and a
+  reply to our own unicast query passes stateful firewalls that drop multicast. Hand-written DNS (~150
+  lines) rather than a DNS crate: only PTR and SRV are needed.
 - **Several adb devices and none at the phone's address: refuse**, never guess, so apps can't open on an
   emulator or another phone while the window names yours.
 - **Positioning**: Tether's reason to exist is what other KDE Connect desktops can't do (phone apps, calls),

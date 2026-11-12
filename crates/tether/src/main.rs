@@ -7,6 +7,7 @@ mod client;
 mod clipsync;
 mod config;
 mod daemon;
+mod mdns_probe;
 mod mprisd;
 mod notify;
 
@@ -63,7 +64,7 @@ enum Cmd {
     /// Control what plays on the phone: play, pause, next, previous, or no argument to show it.
     Media { action: Option<MediaAction> },
     /// Open a phone app in its own window, by name. No name lists the apps; `screen` shows the whole
-    /// phone screen. Set up once from the Apps page in the window.
+    /// phone screen; `doctor` explains why the phone isn't found. Set up once from the Apps page.
     Apps { app: Option<String> },
     /// Silence a ringing call.
     Mute,

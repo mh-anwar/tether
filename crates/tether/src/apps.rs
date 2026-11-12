@@ -7,7 +7,7 @@
 //! the password. After that the phone advertises `_adb-tls-connect._tcp` and we `adb connect`.
 
 use std::{
-    net::SocketAddr,
+    net::{IpAddr, SocketAddr},
     path::{Path, PathBuf},
     process::Stdio,
     sync::Mutex,
@@ -39,6 +39,10 @@ struct Apps {
     attempt: u64,
     last_autoconnect: Option<Instant>,
     apps: Option<(String, Vec<PhoneApp>)>,
+    /// Code pairing: the phone's pairing address once we've spotted it, so only the code is typed.
+    code_addr: Option<SocketAddr>,
+    /// What the last look for the phone found, logged when it changes so a failure can be diagnosed.
+    last_seen: Vec<Mdns>,
 }
 
 #[derive(Default, Clone, Copy, PartialEq, Serialize)]
@@ -60,6 +64,8 @@ static STATE: Mutex<Apps> = Mutex::new(Apps {
     attempt: 0,
     last_autoconnect: None,
     apps: None,
+    code_addr: None,
+    last_seen: Vec::new(),
 });
 
 fn state() -> std::sync::MutexGuard<'static, Apps> {
@@ -84,6 +90,22 @@ fn set_if(attempt: u64, phase: Phase, error: Option<String>) -> bool {
     true
 }
 
+/// Starts a new pairing attempt, which stops any older one, and returns its number. `phase: None` goes
+/// back to idle, except that a helper download carries on.
+fn new_attempt(phase: Option<Phase>, qr: Option<(String, String)>) -> u64 {
+    let mut s = state();
+    s.attempt += 1;
+    s.qr = qr;
+    s.code_addr = None;
+    s.error = None;
+    match phase {
+        Some(p) => s.phase = p,
+        None if s.phase != Phase::Downloading => s.phase = Phase::Idle,
+        None => {}
+    }
+    s.attempt
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct PhoneApp {
     pub name: String,
@@ -98,17 +120,17 @@ struct AdbDevice {
     model: Option<String>,
 }
 
-#[derive(Debug, PartialEq)]
-enum MdnsKind {
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) enum MdnsKind {
     Pairing,
     Connect,
 }
 
-#[derive(Debug, PartialEq)]
-struct Mdns {
-    instance: String,
-    kind: MdnsKind,
-    addr: SocketAddr,
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct Mdns {
+    pub instance: String,
+    pub kind: MdnsKind,
+    pub addr: SocketAddr,
 }
 
 fn helper_dir() -> PathBuf {
@@ -295,6 +317,43 @@ fn phone_ips(svc: &Service) -> Vec<String> {
         .collect()
 }
 
+fn phone_addrs(svc: &Service) -> Vec<IpAddr> {
+    phone_ips(svc)
+        .iter()
+        .filter_map(|s| s.parse().ok())
+        .collect()
+}
+
+/// Wireless-debugging services in sight: what adb heard over multicast DNS, plus what the phones at
+/// `ips` say when asked directly (works when a firewall drops multicast; see mdns_probe).
+async fn services(ips: &[IpAddr]) -> Vec<Mdns> {
+    let from_adb = async {
+        match adb(&["mdns", "services"], Duration::from_secs(10)).await {
+            Ok((_, out)) => parse_mdns(&out),
+            Err(_) => Vec::new(),
+        }
+    };
+    let (mut seen, direct) = tokio::join!(
+        from_adb,
+        crate::mdns_probe::probe(ips, Duration::from_millis(800))
+    );
+    for m in direct {
+        if !seen.iter().any(|s| s.kind == m.kind && s.addr == m.addr) {
+            seen.push(m);
+        }
+    }
+    let mut s = state();
+    if s.last_seen != seen {
+        let list: Vec<String> = seen
+            .iter()
+            .map(|m| format!("{} {:?} {}", m.instance, m.kind, m.addr))
+            .collect();
+        info!("phone apps: services in sight: [{}]", list.join(", "));
+        s.last_seen = seen.clone();
+    }
+    seen
+}
+
 async fn online_device(svc: &Service) -> Result<Option<AdbDevice>> {
     let (_, out) = adb(&["devices", "-l"], Duration::from_secs(15)).await?;
     let devs: Vec<AdbDevice> = parse_devices(&out)
@@ -364,6 +423,8 @@ pub async fn status(svc: &Service) -> Result<Value> {
         "error": s.error.clone().or(device_error),
         "qr": qr,
         "pairedBefore": paired_marker().exists(),
+        "phoneIp": phone_ips(svc).into_iter().find(|ip| ip.parse::<IpAddr>().is_ok()),
+        "pairingAddr": s.code_addr.map(|a| a.to_string()),
         "device": device.map(|d| json!({"serial": d.serial, "model": d.model})),
     }))
 }
@@ -382,13 +443,10 @@ fn maybe_autoconnect(svc: &Service) {
         }
         s.last_autoconnect = Some(Instant::now());
     }
-    let ips = phone_ips(svc);
+    let ips = phone_addrs(svc);
     tokio::spawn(async move {
-        let Ok((_, out)) = adb(&["mdns", "services"], Duration::from_secs(10)).await else {
-            return;
-        };
-        for m in parse_mdns(&out) {
-            if m.kind == MdnsKind::Connect && ips.contains(&m.addr.ip().to_string()) {
+        for m in services(&ips).await {
+            if m.kind == MdnsKind::Connect && ips.contains(&m.addr.ip()) {
                 let _ = adb(&["connect", &m.addr.to_string()], Duration::from_secs(10)).await;
             }
         }
@@ -408,17 +466,10 @@ pub fn pair_qr(svc: &Service) -> Result<Value> {
     tool("adb").ok_or_else(|| anyhow!("adb isn't installed"))?;
     let name = format!("tether-{}", random_hex(6));
     let password = random_hex(12);
-    let attempt = {
-        let mut s = state();
-        s.attempt += 1;
-        s.qr = Some((name.clone(), password.clone()));
-        s.phase = Phase::Waiting;
-        s.error = None;
-        s.attempt
-    };
+    let attempt = new_attempt(Some(Phase::Waiting), Some((name.clone(), password.clone())));
     let svc = svc.clone();
     tokio::spawn(async move {
-        let result = wait_for_scan(&name, &password, attempt).await;
+        let result = wait_for_scan(&svc, &name, &password, attempt).await;
         match result {
             Ok(ip) => finish_connect(&svc, Some(ip), attempt).await,
             Err(e) => {
@@ -429,27 +480,27 @@ pub fn pair_qr(svc: &Service) -> Result<Value> {
     Ok(json!(true))
 }
 
-async fn wait_for_scan(name: &str, password: &str, attempt: u64) -> Result<String> {
+async fn wait_for_scan(svc: &Service, name: &str, password: &str, attempt: u64) -> Result<String> {
     let start = Instant::now();
     while start.elapsed() < PAIR_TIMEOUT {
         if state().attempt != attempt {
             bail!("cancelled");
         }
-        if let Ok((_, out)) = adb(&["mdns", "services"], Duration::from_secs(10)).await {
-            if let Some(m) = parse_mdns(&out)
-                .into_iter()
-                .find(|m| m.kind == MdnsKind::Pairing && m.instance == name)
-            {
-                if !set_if(attempt, Phase::Pairing, None) {
-                    bail!("cancelled");
-                }
-                pair(&m.addr.to_string(), password).await?;
-                return Ok(m.addr.ip().to_string());
+        // Asked every round: KDE Connect may reconnect, or the phone change address, meanwhile.
+        if let Some(m) = services(&phone_addrs(svc))
+            .await
+            .into_iter()
+            .find(|m| m.kind == MdnsKind::Pairing && m.instance == name)
+        {
+            if !set_if(attempt, Phase::Pairing, None) {
+                bail!("cancelled");
             }
+            pair(&m.addr.to_string(), password).await?;
+            return Ok(m.addr.ip().to_string());
         }
         tokio::time::sleep(Duration::from_secs(1)).await;
     }
-    bail!("Your phone didn't respond. Check it's on the same Wi-Fi and scan again.")
+    bail!("Your phone didn't answer. Check it's on the same Wi-Fi, or pair with a code instead.")
 }
 
 async fn pair(addr: &str, secret: &str) -> Result<()> {
@@ -491,12 +542,16 @@ async fn finish_connect(svc: &Service, ip: Option<String>, attempt: u64) {
             set_if(attempt, Phase::Idle, None);
             return;
         }
-        if let Ok((_, out)) = adb(&["mdns", "services"], Duration::from_secs(10)).await {
-            for m in parse_mdns(&out) {
-                let ip_ok = ip.as_ref().is_none_or(|ip| *ip == m.addr.ip().to_string());
-                if m.kind == MdnsKind::Connect && ip_ok {
-                    let _ = adb(&["connect", &m.addr.to_string()], Duration::from_secs(10)).await;
-                }
+        let mut ips = phone_addrs(svc);
+        if let Some(a) = ip.as_ref().and_then(|ip| ip.parse::<IpAddr>().ok()) {
+            if !ips.contains(&a) {
+                ips.push(a);
+            }
+        }
+        for m in services(&ips).await {
+            let ip_ok = ip.as_ref().is_none_or(|ip| *ip == m.addr.ip().to_string());
+            if m.kind == MdnsKind::Connect && ip_ok {
+                let _ = adb(&["connect", &m.addr.to_string()], Duration::from_secs(10)).await;
             }
         }
         tokio::time::sleep(Duration::from_secs(1)).await;
@@ -512,22 +567,14 @@ async fn finish_connect(svc: &Service, ip: Option<String>, attempt: u64) {
 }
 
 pub async fn pair_code(svc: &Service, address: &str, code: &str) -> Result<Value> {
-    let addr: SocketAddr = address
-        .trim()
-        .parse()
-        .map_err(|_| anyhow!("Type the address as shown on the phone, like 192.168.1.20:41234."))?;
+    let addr: SocketAddr = address.trim().parse().map_err(|_| {
+        anyhow!("Type the port as shown on the phone: the numbers after the colon.")
+    })?;
     let code: String = code.chars().filter(char::is_ascii_digit).collect();
     if code.len() != 6 {
         bail!("The pairing code has 6 digits.");
     }
-    let attempt = {
-        let mut s = state();
-        s.attempt += 1;
-        s.qr = None;
-        s.phase = Phase::Pairing;
-        s.error = None;
-        s.attempt
-    };
+    let attempt = new_attempt(Some(Phase::Pairing), None);
     if let Err(e) = pair(&addr.to_string(), &code).await {
         set_if(attempt, Phase::Idle, Some(e.to_string()));
         return Err(e);
@@ -538,14 +585,96 @@ pub async fn pair_code(svc: &Service, address: &str, code: &str) -> Result<Value
 }
 
 pub fn cancel() -> Value {
-    let mut s = state();
-    s.attempt += 1;
-    s.qr = None;
-    if s.phase != Phase::Downloading {
-        s.phase = Phase::Idle;
-    }
-    s.error = None;
+    new_attempt(None, None);
     json!(true)
+}
+
+/// Code pairing: watch for the phone's pairing service so the window can fill in the address and the
+/// owner types only the 6 digits. Runs until another attempt starts or the timeout.
+pub fn find_pairing_port(svc: &Service) -> Value {
+    let attempt = new_attempt(None, None);
+    let svc = svc.clone();
+    tokio::spawn(async move {
+        let start = Instant::now();
+        while start.elapsed() < PAIR_TIMEOUT && state().attempt == attempt {
+            let ips = phone_addrs(&svc);
+            let found = services(&ips)
+                .await
+                .into_iter()
+                .find(|m| m.kind == MdnsKind::Pairing && ips.contains(&m.addr.ip()));
+            {
+                let mut s = state();
+                if s.attempt != attempt {
+                    return;
+                }
+                s.code_addr = found.map(|m| m.addr);
+            }
+            tokio::time::sleep(Duration::from_secs(1)).await;
+        }
+    });
+    json!(true)
+}
+
+/// A report for `tether apps doctor`: everything needed to see why the phone isn't found.
+pub async fn doctor(svc: &Service) -> Result<Value> {
+    let mut out = Vec::new();
+    let ips = phone_addrs(svc);
+    out.push(format!(
+        "Phone address from KDE Connect: {}",
+        if ips.is_empty() {
+            "none (is the phone connected?)".to_string()
+        } else {
+            ips.iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+                .join(", ")
+        }
+    ));
+    for name in ["adb", "scrcpy"] {
+        match tool(name) {
+            Some(p) => {
+                let (_, v) = run(&p, &["--version"], Duration::from_secs(10))
+                    .await
+                    .unwrap_or_default();
+                let v = v.lines().next().unwrap_or("").trim().to_string();
+                out.push(format!("{name}: {} ({v})", p.display()));
+            }
+            None => out.push(format!("{name}: not found")),
+        }
+    }
+    if tool("adb").is_some() {
+        for (title, args) in [
+            ("adb mdns check", &["mdns", "check"][..]),
+            ("adb devices", &["devices", "-l"][..]),
+        ] {
+            let text = match adb(args, Duration::from_secs(10)).await {
+                Ok((_, t)) => t,
+                Err(e) => e.to_string(),
+            };
+            out.push(format!("{title}:\n  {}", text.trim().replace('\n', "\n  ")));
+        }
+        let (_, heard) = adb(&["mdns", "services"], Duration::from_secs(10))
+            .await
+            .unwrap_or_default();
+        out.push(format!(
+            "adb mdns services:\n  {}",
+            heard.trim().replace('\n', "\n  ")
+        ));
+    }
+    let direct = crate::mdns_probe::probe(&ips, Duration::from_millis(1500)).await;
+    out.push(format!(
+        "Asked the phone directly: {}",
+        if direct.is_empty() {
+            "no answer (Wireless debugging off, or the phone ignores direct questions)".to_string()
+        } else {
+            direct
+                .iter()
+                .map(|m| format!("{:?} at {}", m.kind, m.addr))
+                .collect::<Vec<_>>()
+                .join(", ")
+        }
+    ));
+    Ok(json!(out.join("\n")))
 }
 
 async fn serial(svc: &Service) -> Result<String> {

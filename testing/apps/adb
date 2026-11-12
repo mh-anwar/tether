@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Stand-in for adb, for testing the Apps page without a phone. State lives in $FAKE_APPS_DIR:
 #   scanned    "<name> <password>" written by the test to act as the phone scanning the QR code
+#   codeopen   acts as the phone showing "Pair device with pairing code" (advertises its pairing port)
 #   paired     created by a successful `adb pair`; connected: created by `adb connect`
 # Every call is appended to calls.log.
 D=${FAKE_APPS_DIR:?set FAKE_APPS_DIR}
@@ -14,6 +15,7 @@ case "$1" in
   mdns)
     echo "List of discovered mdns services"
     [ -f "$D/scanned" ] && [ ! -f "$D/paired" ] && printf '%s\t_adb-tls-pairing._tcp\t%s:41234\n' "$(cut -d' ' -f1 "$D/scanned")" "$PHONE"
+    [ -f "$D/codeopen" ] && [ ! -f "$D/paired" ] && printf 'adb-R5CW123-AbCdEf\t_adb-tls-pairing._tcp\t%s:41234\n' "$PHONE"
     [ -f "$D/paired" ] && printf 'adb-R5CW123-AbCdEf\t_adb-tls-connect._tcp\t%s:37199\n' "$PHONE"
     true ;;
   pair)

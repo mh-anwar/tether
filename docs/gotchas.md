@@ -28,7 +28,7 @@ Traps that already cost time. Add new ones here with the symptom first.
   the CSS lists named sans fonts before `system-ui`.
 
 - **Binaries from this box fail on the laptop** ("GLIBC_2.4x not found"): build releases in CI on Ubuntu
-  22.04, never ship `target/` from here.
+  22.04 rather than shipping `target/` from here.
 - **`ldconfig: not found` in scripts**: it's in /sbin, often not on a user's PATH.
 - **Clipboard sync silent under systemd**: the user manager may lack `DISPLAY`; clipsync guesses `:0` and
   `wayland-0`. GNOME Wayland has no data-control protocol, so background clipboard reads can't work there.
@@ -54,6 +54,8 @@ Traps that already cost time. Add new ones here with the symptom first.
 ## Phone apps (adb)
 - **QR pairing never finds the phone**: adb (37, from the scrcpy bundle) finds phones over multicast DNS
   (Openscreen, on by default; `ADB_MDNS_OPENSCREEN=0` switches to the system's Bonjour). A firewall that
-  drops UDP 5353 hides the phone. First check: `adb mdns check` and `adb mdns services` on that machine.
+  drops UDP 5353 hides the phone. Tether now also asks the phone directly (unicast to its port 5353).
+  First check: `tether apps doctor` (helper versions, `adb mdns check`, what adb heard, what the phone
+  answered directly, the KDE Connect phone IP).
 - **`adb pair` code in arguments**: visible to other users in /proc; we pass it on stdin (adb reads it
   when the argument is left out, `client/commandline.cpp`).
