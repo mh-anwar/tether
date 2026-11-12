@@ -5,6 +5,7 @@ Finds things by role and text, the way a person would, so layout changes don't b
 
 import os
 import sys
+from pathlib import Path
 
 from selenium import webdriver
 from selenium.webdriver.common.by import By
@@ -51,10 +52,32 @@ try:
     check("Apps page opens", apps_page)
 
     def code_form():
+        Path(os.environ["FAKE_APPS_DIR"], "codeopen").touch()
         button("Pair with a code instead").click()
         wait.until(EC.visibility_of_element_located((By.CSS_SELECTOR, "[data-key=apps-code]")))
         text_shown("Wi-Fi pairing code")
     check("code pairing form shows", code_form)
+
+    def pair_for_apps():
+        wait.until(lambda _: d.execute_script("return apps.status?.pairingAddr"))
+        d.find_element(By.CSS_SELECTOR, "[data-key=apps-code]").send_keys("123456")
+        button("Pair").click()
+        wait.until(EC.visibility_of_element_located((By.CSS_SELECTOR, ".app-tile")))
+    check("pairing reaches the app grid", pair_for_apps)
+
+    def reconnect_without_announcements():
+        fake = Path(os.environ["FAKE_APPS_DIR"])
+        # The connection port is remembered only after adb reports the phone online.
+        saved = Path(os.environ["XDG_DATA_HOME"], "tether/apps-connect-address")
+        wait.until(lambda _: saved.exists())
+        (fake / "hideconnect").touch()
+        (fake / "connected").unlink()
+        # Poll now rather than waiting for the app grid's ten-second interval.
+        d.execute_script("pollApps()")
+        wait.until(lambda _: (fake / "connected").exists())
+        wait.until(lambda _: d.execute_script("return !!apps.status?.device"))
+        wait.until(EC.visibility_of_element_located((By.CSS_SELECTOR, ".app-tile")))
+    check("paired phone reconnects without mDNS announcements", reconnect_without_announcements)
 
     def palette():
         d.find_element(By.TAG_NAME, "body").send_keys(Keys.CONTROL, "k")

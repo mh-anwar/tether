@@ -17,7 +17,7 @@ mkdir -p "$W"/cfg/tether "$W"/data "$W"/run && chmod 700 "$W"/run
 
 # Every run starts from the same phone-apps state: stand-in adb/scrcpy, never paired for apps.
 export FAKE_APPS_DIR=$W/apps-wd TETHER_ADB=$ROOT/testing/apps/adb TETHER_SCRCPY=$ROOT/testing/apps/scrcpy
-rm -rf "$FAKE_APPS_DIR" "$W/data/tether/apps-paired" && mkdir -p "$FAKE_APPS_DIR"
+rm -rf "$FAKE_APPS_DIR" "$W/data/tether/apps-paired" "$W/data/tether/apps-connect-address" && mkdir -p "$FAKE_APPS_DIR"
 
 pids=()
 cleanup() {

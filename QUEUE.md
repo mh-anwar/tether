@@ -36,6 +36,12 @@ Owner feedback on v0.2.0 with the real phone (2026-11-12). Details and hypothese
   phone instead of showing more fields; keep manual IP/port only behind a small "Enter the address
   yourself" link. Clear QR errors when switching mode. Show a sketch or screenshot to the owner first.
   Done when: the owner pairs by typing only the 6 digits.
+- [~] Q34 **Paired phone stuck on Reconnecting** (owner screenshot, 2026-11-11): QR pairing succeeded,
+  but the app connection still depended entirely on mDNS. Added the direct-port fallback to both the
+  first connection and later reconnects, remembers a verified connection address, bounds incorrect-port
+  attempts, and prevents overlapping automatic reconnect jobs. Workspace checks and seven WebDriver
+  checks passed, including app-grid pairing and reconnect without mDNS. Built locally; not released or tried on
+  the owner's Samsung. Done when: the paired phone reaches the app grid on the owner's laptop.
 - [~] Q25 **QR pairing for phone apps fails on the real phone** (same Wi-Fi). 2026-11-12: owner on 0.3.0: phone stuck on "Pairing device" = phone scanned the QR and waits for the laptop to connect, so the laptop never found the phone's pairing port. Added: mDNS question from our own `<ip>:5353` with the QU bit (firewall-friendly), and a last-resort sweep of the phone's TCP ports 32768-60999 trying the password on each (mdns_probe::open_ports, apps::pair_by_sweep). Diagnostics now in the window ("Show details" under errors), not a terminal command. Done on this box: Tether now
   also asks the phone directly for its wireless-debugging ports (unicast to `<phone IP>:5353`, gets past
   firewalls that drop multicast), logs what it sees, and `tether apps doctor` prints a diagnosis. Not yet

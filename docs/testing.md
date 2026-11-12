@@ -30,6 +30,7 @@ tried with a temporary `HOME` (it falls back to XDG autostart there, since syste
 `testing/ui/wd.sh` runs `testing/ui/test_window.py` against the real window: virtual screen `:59`, fake
 phone, `tauri-driver` on port 14444 (it starts the window through WebKitWebDriver). Tests find elements by
 role and text and report every step, so layout changes don't break them and nothing needs eyeballing.
+The checks include pairing through to the app grid and reconnecting with the connect announcement hidden.
 Each run resets phone-apps state (stand-in adb/scrcpy, not paired for apps).
 ```sh
 box heavy -- cargo build -p tether -p tether-app && box heavy -- cargo build -p tether-core --example fake_phone

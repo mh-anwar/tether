@@ -41,6 +41,8 @@ struct Apps {
     /// Bumped on every new pairing attempt so a stale one stops.
     attempt: u64,
     last_autoconnect: Option<Instant>,
+    autoconnect_running: bool,
+    last_connect_sweep: Option<Instant>,
     apps: Option<(String, Vec<PhoneApp>)>,
     /// Code pairing: the phone's pairing address once we've spotted it, so only the code is typed.
     code_addr: Option<SocketAddr>,
@@ -66,6 +68,8 @@ static STATE: Mutex<Apps> = Mutex::new(Apps {
     qr: None,
     attempt: 0,
     last_autoconnect: None,
+    autoconnect_running: false,
+    last_connect_sweep: None,
     apps: None,
     code_addr: None,
     last_seen: Vec::new(),
@@ -100,6 +104,7 @@ fn new_attempt(phase: Option<Phase>, qr: Option<(String, String)>) -> u64 {
     s.attempt += 1;
     s.qr = qr;
     s.code_addr = None;
+    s.last_connect_sweep = None;
     s.error = None;
     match phase {
         Some(p) => s.phase = p,
@@ -394,22 +399,105 @@ fn maybe_autoconnect(svc: &Service) {
     {
         let mut s = state();
         if s.phase != Phase::Idle
+            || s.autoconnect_running
             || s.last_autoconnect
                 .is_some_and(|t| t.elapsed() < Duration::from_secs(10))
             || !paired_marker().exists()
         {
             return;
         }
-        s.last_autoconnect = Some(Instant::now());
+        s.autoconnect_running = true;
     }
-    let ips = phone_addrs(svc);
+    let attempt = state().attempt;
+    let svc = svc.clone();
     tokio::spawn(async move {
-        for m in services(&ips).await {
-            if m.kind == MdnsKind::Connect && ips.contains(&m.addr.ip()) {
-                let _ = adb(&["connect", &m.addr.to_string()], Duration::from_secs(10)).await;
+        let ips = phone_addrs(&svc);
+        let _ = connect_phone(&ips, attempt).await;
+        let mut s = state();
+        s.autoconnect_running = false;
+        s.last_autoconnect = Some(Instant::now());
+    });
+}
+
+fn connect_address_file() -> PathBuf {
+    paired_marker().with_file_name("apps-connect-address")
+}
+
+/// A pairing port and an app connection port are different. Discovery can be hidden for both;
+/// use the same direct-port fallback after pairing and when coming back later.
+async fn connect_phone(ips: &[IpAddr], attempt: u64) -> Result<bool> {
+    let prog = tool("adb").ok_or_else(|| anyhow!("adb isn't installed"))?;
+    let mut candidates = Vec::new();
+    if let Some(addr) = std::fs::read_to_string(connect_address_file())
+        .ok()
+        .and_then(|s| s.trim().parse::<SocketAddr>().ok())
+        .filter(|a| ips.contains(&a.ip()))
+    {
+        candidates.push(addr);
+    }
+    candidates.extend(services(ips).await.into_iter().filter_map(|m| {
+        (m.kind == MdnsKind::Connect && ips.contains(&m.addr.ip())).then_some(m.addr)
+    }));
+    let mut tried = HashSet::new();
+    for addr in candidates {
+        if state().attempt != attempt {
+            return Ok(false);
+        }
+        if tried.insert(addr) && connect_at(&prog, addr).await? {
+            remember_connection(addr);
+            return Ok(true);
+        }
+    }
+    // A sweep can take tens of seconds on a filtered network. Never overlap or run it each poll.
+    {
+        let mut s = state();
+        if s.attempt != attempt
+            || s.last_connect_sweep
+                .is_some_and(|t| t.elapsed() < Duration::from_secs(60))
+        {
+            return Ok(false);
+        }
+        s.last_connect_sweep = Some(Instant::now());
+    }
+    for ip in ips.iter().filter(|ip| ip.is_ipv4()) {
+        for port in crate::mdns_probe::open_ports(*ip).await {
+            if state().attempt != attempt {
+                return Ok(false);
+            }
+            let addr = SocketAddr::new(*ip, port);
+            if tried.insert(addr) && connect_at(&prog, addr).await? {
+                remember_connection(addr);
+                return Ok(true);
             }
         }
-    });
+    }
+    Ok(false)
+}
+
+async fn connect_at(prog: &Path, addr: SocketAddr) -> Result<bool> {
+    // A pairing port (or another service) may accept TCP but never speak the adb connect protocol.
+    // Bound each attempt and require an online device, not just successful process exit.
+    if !matches!(run(prog, &["connect", &addr.to_string()], Duration::from_secs(3)).await,
+        Ok((_, out)) if out.contains("connected to"))
+    {
+        return Ok(false);
+    }
+    let (_, out) = run(prog, &["devices", "-l"], Duration::from_secs(5)).await?;
+    if !parse_devices(&out)
+        .iter()
+        .any(|d| d.online && d.serial == addr.to_string())
+    {
+        return Ok(false);
+    }
+    Ok(true)
+}
+
+fn remember_connection(addr: SocketAddr) {
+    let file = connect_address_file();
+    if let Some(parent) = file.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let _ = std::fs::write(file, addr.to_string());
 }
 
 fn random_hex(n: usize) -> String {
@@ -581,15 +669,11 @@ async fn finish_connect(svc: &Service, ip: Option<String>, attempt: u64) {
         }
         let mut ips = phone_addrs(svc);
         if let Some(a) = ip.as_ref().and_then(|ip| ip.parse::<IpAddr>().ok()) {
-            if !ips.contains(&a) {
-                ips.push(a);
-            }
+            ips = vec![a];
         }
-        for m in services(&ips).await {
-            let ip_ok = ip.as_ref().is_none_or(|ip| *ip == m.addr.ip().to_string());
-            if m.kind == MdnsKind::Connect && ip_ok {
-                let _ = adb(&["connect", &m.addr.to_string()], Duration::from_secs(10)).await;
-            }
+        if matches!(connect_phone(&ips, attempt).await, Ok(true)) {
+            set_if(attempt, Phase::Idle, None);
+            return;
         }
         tokio::time::sleep(Duration::from_secs(1)).await;
     }
@@ -1116,6 +1200,29 @@ mod tests {
         )
         .is_err());
         assert!(pick_device(vec![], &ips).unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn connection_requires_the_requested_phone_to_be_online() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir =
+            std::env::temp_dir().join(format!("tether-connect-test-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let prog = dir.join("adb");
+        let addr: SocketAddr = "192.0.2.1:37199".parse().unwrap();
+        for (devices, expected) in [
+            ("192.0.2.1:37199 offline", false),
+            ("192.0.2.2:37199 device", false),
+            ("192.0.2.1:37199 device", true),
+        ] {
+            // adb can exit successfully and say it connected while the transport is still offline.
+            std::fs::write(&prog, format!(
+                "#!/bin/sh\ncase \"$1\" in\nconnect) echo 'connected to 192.0.2.1:37199';;\ndevices) echo '{devices}';;\nesac\n"
+            )).unwrap();
+            std::fs::set_permissions(&prog, std::fs::Permissions::from_mode(0o700)).unwrap();
+            assert_eq!(connect_at(&prog, addr).await.unwrap(), expected);
+        }
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

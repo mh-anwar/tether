@@ -75,3 +75,10 @@ Traps that already cost time. Add new ones here with the symptom first.
   for the computer to connect to its pairing port; the computer never heard the phone's mDNS announcement
   (firewall dropping multicast, or the phone ignoring legacy-unicast questions). Tether now also asks from its
   own `<ip>:5353` with the unicast-reply bit and, failing that, tries the password on the phone's open ports.
+
+- **QR pairing succeeds but Apps stays on “Reconnecting to your phone”**: pairing and app connections
+  use separate random ports. The pairing fallback did not carry through to `finish_connect` or automatic
+  reconnects; both still depended on mDNS. Both now share direct-port discovery, with a one-minute sweep
+  cooldown and three-second adb connection attempts; verified online addresses are saved separately as
+  `apps-connect-address` for reconnects when announcements are hidden. This addresses a code gap;
+  the owner's Samsung still needs to confirm the fix.

@@ -16,7 +16,7 @@ case "$1" in
     echo "List of discovered mdns services"
     [ -f "$D/scanned" ] && [ ! -f "$D/paired" ] && printf '%s\t_adb-tls-pairing._tcp\t%s:41234\n' "$(cut -d' ' -f1 "$D/scanned")" "$PHONE"
     [ -f "$D/codeopen" ] && [ ! -f "$D/paired" ] && printf 'adb-R5CW123-AbCdEf\t_adb-tls-pairing._tcp\t%s:41234\n' "$PHONE"
-    [ -f "$D/paired" ] && printf 'adb-R5CW123-AbCdEf\t_adb-tls-connect._tcp\t%s:37199\n' "$PHONE"
+    [ -f "$D/paired" ] && [ ! -f "$D/hideconnect" ] && printf 'adb-R5CW123-AbCdEf\t_adb-tls-connect._tcp\t%s:37199\n' "$PHONE"
     true ;;
   pair)
     want=$( [ -f "$D/scanned" ] && cut -d' ' -f2 "$D/scanned" || echo 123456 )

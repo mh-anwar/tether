@@ -85,3 +85,16 @@ owner, README (drop `tether apps doctor` as the user path). Wait for the owner's
 phone (Q25/Q26b/Q31). Then Q32 (screenshot copy), Q33.
 
 Delete this file once the five points above are done or moved into QUEUE/docs.
+
+## Follow-up: paired, then stuck reconnecting (2026-11-11)
+Owner confirmed the QR scan worked, then showed Apps stuck on “Reconnecting to your phone”. Found a
+code gap: `finish_connect` and `maybe_autoconnect` still required mDNS even though pairing had a port
+fallback. Both now use `connect_phone`, which tries the remembered verified address, advertised ports,
+then direct port discovery on the known phone. No overlapping automatic jobs, one-minute sweep
+cooldown, three-second connect attempts, online transport verification. Q34 tracks real-phone validation;
+these changes are local and require a release before the owner can try them.
+
+Validation this session: `cargo check -p tether -p tether-app`, combined binary build, targeted online
+transport test, workspace tests, clippy with warnings denied, fmt check, and seven WebDriver checks
+passed. The real window reached the app grid using stand-in adb/scrcpy, then reconnected after mDNS
+connect announcements were hidden. Direct discovery on a real Android phone is still unverified.

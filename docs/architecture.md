@@ -33,7 +33,10 @@
   Discovery also asks the phone directly (`mdns_probe.rs`: a unicast DNS-SD query to `<KDE Connect phone
   IP>:5353`, answered per RFC 6762 6.7), so a firewall that drops multicast doesn't hide the phone. Code
   pairing uses the same search to fill in the pairing port. Changes in what's in sight are logged at info
-  (`phone apps: services in sight`).
+  (`phone apps: services in sight`). If discovery is hidden, first connections and reconnects also try
+  open ports at the connected KDE Connect phone's address (same fallback as pairing). Only an online
+  adb transport counts as connected; its address is saved in `apps-connect-address` and retried later.
+  Automatic reconnects do not overlap; port discovery runs at most once per minute per attempt.
 - `update`: once a day (first 90 s after start) asks GitHub's latest-release API (`update_url` in config),
   compares with the running version, and for self-updating installs (AppImage, an `install.sh` folder)
   downloads, checks the release's `SHA256SUMS` and renames the new files over the old (running copies keep
