@@ -21,7 +21,10 @@ itself is not done yet (queue Q17).
    `--own-name=org.mpris.MediaPlayer2.tether*` (media keys).
 4. Start at login: inside the sandbox our systemd unit can't point at `/app/bin`; use the Background portal
    (`org.freedesktop.portal.Background.RequestBackground` with autostart) instead.
-5. Clipboard sync with the window closed needs the display socket, which the sandbox has.
-6. Screenshots in the metainfo (hosted in the public repo), then a CI job that builds the Flatpak with
+5. Pinned phone apps: inside the sandbox `$XDG_DATA_HOME/applications` is private to the app, so menu
+   entries must be exported another way (the Dynamic Launcher portal,
+   `org.freedesktop.portal.DynamicLauncher`), with Exec `flatpak run --command=tether ... apps <package>`.
+6. Clipboard sync with the window closed needs the display socket, which the sandbox has.
+7. Screenshots in the metainfo (hosted in the public repo), then a CI job that builds the Flatpak with
    `flatpak/flatpak-github-actions` on every release.
-7. Submit: fork `flathub/flathub`, add the manifest on a `new-pr` branch, open the PR, answer review.
+8. Submit: fork `flathub/flathub`, add the manifest on a `new-pr` branch, open the PR, answer review.

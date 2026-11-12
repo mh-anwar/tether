@@ -35,5 +35,7 @@
   the binary, then PATH.
 - **One-click helper download, pinned and checksummed** (scrcpy 5.0.1 static build, includes adb), because
   Ubuntu 24.04 and Debian 12 ship scrcpy 1.25, too old for app windows. Flatpak will bundle them instead.
+- **Several adb devices and none at the phone's address: refuse**, never guess, so apps can't open on an
+  emulator or another phone while the window names yours.
 - **Positioning**: Tether's reason to exist is what other KDE Connect desktops can't do (phone apps, calls),
   not a nicer copy of what they do. See positioning.md.
