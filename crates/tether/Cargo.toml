@@ -24,3 +24,5 @@ qrcode = { version = "0.14", default-features = false }
 sha2.workspace = true
 hex.workspace = true
 uuid.workspace = true
+# Phone apps: bind our own port 5353 next to avahi (SO_REUSEADDR) to ask the phone directly.
+socket2.workspace = true

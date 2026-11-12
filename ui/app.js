@@ -741,9 +741,10 @@ const apps = {
   opening: null, // package being opened
   setup: false, // "Set up again" pressed
   byCode: false,
-  ip: '', // phone IP typed by hand when KDE Connect doesn't know it
-  port: '',
+  manual: false, // "Enter the address yourself" opened
+  address: '', // typed by hand, only when Tether can't find the phone
   code: '',
+  details: null, // diagnostics text shown under an error, or 'loading'
   formError: null,
   timer: null,
   polling: false,
@@ -869,7 +870,7 @@ function appsSetup(st) {
     return h('div', { class: 'apps-setup narrow' },
       appsIntro('Reconnecting to your phone', "Your phone reconnects by itself when Wireless debugging is on and it's on the same Wi-Fi as this computer."),
       h('ol', { class: 'steps' }, h('li', { text: 'On your phone, open Settings, then Developer options.' }), h('li', { text: 'Turn on Wireless debugging.' })),
-      st.error ? h('p', { class: 'note error', role: 'alert' }, icon('alert', 'sm'), st.error)
+      st.error ? h('div', { class: 'stack' }, h('p', { class: 'note error', role: 'alert' }, icon('alert', 'sm'), st.error), appsDetails())
         : h('div', { class: 'row' }, h('span', { class: 'spinner sm', 'aria-hidden': 'true' }), h('span', { class: 'hint', text: 'Looking for your phone' })),
       h('div', { class: 'row' }, h('button', { class: 'btn', 'data-key': 'apps-setup-again', onclick: () => { apps.setup = true; api('apps_cancel').then(pollApps); } }, 'Set up again')));
   }
@@ -885,7 +886,8 @@ function appsSetup(st) {
   } else {
     side = h('div', { class: 'qr-card' },
       st.error ? h('p', { class: 'note error', role: 'alert' }, icon('alert', 'sm'), st.error) : h('div', { class: 'spinner' }),
-      st.error ? h('button', { class: 'btn primary', 'data-key': 'apps-new-code', onclick: () => api('apps_pair_qr').then(pollApps) }, icon('refresh', 'sm'), 'Show a new code') : null);
+      st.error ? appsDetails() : null,
+      st.error ? h('button', { class: 'btn primary', 'data-key': 'apps-new-code', onclick: () => { apps.details = null; api('apps_pair_qr').then(pollApps); } }, icon('refresh', 'sm'), 'Show a new code') : null);
   }
   return h('div', { class: 'apps-setup' },
     appsIntro("Use your phone's apps on this computer", 'Each app opens in its own window, with its sound on Android 11 or newer. Set it up once; it takes a minute.'),
@@ -894,68 +896,68 @@ function appsSetup(st) {
         h('li', {}, h('b', { text: 'Turn on Developer options. ' }), 'On your phone, open Settings, About phone, Software information, and tap Build number seven times.'),
         h('li', {}, h('b', { text: 'Turn on Wireless debugging. ' }), 'Open Settings, Developer options, Wireless debugging. Your phone must be on the same Wi-Fi as this computer.'),
         apps.byCode
-          ? h('li', {}, h('b', { text: 'Tap Pair device with pairing code. ' }), st.pairingAddr ? 'Type the 6-digit code it shows.' : 'Type the numbers it shows.')
+          ? h('li', {}, h('b', { text: 'Tap Pair device with pairing code ' }), 'and type the 6-digit code here.')
           : h('li', {}, h('b', { text: 'Tap Pair device with QR code ' }), 'and scan the code here.')),
       side),
-    h('button', { class: 'btn ghost link-btn', 'data-key': 'apps-mode', onclick: () => { apps.byCode = !apps.byCode; apps.formError = null; api(apps.byCode ? 'apps_find_port' : 'apps_pair_qr').then(pollApps); } },
+    h('button', { class: 'btn ghost link-btn', 'data-key': 'apps-mode', onclick: () => { apps.byCode = !apps.byCode; apps.formError = null; apps.details = null; api(apps.byCode ? 'apps_find_port' : 'apps_pair_qr').then(pollApps); } },
       apps.byCode ? 'Scan a QR code instead' : 'Pair with a code instead'));
 }
 
 function codeForm(st) {
   const busy = st.phase === 'pairing' || st.phase === 'connecting';
-  // Tether spots the phone's pairing port by itself most of the time; then only the code is typed.
-  const found = st.pairingAddr;
-  const ip = st.phoneIp || apps.ip;
   const submit = async (e) => {
     e.preventDefault();
     apps.formError = null;
-    const address = found || `${ip.trim()}:${apps.port.trim()}`;
+    apps.details = null;
+    const params = { code: apps.code };
+    if (apps.manual && apps.address.trim()) params.address = apps.address.trim();
+    renderApps();
     try {
-      await api('apps_pair_code', { address, code: apps.code });
+      await api('apps_pair_code', params);
     } catch (err) {
       apps.formError = String(err);
-      // A failed try ends the search for the port; start it again for the next try.
+      // A failed try ends the watch for the pairing port; start it again for the next try.
       api('apps_find_port').catch(() => {});
     }
     pollApps();
-  };
-  // Pasting "192.168.1.20:41234" anywhere fills both parts.
-  const splitAddress = (value) => {
-    const m = value.trim().match(/^(\d{1,3}(?:\.\d{1,3}){3}):(\d{1,5})$/);
-    if (!m) return false;
-    apps.ip = m[1];
-    apps.port = m[2];
-    renderApps();
-    return true;
   };
   const field = (label, hint, attrs) => h('label', {},
     h('span', { text: label }),
     h('input', { autocomplete: 'off', spellcheck: 'false', ...attrs }),
     hint ? h('span', { class: 'hint', text: hint }) : null);
-  let where;
-  if (found) {
-    where = h('p', { class: 'found' }, 'Found your phone at ', h('b', { text: found.replace(/:\d+$/, '') }));
-  } else {
-    where = h('div', { class: 'code-where' },
-      h('div', { class: 'row' }, h('span', { class: 'spinner sm', 'aria-hidden': 'true' }), h('span', { text: 'Looking for your phone. If it isn’t found, type the numbers yourself.' })),
-      st.phoneIp ? null : field('Phone IP address', 'The part before the colon, under "IP address and port".', {
-        'data-key': 'apps-ip', inputmode: 'decimal', placeholder: '192.168.1.20', required: true, value: apps.ip,
-        oninput: (e) => { if (!splitAddress(e.target.value)) apps.ip = e.target.value; },
-      }),
-      field('Port', st.phoneIp ? `The numbers after the colon, under "IP address and port". Your phone is ${st.phoneIp}.` : 'The numbers after the colon.', {
-        class: 'big', 'data-key': 'apps-port', inputmode: 'numeric', placeholder: '41234', required: true, maxlength: 21, value: apps.port,
-        oninput: (e) => { if (!splitAddress(e.target.value)) apps.port = e.target.value.replace(/\D/g, ''); },
-      }));
-  }
   return h('form', { class: 'qr-card code-form', onsubmit: submit },
-    where,
-    field('Wi-Fi pairing code', '6 digits, shown on the phone.', {
+    field('Wi-Fi pairing code', '6 digits, shown on your phone.', {
       class: 'big', 'data-key': 'apps-code', inputmode: 'numeric', placeholder: '123456', required: true, maxlength: 7, value: apps.code,
       oninput: (e) => { apps.code = e.target.value; },
     }),
-    apps.formError || st.error ? h('p', { class: 'note error', role: 'alert' }, icon('alert', 'sm'), apps.formError || st.error) : null,
+    apps.manual ? field('IP address and port', 'Shown on the same phone screen, like 192.168.1.20:41234.', {
+      'data-key': 'apps-address', inputmode: 'decimal', placeholder: '192.168.1.20:41234', value: apps.address,
+      oninput: (e) => { apps.address = e.target.value; },
+    }) : null,
+    apps.formError ? h('p', { class: 'note error', role: 'alert' }, icon('alert', 'sm'), apps.formError) : null,
+    apps.formError ? appsDetails() : null,
     h('button', { class: 'btn primary', type: 'submit', 'data-key': 'apps-pair', disabled: busy },
-      busy ? h('span', { class: 'spinner sm', 'aria-hidden': 'true' }) : null, busy ? (st.phase === 'pairing' ? 'Pairing' : 'Connecting') : 'Pair'));
+      busy ? h('span', { class: 'spinner sm', 'aria-hidden': 'true' }) : null, busy ? (st.phase === 'pairing' ? 'Pairing' : 'Connecting') : 'Pair'),
+    apps.manual ? null : h('button', { type: 'button', class: 'btn ghost link-btn small', 'data-key': 'apps-manual', onclick: () => { apps.manual = true; renderApps(); $('[data-key="apps-address"]')?.focus(); } },
+      'Enter the address yourself'));
+}
+
+/** What Tether sees while looking for the phone, for when pairing fails. No terminal needed. */
+function appsDetails() {
+  if (!apps.details) {
+    return h('button', { type: 'button', class: 'btn ghost link-btn small', 'data-key': 'apps-details', onclick: async () => {
+      apps.details = 'loading';
+      renderApps();
+      try { apps.details = await api('apps_doctor'); } catch (e) { apps.details = `Couldn't collect details: ${e}`; }
+      renderApps();
+    } }, 'Show details');
+  }
+  if (apps.details === 'loading') {
+    return h('div', { class: 'row hint' }, h('span', { class: 'spinner sm', 'aria-hidden': 'true' }), h('span', { text: 'Collecting details' }));
+  }
+  return h('div', { class: 'apps-details' },
+    h('pre', { tabindex: '0', 'aria-label': 'Details', text: apps.details }),
+    h('button', { type: 'button', class: 'btn small', 'data-key': 'apps-details-copy', onclick: () => copy(apps.details, 'Details copied') }, 'Copy details'));
 }
 
 /** Phone notifications carry the app's icon; remember it so the Apps page shows real icons. */

@@ -7,6 +7,7 @@
 //! the password. After that the phone advertises `_adb-tls-connect._tcp` and we `adb connect`.
 
 use std::{
+    collections::HashSet,
     net::{IpAddr, SocketAddr},
     path::{Path, PathBuf},
     process::Stdio,
@@ -440,12 +441,15 @@ pub fn pair_qr(svc: &Service) -> Result<Value> {
 
 async fn wait_for_scan(svc: &Service, name: &str, password: &str, attempt: u64) -> Result<String> {
     let start = Instant::now();
+    let mut tried = HashSet::new();
+    let mut round = 0u32;
     while start.elapsed() < PAIR_TIMEOUT {
         if state().attempt != attempt {
             bail!("cancelled");
         }
         // Asked every round: KDE Connect may reconnect, or the phone change address, meanwhile.
-        if let Some(m) = services(&phone_addrs(svc))
+        let ips = phone_addrs(svc);
+        if let Some(m) = services(&ips)
             .await
             .into_iter()
             .find(|m| m.kind == MdnsKind::Pairing && m.instance == name)
@@ -453,38 +457,113 @@ async fn wait_for_scan(svc: &Service, name: &str, password: &str, attempt: u64) 
             if !set_if(attempt, Phase::Pairing, None) {
                 bail!("cancelled");
             }
-            pair(&m.addr.to_string(), password).await?;
-            return Ok(m.addr.ip().to_string());
+            match try_pair(&m.addr, password).await? {
+                PairResult::Paired => return Ok(m.addr.ip().to_string()),
+                PairResult::WrongCode => {
+                    bail!("Pairing didn't work. Show a new code and scan it again.")
+                }
+                PairResult::Failed => bail!(PAIR_FAILED),
+            }
         }
+        // Nothing heard yet: the network may hide the phone's announcements altogether. After a few
+        // seconds, and then now and then, try our password on the phone's open ports instead.
+        if round % 8 == 4 {
+            if let Some(addr) = pair_by_sweep(&ips, password, &mut tried, attempt).await? {
+                return Ok(addr.ip().to_string());
+            }
+        }
+        round += 1;
         tokio::time::sleep(Duration::from_secs(1)).await;
     }
-    bail!("Your phone didn't answer. Check it's on the same Wi-Fi, or pair with a code instead.")
+    bail!(
+        "Your phone didn't answer. Check that it's on the same Wi-Fi as this computer, then show a \
+         new code and scan it again."
+    )
 }
 
-async fn pair(addr: &str, secret: &str) -> Result<()> {
+const PAIR_FAILED: &str =
+    "Pairing didn't work. Open Wireless debugging on the phone and try again.";
+
+enum PairResult {
+    Paired,
+    /// The port was the pairing port, but the code or password was wrong.
+    WrongCode,
+    /// Anything else, including a port that isn't the pairing port at all.
+    Failed,
+}
+
+async fn try_pair(addr: &SocketAddr, secret: &str) -> Result<PairResult> {
     // adb reads the code from stdin when it isn't an argument (adb client/commandline.cpp, "pair").
     let prog = tool("adb").ok_or_else(|| anyhow!("adb isn't installed"))?;
-    let (_, out) = run_input(
+    let out = match run_input(
         &prog,
-        &["pair", addr],
+        &["pair", &addr.to_string()],
         Some(secret),
-        Duration::from_secs(30),
+        Duration::from_secs(20),
     )
-    .await?;
+    .await
+    {
+        Ok((_, out)) => out,
+        Err(e) => {
+            warn!("adb pair {addr}: {e:#}");
+            return Ok(PairResult::Failed);
+        }
+    };
     if out.contains("Successfully paired") {
         let marker = paired_marker();
         if let Some(dir) = marker.parent() {
             let _ = std::fs::create_dir_all(dir);
         }
         let _ = std::fs::write(marker, "");
-        info!("paired with the phone for apps");
-        return Ok(());
+        info!("paired with the phone for apps at {addr}");
+        return Ok(PairResult::Paired);
     }
+    // adb says "Wrong password or connection was dropped" for both, so it only means a wrong code
+    // when we know this is the pairing port.
+    info!("adb pair {addr}: {}", out.trim());
     if out.to_lowercase().contains("wrong password") {
-        bail!("The code didn't match. Check it and try again.");
+        return Ok(PairResult::WrongCode);
     }
-    warn!("adb pair: {}", out.trim());
-    bail!("Pairing didn't work. Open Wireless debugging on the phone and try again.")
+    Ok(PairResult::Failed)
+}
+
+/// The last resort when the phone's announcements never arrive: try `secret` on each TCP port open on
+/// the phone (see mdns_probe::open_ports). Ports that failed once are in `tried` and skipped later,
+/// so the connect port isn't retried every round.
+async fn pair_by_sweep(
+    ips: &[IpAddr],
+    secret: &str,
+    tried: &mut HashSet<SocketAddr>,
+    attempt: u64,
+) -> Result<Option<SocketAddr>> {
+    for ip in ips.iter().filter(|ip| ip.is_ipv4()) {
+        let ports = crate::mdns_probe::open_ports(*ip).await;
+        // KDE Connect's own ports are never adb's.
+        let candidates: Vec<SocketAddr> = ports
+            .into_iter()
+            .filter(|p| !(1714..=1764).contains(p))
+            .map(|p| SocketAddr::new(*ip, p))
+            .filter(|a| !tried.contains(a))
+            .collect();
+        if !candidates.is_empty() {
+            info!("phone apps: trying ports on the phone directly: {candidates:?}");
+        }
+        for addr in candidates {
+            if state().attempt != attempt {
+                bail!("cancelled");
+            }
+            match try_pair(&addr, secret).await? {
+                PairResult::Paired => return Ok(Some(addr)),
+                PairResult::WrongCode => {
+                    bail!("The code didn't match. Check it and try again.")
+                }
+                PairResult::Failed => {
+                    tried.insert(addr);
+                }
+            }
+        }
+    }
+    Ok(None)
 }
 
 /// After pairing, the phone advertises its connect port; adb often connects by itself.
@@ -524,22 +603,67 @@ async fn finish_connect(svc: &Service, ip: Option<String>, attempt: u64) {
     );
 }
 
-pub async fn pair_code(svc: &Service, address: &str, code: &str) -> Result<Value> {
-    let addr: SocketAddr = address.trim().parse().map_err(|_| {
-        anyhow!("Type the port as shown on the phone: the numbers after the colon.")
-    })?;
+/// Pairs with the 6-digit code from "Pair device with pairing code". `address` is only for the rare
+/// case it was typed by hand; normally Tether has spotted the pairing port, or finds it now.
+pub async fn pair_code(svc: &Service, address: Option<&str>, code: &str) -> Result<Value> {
+    let typed: Option<SocketAddr> = match address.map(str::trim).filter(|a| !a.is_empty()) {
+        Some(a) => Some(a.parse().map_err(|_| {
+            anyhow!("Type the address as shown on the phone, like 192.168.1.20:41234.")
+        })?),
+        None => None,
+    };
     let code: String = code.chars().filter(char::is_ascii_digit).collect();
     if code.len() != 6 {
         bail!("The pairing code has 6 digits.");
     }
+    let spotted = state().code_addr;
     let attempt = new_attempt(Some(Phase::Pairing), None);
-    if let Err(e) = pair(&addr.to_string(), &code).await {
-        set_if(attempt, Phase::Idle, Some(e.to_string()));
-        return Err(e);
+    let result = pair_with_code(svc, typed.or(spotted), &code, attempt).await;
+    match result {
+        Ok(addr) => {
+            let svc = svc.clone();
+            tokio::spawn(async move {
+                finish_connect(&svc, Some(addr.ip().to_string()), attempt).await
+            });
+            Ok(json!(true))
+        }
+        Err(e) => {
+            set_if(attempt, Phase::Idle, None);
+            Err(e)
+        }
     }
-    let svc = svc.clone();
-    tokio::spawn(async move { finish_connect(&svc, Some(addr.ip().to_string()), attempt).await });
-    Ok(json!(true))
+}
+
+async fn pair_with_code(
+    svc: &Service,
+    known: Option<SocketAddr>,
+    code: &str,
+    attempt: u64,
+) -> Result<SocketAddr> {
+    let mut tried = HashSet::new();
+    if let Some(addr) = known {
+        match try_pair(&addr, code).await? {
+            PairResult::Paired => return Ok(addr),
+            PairResult::WrongCode => bail!("The code didn't match. Check it and try again."),
+            PairResult::Failed => {
+                tried.insert(addr);
+            }
+        }
+    }
+    let ips = phone_addrs(svc);
+    if ips.is_empty() {
+        bail!(
+            "Tether can't see your phone right now. Check that it shows as connected in Tether and \
+             is on the same Wi-Fi."
+        );
+    }
+    match pair_by_sweep(&ips, code, &mut tried, attempt).await? {
+        Some(addr) => Ok(addr),
+        None => bail!(
+            "Couldn't reach the pairing screen on your phone. Keep the screen with the code open, \
+             check Wireless debugging is still on, and try again."
+        ),
+    }
 }
 
 pub fn cancel() -> Value {

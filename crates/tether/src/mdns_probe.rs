@@ -23,19 +23,60 @@ const PTR: u16 = 12;
 const SRV: u16 = 33;
 
 /// Services seen at `ips` within `wait`. Best effort: errors just mean nothing found.
+///
+/// Asks twice at once: from an ordinary port (legacy unicast, answered straight back), and from our
+/// own address's port 5353 with the "unicast reply" bit set (RFC 6762 sections 5.4 and 5.5). Some
+/// responders ignore the first kind; the second is a normal mDNS question, and since the answer
+/// comes back to the exact address and port we sent from, stateful firewalls let it in.
 pub async fn probe(ips: &[IpAddr], wait: Duration) -> Vec<Mdns> {
-    probe_port(ips, 5353, wait).await.unwrap_or_default()
-}
-
-async fn probe_port(ips: &[IpAddr], port: u16, wait: Duration) -> std::io::Result<Vec<Mdns>> {
-    let mut found = Vec::new();
     let ips: Vec<IpAddr> = ips.iter().copied().filter(IpAddr::is_ipv4).collect();
     if ips.is_empty() {
-        return Ok(found);
+        return Vec::new();
     }
-    let sock = UdpSocket::bind("0.0.0.0:0").await?;
-    let ask = query(&[(PAIRING, PTR), (CONNECT, PTR)]);
-    for ip in &ips {
+    let legacy = async {
+        match UdpSocket::bind("0.0.0.0:0").await {
+            Ok(sock) => ask(&sock, &ips, 5353, false, wait).await,
+            Err(_) => Vec::new(),
+        }
+    };
+    let qu = async {
+        match mdns_socket(ips[0]).await {
+            Some(sock) => ask(&sock, &ips, 5353, true, wait).await,
+            None => Vec::new(),
+        }
+    };
+    let (mut found, more) = tokio::join!(legacy, qu);
+    for m in more {
+        if !found.contains(&m) {
+            found.push(m);
+        }
+    }
+    found
+}
+
+/// A socket on `<our address towards phone>:5353`. Binding the exact address (not 0.0.0.0) makes the
+/// kernel hand unicast replies to us rather than to avahi or adb, which share the port with
+/// SO_REUSEADDR on the wildcard address.
+async fn mdns_socket(phone: IpAddr) -> Option<UdpSocket> {
+    let probe = UdpSocket::bind("0.0.0.0:0").await.ok()?;
+    probe.connect((phone, 5353)).await.ok()?;
+    let local = SocketAddr::new(probe.local_addr().ok()?.ip(), 5353);
+    let sock = socket2::Socket::new(
+        socket2::Domain::IPV4,
+        socket2::Type::DGRAM,
+        Some(socket2::Protocol::UDP),
+    )
+    .ok()?;
+    sock.set_reuse_address(true).ok()?;
+    sock.set_nonblocking(true).ok()?;
+    sock.bind(&local.into()).ok()?;
+    UdpSocket::from_std(sock.into()).ok()
+}
+
+async fn ask(sock: &UdpSocket, ips: &[IpAddr], port: u16, qu: bool, wait: Duration) -> Vec<Mdns> {
+    let mut found = Vec::new();
+    let ask = query(&[(PAIRING, PTR), (CONNECT, PTR)], qu);
+    for ip in ips {
         let _ = sock.send_to(&ask, (*ip, port)).await;
     }
     let mut asked_srv = HashSet::new();
@@ -65,10 +106,49 @@ async fn probe_port(ips: &[IpAddr], port: u16, wait: Duration) -> std::io::Resul
             .collect();
         if !missing.is_empty() {
             let qs: Vec<(&str, u16)> = missing.iter().map(|i| (*i, SRV)).collect();
-            let _ = sock.send_to(&query(&qs), from).await;
+            let _ = sock.send_to(&query(&qs, qu), from).await;
         }
     }
-    Ok(found)
+    found
+}
+
+/// TCP ports open on the phone in Android's ephemeral range, where adbd puts its wireless-debugging
+/// ports. The last resort when the phone can't be heard at all: one of these is the pairing port.
+/// Closed ports answer at once with a reset, so a sweep takes a second or two on a home network.
+pub async fn open_ports(ip: IpAddr) -> Vec<u16> {
+    // Android's net.ipv4.ip_local_port_range (the Linux default).
+    open_ports_in(ip, 32768, 60999).await
+}
+
+async fn open_ports_in(ip: IpAddr, first: u16, last: u16) -> Vec<u16> {
+    // Well under the usual 1024 open-file limit, shared with the rest of the service.
+    const WORKERS: u16 = 256;
+    let mut tasks = tokio::task::JoinSet::new();
+    for w in 0..WORKERS {
+        tasks.spawn(async move {
+            let mut open = Vec::new();
+            let Some(mut port) = first.checked_add(w) else {
+                return Vec::new();
+            };
+            while port <= last {
+                let dial = tokio::net::TcpStream::connect((ip, port));
+                if let Ok(Ok(_)) = tokio::time::timeout(Duration::from_millis(400), dial).await {
+                    open.push(port);
+                }
+                port = match port.checked_add(WORKERS) {
+                    Some(p) => p,
+                    None => break,
+                };
+            }
+            open
+        });
+    }
+    let mut open = Vec::new();
+    while let Some(r) = tasks.join_next().await {
+        open.extend(r.unwrap_or_default());
+    }
+    open.sort_unstable();
+    open
 }
 
 fn to_mdns(full: &str, ip: IpAddr, port: u16) -> Option<Mdns> {
@@ -93,13 +173,14 @@ fn put_name(out: &mut Vec<u8>, name: &str) {
     out.push(0);
 }
 
-fn query(questions: &[(&str, u16)]) -> Vec<u8> {
+/// `qu`: ask for a unicast reply (top bit of the class), for questions sent from port 5353.
+fn query(questions: &[(&str, u16)], qu: bool) -> Vec<u8> {
     // A non-zero id: legacy-unicast replies echo it, and some responders ignore id 0 from port != 5353.
     let mut out = vec![0x7e, 0x7e, 0, 0, 0, questions.len() as u8, 0, 0, 0, 0, 0, 0];
     for (name, kind) in questions {
         put_name(&mut out, name);
         out.extend_from_slice(&kind.to_be_bytes());
-        out.extend_from_slice(&1u16.to_be_bytes());
+        out.extend_from_slice(&(if qu { 0x8001u16 } else { 1 }).to_be_bytes());
     }
     out
 }
@@ -211,7 +292,7 @@ mod tests {
     #[test]
     fn rejects_garbage() {
         assert!(parse(&[0; 5]).is_none());
-        assert!(parse(&query(&[(PAIRING, PTR)])).is_none());
+        assert!(parse(&query(&[(PAIRING, PTR)], false)).is_none());
         let mut loop_ = reply(false);
         loop_.truncate(12);
         loop_.extend_from_slice(&[0xc0, 12]); // points at itself
@@ -235,10 +316,28 @@ mod tests {
             phone.send_to(&reply(true), from).await.unwrap();
         });
         let ip: IpAddr = "127.0.0.1".parse().unwrap();
-        let found = probe_port(&[ip], port, Duration::from_millis(500))
-            .await
-            .unwrap();
+        let sock = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let found = ask(&sock, &[ip], port, false, Duration::from_millis(500)).await;
         assert_eq!(found.len(), 1);
         assert_eq!(found[0].addr.port(), 37215);
+    }
+}
+
+#[cfg(test)]
+mod scan_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn finds_a_listening_port() {
+        // A narrow range around our own listener: this box is shared, so no wide sweep in tests.
+        let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = l.local_addr().unwrap().port();
+        let open = open_ports_in(
+            "127.0.0.1".parse().unwrap(),
+            port.saturating_sub(2),
+            port.saturating_add(2),
+        )
+        .await;
+        assert!(open.contains(&port), "{open:?}");
     }
 }

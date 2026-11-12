@@ -71,10 +71,12 @@ async fn connection_loop(app: tauri::AppHandle) {
                 continue;
             }
         };
+        let service_pid = stream.peer_cred().ok().and_then(|c| c.pid());
         let (rd, wr) = stream.into_split();
         let state = app.state::<Daemon>();
         *state.writer.lock().await = Some(wr);
         let _ = app.emit("daemon", json!({"connected": true}));
+        tauri::async_runtime::spawn(replace_if_outdated(app.clone(), service_pid));
 
         let mut lines = BufReader::new(rd).lines();
         while let Ok(Some(line)) = lines.next_line().await {
@@ -96,6 +98,39 @@ async fn connection_loop(app: tauri::AppHandle) {
         }
         let _ = app.emit("daemon", json!({"connected": false}));
         tokio::time::sleep(Duration::from_millis(500)).await;
+    }
+}
+
+/// After an upgrade the old background service (started at login, or by the old window) keeps
+/// running, and the new window would show the new screens on top of old behaviour. If the service
+/// is another version, stop it; the connection loop then starts the one installed next to us.
+/// Once per window, so a mismatched `tether` found on PATH can't make us loop.
+async fn replace_if_outdated(app: tauri::AppHandle, pid: Option<i32>) {
+    static TRIED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    let daemon = app.state::<Daemon>();
+    let Ok(me) = call(daemon.clone(), "identity".into(), json!({})).await else {
+        return;
+    };
+    let theirs = me.get("version").and_then(Value::as_str);
+    if theirs == Some(env!("CARGO_PKG_VERSION")) || TRIED.swap(true, Ordering::Relaxed) {
+        return;
+    }
+    eprintln!(
+        "Tether: background service is version {}, this window is {}; restarting it",
+        theirs.unwrap_or("before 0.3.1"),
+        env!("CARGO_PKG_VERSION")
+    );
+    // 0.3.0 knows "shutdown"; older services don't, so fall back to stopping the process itself.
+    if call(daemon, "shutdown".into(), json!({})).await.is_ok() {
+        return;
+    }
+    let Some(pid) = pid else { return };
+    // Only a Tether process: the pid came from the socket's peer, but check before signalling.
+    let comm = std::fs::read_to_string(format!("/proc/{pid}/comm")).unwrap_or_default();
+    if comm.trim().starts_with("tether") {
+        let _ = std::process::Command::new("kill")
+            .arg(pid.to_string())
+            .status();
     }
 }
 

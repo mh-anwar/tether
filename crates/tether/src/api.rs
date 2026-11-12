@@ -115,6 +115,9 @@ async fn call(svc: &Service, method: &str, p: &Value) -> Result<Value> {
     match method {
         "identity" => {
             let mut v = serde_json::to_value(svc.identity())?;
+            // The window compares this with its own version and replaces a service left running
+            // from before an upgrade.
+            v["version"] = json!(env!("CARGO_PKG_VERSION"));
             v["discoveryListening"] = json!(svc.discovery_listening());
             v["clipboardSync"] =
                 json!(crate::clipsync::ACTIVE.load(std::sync::atomic::Ordering::Relaxed));
@@ -133,7 +136,10 @@ async fn call(svc: &Service, method: &str, p: &Value) -> Result<Value> {
         }
         "apps_status" => crate::apps::status(svc).await,
         "apps_pair_qr" => crate::apps::pair_qr(svc),
-        "apps_pair_code" => crate::apps::pair_code(svc, s(p, "address")?, s(p, "code")?).await,
+        "apps_pair_code" => {
+            let address = p.get("address").and_then(Value::as_str);
+            crate::apps::pair_code(svc, address, s(p, "code")?).await
+        }
         "apps_cancel" => Ok(crate::apps::cancel()),
         "update_status" => Ok(crate::update::status()),
         "update_check" => crate::update::check(false).await,
