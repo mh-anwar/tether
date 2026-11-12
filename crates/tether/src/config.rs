@@ -16,6 +16,11 @@ pub struct Config {
     /// Keep the computer's and the phone's clipboards the same.
     pub clipboard_sync: bool,
     pub downloads_dir: Option<PathBuf>,
+    /// Install new versions by themselves where that needs no password (AppImage, no-admin install).
+    /// Off: still check, and the window offers the update.
+    pub auto_update: bool,
+    /// Where to look for releases (GitHub's "latest release" API). For forks and tests.
+    pub update_url: Option<String>,
     #[serde(skip)]
     pub data_dir: PathBuf,
 }
@@ -28,6 +33,8 @@ impl Default for Config {
             mirror_notifications: true,
             clipboard_sync: true,
             downloads_dir: None,
+            auto_update: true,
+            update_url: None,
             data_dir: PathBuf::new(),
         }
     }

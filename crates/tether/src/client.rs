@@ -79,6 +79,38 @@ pub async fn run(device: Option<String>, cmd: Cmd) -> Result<()> {
     let mut c = Client::connect().await?;
     match cmd {
         Cmd::Daemon | Cmd::Autostart { .. } => unreachable!("handled in main"),
+        Cmd::Update => {
+            let st = c.call("update_check", json!({})).await?;
+            if let Some(e) = st.get("error").and_then(Value::as_str) {
+                bail!("{e}");
+            }
+            if st.get("noReleases").and_then(Value::as_bool) == Some(true) {
+                bail!("Couldn't see Tether's releases online.");
+            }
+            let Some(latest) = st.get("latest").and_then(Value::as_str) else {
+                println!("Tether {} is up to date.", str_of(&st, "current"));
+                return Ok(());
+            };
+            match str_of(&st, "kind").as_str() {
+                "dev" | "store" | "other" => {
+                    println!(
+                        "Tether {latest} is out. Get it from {}",
+                        str_of(&st, "page")
+                    );
+                    return Ok(());
+                }
+                _ => {}
+            }
+            println!("Downloading Tether {latest}.");
+            let st = c.call("update_install", json!({})).await?;
+            match st.get("installer").and_then(Value::as_str) {
+                Some(file) => println!(
+                    "Saved the installer to {file}. Install it with:\n  {}",
+                    str_of(&st, "installCommand")
+                ),
+                None => println!("Installed. Restart Tether to use {latest}."),
+            }
+        }
         Cmd::Devices => {
             let me = c.call("identity", json!({})).await?;
             println!(

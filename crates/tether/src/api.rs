@@ -135,6 +135,18 @@ async fn call(svc: &Service, method: &str, p: &Value) -> Result<Value> {
         "apps_pair_qr" => crate::apps::pair_qr(svc),
         "apps_pair_code" => crate::apps::pair_code(svc, s(p, "address")?, s(p, "code")?).await,
         "apps_cancel" => Ok(crate::apps::cancel()),
+        "update_status" => Ok(crate::update::status()),
+        "update_check" => crate::update::check(false).await,
+        "update_install" => crate::update::install().await,
+        "shutdown" => {
+            // After the reply goes out, so the window knows it was heard (it restarts us after an update).
+            tokio::spawn(async {
+                tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+                let _ = std::fs::remove_file(crate::socket_path());
+                std::process::exit(0);
+            });
+            ok()
+        }
         "apps_find_port" => Ok(crate::apps::find_pairing_port(svc)),
         "apps_doctor" => crate::apps::doctor(svc).await,
         "apps_download" => crate::apps::download(svc),

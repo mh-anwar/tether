@@ -20,6 +20,7 @@ const $ = (sel, root = document) => root.querySelector(sel);
 
 const state = {
   daemon: false,
+  update: null, // update_status from the daemon
   bootFailed: false,
   me: null,
   devices: [],
@@ -221,6 +222,7 @@ async function loadAll() {
     state.threads.clear();
     state.selected = null;
   }
+  loadUpdate();
   if (state.deviceId) await loadDevice();
   render();
 }
@@ -313,10 +315,69 @@ function renderRail() {
       h('button', { onclick: toggleFeed }, icon('bell'), h('span', { class: 'label', text: 'Notifications' }),
         notes ? h('span', { class: 'count label', text: String(notes) }) : null)),
     h('div', { class: 'spacer' }),
+    updateCard(),
     h('div', { class: 'hint' }, icon('upload', 'sm'), 'Drop files anywhere to send'),
     h('div', { class: 'hint' }, h('kbd', { text: 'Ctrl' }), h('kbd', { text: 'K' }), 'Commands'),
   ]);
 }
+
+// ---------- updates ----------
+async function loadUpdate(check = false) {
+  try { state.update = await api(check ? 'update_check' : 'update_status'); } catch { return; }
+  render();
+}
+
+async function installUpdate() {
+  state.update = { ...state.update, phase: 'downloading', error: null };
+  render();
+  try { state.update = await api('update_install'); } catch (e) { state.update = { ...state.update, phase: 'idle', error: String(e) }; }
+  render();
+}
+
+async function restartTether() {
+  try { await T.core.invoke('relaunch'); } catch (e) { toast(String(e), 'error'); }
+}
+
+async function checkForUpdates() {
+  toast('Checking for updates', 'progress', 3000);
+  await loadUpdate(true);
+  const u = state.update;
+  if (!u) return toast("Couldn't check for updates", 'error');
+  if (u.error) return toast(u.error, 'error');
+  if (u.noReleases) return toast("Couldn't see Tether's releases online", 'error');
+  if (!u.latest) toast(`Tether ${u.current} is up to date`);
+}
+
+function updateCard() {
+  const u = state.update;
+  if (!u || u.kind === 'dev' || u.kind === 'store') return null;
+  const card = (...kids) => h('div', { class: 'update', role: 'status' }, ...kids);
+  const v = u.latest;
+  if (u.phase === 'ready') {
+    return card(h('b', { text: `Tether ${v} is installed` }), h('span', { text: 'Restart to start using it.' }),
+      h('button', { class: 'btn primary', onclick: restartTether }, icon('refresh', 'sm'), 'Restart Tether'));
+  }
+  if (u.phase === 'installer') {
+    return card(h('b', { text: `Tether ${v} is in your Downloads` }),
+      h('span', { text: "If the installer didn't open, install it from a terminal:" }),
+      h('code', { text: u.installCommand }),
+      h('button', { class: 'btn', onclick: () => copy(u.installCommand, 'Command copied') }, icon('copy', 'sm'), 'Copy command'));
+  }
+  if (!v) return null;
+  if (u.phase === 'downloading') {
+    return card(h('div', { class: 'row' }, h('span', { class: 'spinner sm', 'aria-hidden': 'true' }), h('b', { text: `Downloading Tether ${v}` })));
+  }
+  const err = u.error ? h('p', { class: 'note error', role: 'alert' }, icon('alert', 'sm'), u.error) : null;
+  if (u.kind === 'other') {
+    return card(h('b', { text: `Tether ${v} is available` }), h('span', { text: 'Download it from the releases page.' }), err,
+      h('button', { class: 'btn', onclick: () => copy(u.page, 'Link copied') }, icon('copy', 'sm'), 'Copy link'));
+  }
+  return card(h('b', { text: `Tether ${v} is available` }), err,
+    h('button', { class: 'btn primary', onclick: installUpdate }, icon('download', 'sm'), u.error ? 'Try again' : 'Update'));
+}
+
+// The daemon checks once a day; pick up what it found.
+setInterval(() => { if (state.daemon) loadUpdate(); }, 30 * 60 * 1000);
 
 function renderList() {
   const list = $('.threads');
@@ -1143,6 +1204,7 @@ function commands() {
     state.call && { label: 'Mute the ringing call', icon: 'mute', run: () => quick('mute', 'Ringer muted') },
     { label: 'Look for my phone', icon: 'refresh', run: () => quick('refresh', 'Looking for your phone', true) },
     { label: 'Show notifications', icon: 'bell', run: toggleFeed },
+    { label: 'Check for updates', icon: 'download', run: checkForUpdates },
     recentCode() && { label: `Copy code ${recentCode().code}`, sub: recentCode().from, icon: 'key', run: () => copy(recentCode().code, 'Code copied') },
   ].filter(Boolean);
   cmds.push({ label: 'Show phone apps', icon: 'apps', run: () => showView('apps') });

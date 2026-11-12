@@ -126,6 +126,34 @@ async fn call(daemon: State<'_, Daemon>, method: String, params: Value) -> Resul
     Ok(reply.get("result").cloned().unwrap_or(Value::Null))
 }
 
+/// After an update replaced the files: stop the old background service, start a fresh window (which
+/// starts the new service), and close this one. An AppImage is started through its file, since this
+/// binary lives in the old copy's mount.
+#[tauri::command]
+async fn relaunch(app: tauri::AppHandle, daemon: State<'_, Daemon>) -> Result<(), String> {
+    let _ = call(daemon, "shutdown".into(), json!({})).await;
+    // Give the old service time to let go of its lock and socket.
+    tokio::time::sleep(Duration::from_millis(600)).await;
+    let me = std::env::var_os("APPIMAGE")
+        .filter(|a| !a.is_empty())
+        .map(PathBuf::from)
+        .or_else(|| {
+            let exe = std::env::current_exe().ok()?;
+            // Linux names a replaced binary "<path> (deleted)"; the new file is at <path>.
+            let s = exe.to_string_lossy();
+            Some(PathBuf::from(s.strip_suffix(" (deleted)").unwrap_or(&s)))
+        })
+        .ok_or("Couldn't find Tether to restart it")?;
+    std::process::Command::new(me)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .map_err(|e| format!("Couldn't restart Tether: {e}"))?;
+    app.exit(0);
+    Ok(())
+}
+
 /// On X11 the clipboard content lives only as long as its owner, so keep one handle for the
 /// whole app instead of dropping it right after copying.
 #[derive(Default)]
@@ -189,7 +217,7 @@ fn main() {
     tauri::Builder::default()
         .manage(Daemon::default())
         .manage(Clip::default())
-        .invoke_handler(tauri::generate_handler![call, copy_text])
+        .invoke_handler(tauri::generate_handler![call, copy_text, relaunch])
         .setup(|app| {
             tauri::async_runtime::spawn(connection_loop(app.handle().clone()));
             Ok(())

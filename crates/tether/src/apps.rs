@@ -15,6 +15,8 @@ use std::{
 };
 
 use anyhow::{anyhow, bail, Context, Result};
+
+use crate::exec::{download as fetch_file, is_executable, run, run_input, which};
 use serde::Serialize;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -161,50 +163,6 @@ fn tool(name: &str) -> Option<PathBuf> {
     dirs.into_iter()
         .map(|d| d.join(name))
         .find(|p| is_executable(p))
-}
-
-fn is_executable(p: &Path) -> bool {
-    use std::os::unix::fs::PermissionsExt;
-    std::fs::metadata(p)
-        .map(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
-        .unwrap_or(false)
-}
-
-/// Runs a helper to completion; returns whether it succeeded and stdout + stderr together.
-async fn run(prog: &Path, args: &[&str], timeout: Duration) -> Result<(bool, String)> {
-    run_input(prog, args, None, timeout).await
-}
-
-/// `input` goes to the helper's stdin: secrets go there, never into arguments (visible in /proc).
-async fn run_input(
-    prog: &Path,
-    args: &[&str],
-    input: Option<&str>,
-    timeout: Duration,
-) -> Result<(bool, String)> {
-    use tokio::io::AsyncWriteExt;
-    let mut child = Command::new(prog)
-        .args(args)
-        .stdin(if input.is_some() {
-            Stdio::piped()
-        } else {
-            Stdio::null()
-        })
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .kill_on_drop(true)
-        .spawn()
-        .with_context(|| format!("running {}", prog.display()))?;
-    if let (Some(text), Some(mut stdin)) = (input, child.stdin.take()) {
-        let _ = stdin.write_all(format!("{text}\n").as_bytes()).await;
-    }
-    let out = tokio::time::timeout(timeout, child.wait_with_output())
-        .await
-        .map_err(|_| anyhow!("{} took too long", prog.display()))?
-        .with_context(|| format!("running {}", prog.display()))?;
-    let mut text = String::from_utf8_lossy(&out.stdout).into_owned();
-    text.push_str(&String::from_utf8_lossy(&out.stderr));
-    Ok((out.status.success(), text))
 }
 
 async fn adb(args: &[&str], timeout: Duration) -> Result<(bool, String)> {
@@ -809,32 +767,9 @@ async fn fetch_helper() -> Result<()> {
     let parent = dest.parent().ok_or_else(|| anyhow!("no data folder"))?;
     std::fs::create_dir_all(parent)?;
     let archive = parent.join(format!("scrcpy-{HELPER_VERSION}.tar.gz.part"));
-    let fetched = match which("curl") {
-        Some(curl) => {
-            let a = archive.to_string_lossy();
-            run(
-                &curl,
-                &["-fsSL", "-o", &a, HELPER_URL],
-                Duration::from_secs(600),
-            )
-            .await
-        }
-        None => match which("wget") {
-            Some(wget) => {
-                let a = archive.to_string_lossy();
-                run(
-                    &wget,
-                    &["-q", "-O", &a, HELPER_URL],
-                    Duration::from_secs(600),
-                )
-                .await
-            }
-            None => bail!("this computer has neither curl nor wget"),
-        },
-    }?;
-    if !fetched.0 {
+    if let Err(e) = fetch_file(HELPER_URL, &archive, Duration::from_secs(600)).await {
         let _ = std::fs::remove_file(&archive);
-        bail!("check the internet connection");
+        return Err(e);
     }
     let bytes = std::fs::read(&archive)?;
     if hex::encode(Sha256::digest(&bytes)) != HELPER_SHA256 {
@@ -859,12 +794,6 @@ async fn fetch_helper() -> Result<()> {
     }
     info!("helper installed in {}", dest.display());
     Ok(())
-}
-
-fn which(name: &str) -> Option<PathBuf> {
-    std::env::split_paths(&std::env::var_os("PATH")?)
-        .map(|d| d.join(name))
-        .find(|p| is_executable(p))
 }
 
 // ---- phone apps in the desktop's app menu ----

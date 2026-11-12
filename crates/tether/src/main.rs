@@ -7,9 +7,11 @@ mod client;
 mod clipsync;
 mod config;
 mod daemon;
+mod exec;
 mod mdns_probe;
 mod mprisd;
 mod notify;
+mod update;
 
 use std::path::PathBuf;
 
@@ -76,6 +78,8 @@ enum Cmd {
     Watch,
     /// Start Tether when you log in: `on`, `off`, or no argument to check.
     Autostart { state: Option<Toggle> },
+    /// Check for a newer Tether and install it.
+    Update,
 }
 
 #[derive(Clone, Copy, clap::ValueEnum)]
