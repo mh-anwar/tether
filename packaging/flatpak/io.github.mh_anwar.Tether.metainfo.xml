@@ -43,6 +43,11 @@
     <color type="primary" scheme_preference="dark">#1f2a40</color>
   </branding>
   <releases>
+    <release version="0.3.2" date="2026-11-12">
+      <description>
+        <p>After pairing phone apps, Tether now reaches the phone even when the network hides its announcements, and reconnects to it on its own later.</p>
+      </description>
+    </release>
     <release version="0.3.1" date="2026-11-12">
       <description>
         <p>Phone-app pairing finds the phone on more networks, pairing by code takes only the 6 digits, and a new version replaces the old background service right away.</p>
