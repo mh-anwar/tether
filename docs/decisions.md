@@ -38,6 +38,12 @@
 - **Ask the phone directly as well as adb's multicast DNS**: we already know its IP from KDE Connect, and a
   reply to our own unicast query passes stateful firewalls that drop multicast. Hand-written DNS (~150
   lines) rather than a DNS crate: only PTR and SRV are needed.
+- **Updates verified by the release's SHA256SUMS over HTTPS, not signed**: the checksum catches a damaged
+  download; trust rests on GitHub and TLS, the same as the manual download it replaces. Signing (minisign)
+  is the next step if releases ever come from elsewhere. Updates use curl/wget rather than an HTTP crate,
+  like the helper download, to keep the daemon small.
+- **Self-update only where no password is needed** (AppImage, `install.sh` folder); packages get their
+  installer opened, never a silent `sudo`.
 - **Several adb devices and none at the phone's address: refuse**, never guess, so apps can't open on an
   emulator or another phone while the window names yours.
 - **Positioning**: Tether's reason to exist is what other KDE Connect desktops can't do (phone apps, calls),

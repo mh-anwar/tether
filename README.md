@@ -21,6 +21,11 @@ Download from the [Releases page](../../releases) (x86_64):
 Then open **Tether** from your app menu. It starts itself at every login from then on, so your phone stays
 linked with the window closed. `tether autostart off` stops that.
 
+**Updates**: Tether checks for a new version once a day. The AppImage and the no-admin install update
+themselves (the window then offers a restart); `.deb` and `.rpm` installs get an Update button that saves
+the new installer to Downloads and opens it. `"auto_update": false` in the config makes every update wait
+for your click. `tether update` checks right away.
+
 Quit KDE Connect or Valent first: they use the same network ports. Tether warns you if one is running.
 If your firewall blocks them, open ports 1714-1764 (TCP and UDP).
 
@@ -64,6 +69,8 @@ tether share ~/Pictures/photo.jpg     # or a https:// link
 tether clip "some text"               # copy to the phone's clipboard
 tether ring                           # find your phone
 tether apps spotify                   # open a phone app in its own window (after setup in the window)
+tether apps doctor                    # why phone apps can't find the phone
+tether update                         # install a newer Tether now
 tether watch                          # live events, as JSON lines
 ```
 

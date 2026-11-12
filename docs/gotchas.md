@@ -51,6 +51,12 @@ Traps that already cost time. Add new ones here with the symptom first.
 - **Page stuck on "Starting Tether"**: the "connected" event can fire before the page listens; the page also
   polls `identity` every 1.5 s until connected.
 
+## Updates
+- **Restart after an update starts nothing**: once a running binary's file is replaced, Linux reports its
+  path as `<path> (deleted)`; strip that suffix before re-running it (`update::exe_path`, `relaunch`).
+- **Restart starts the old version from an AppImage**: the window's own binary lives in the old AppImage's
+  mount; re-run `$APPIMAGE`, the file that was replaced.
+
 ## Phone apps (adb)
 - **QR pairing never finds the phone**: adb (37, from the scrcpy bundle) finds phones over multicast DNS
   (Openscreen, on by default; `ADB_MDNS_OPENSCREEN=0` switches to the system's Bonjour). A firewall that

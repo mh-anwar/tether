@@ -42,6 +42,14 @@ testing/ui/run.sh stop
 Look at every screenshot you take. Unset `RUST_LOG` when calling `uv` (it changes uv's logging).
 The window is 1200x780 at the top-left (no window manager); there is no drag-and-drop or resizing.
 
+## Updates (nothing published)
+`testing/update/fake-release.sh DIR PORT [VERSION]` serves a stand-in GitHub release (latest.json, the
+no-admin tarball built from the debug binaries with a marker line appended, SHA256SUMS). Set
+`"update_url": "http://127.0.0.1:PORT/latest.json"` in the test config. Binaries under `target/` never
+update, so copy them to a folder that mimics an install and point the UI script at it:
+`CARGO_TARGET_DIR=/tmp/x testing/ui/run.sh start` with `/tmp/x/debug/{tether,tether-app,examples/fake_phone}`.
+Then Ctrl+K, "Check for updates", Update, Restart Tether; `tail -c 40 /tmp/x/debug/tether` shows the marker.
+
 ## Phone apps (no phone needed)
 `testing/apps/adb` and `testing/apps/scrcpy` stand in for the real helpers; their state is files in
 `$FAKE_APPS_DIR` and every call is logged to `calls.log`. Export before `run.sh start` (the window starts the

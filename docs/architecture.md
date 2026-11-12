@@ -34,6 +34,12 @@
   IP>:5353`, answered per RFC 6762 6.7), so a firewall that drops multicast doesn't hide the phone. Code
   pairing uses the same search to fill in the pairing port. Changes in what's in sight are logged at info
   (`phone apps: services in sight`).
+- `update`: once a day (first 90 s after start) asks GitHub's latest-release API (`update_url` in config),
+  compares with the running version, and for self-updating installs (AppImage, an `install.sh` folder)
+  downloads, checks the release's `SHA256SUMS` and renames the new files over the old (running copies keep
+  the old inode). `.deb`/`.rpm`: on request, the package goes to Downloads and is opened. Dev builds
+  (`target/`) and Flatpak never update. `exec.rs` holds the curl/wget and process helpers it shares with
+  `apps`.
 - `autostart`: `tether autostart on|off` writes a systemd user unit (XDG autostart fallback). The window
   turns it on at first launch and rewrites it each launch while on (follows a moved AppImage).
 
@@ -44,7 +50,10 @@ Request `{"id","method","params"}`, reply `{"id","result"|"error"}`, events push
 - Phone apps (no device param): `apps_status` (helpers found, phase idle/waiting/pairing/connecting/
   downloading, error, QR as SVG while waiting, connected adb device, `phoneIp` from KDE Connect,
   `pairingAddr` once spotted), `apps_pair_qr`, `apps_pair_code {address, code}`, `apps_find_port` (code
-  pairing: look for the phone's pairing port), `apps_doctor` (text report for `tether apps doctor`), `apps_cancel`, `apps_download`, `apps_list`, `apps_open {package?, title}` (no package:
+  pairing: look for the phone's pairing port), `apps_doctor` (text report for `tether apps doctor`), `apps_cancel`, `update_status`, `update_check`,
+  `update_install` (all return the update status: current, latest, kind, phase idle/checking/downloading/
+  ready/installer, error, noReleases, installer path and command), `shutdown` (the window's restart after an
+  update: the daemon exits, the window starts a fresh copy of itself, which starts the new daemon), `apps_download`, `apps_list`, `apps_open {package?, title}` (no package:
   the whole screen), `apps_menu` (pinned packages), `apps_menu_set {package, name, icon?, on}` (icon: a file from the
   notification-icon cache, copied to `tether/menu-icons/`) (writes
   `$XDG_DATA_HOME/applications/tether-app-<package>.desktop` running `tether apps <package>`; the daemon
