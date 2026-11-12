@@ -231,6 +231,7 @@ async function loadDevice() {
     const [data, threads, contacts] = await Promise.all([
       api('device_data', { device: id }), api('threads', { device: id }), api('contacts', { device: id }),
     ]);
+    if (state.deviceId !== id) return; // another phone was picked meanwhile
     state.battery = data.battery;
     state.signal = data.signal || {};
     state.notifications = data.notifications || {};
@@ -411,7 +412,7 @@ function messageNodes(id, msgs) {
   if (state.loadingThread === id && msgs.length < 3) nodes.push(h('div', { class: 'day' }, 'Loading earlier messages'));
   let prev = null;
   const group = (msgs[0]?.addresses || []).length > 1;
-  const all = [...msgs, ...state.pending.filter((p) => p.thread === id).map((p) => ({ ...p, type: 2, _pending: true }))];
+  const all = [...msgs, ...state.pending.filter((p) => p.thread === id && p.device === state.deviceId).map((p) => ({ ...p, type: 2, _pending: true }))];
   all.forEach((m, i) => {
     if (!prev || !sameDay(new Date(prev.date), new Date(m.date))) nodes.push(h('div', { class: 'day', text: dayLabel(m.date) }));
     const out = m.type === 2;
@@ -430,7 +431,9 @@ function messageNodes(id, msgs) {
     if (m._pending) {
       row.append(h('div', { class: 'stamp' }, m.state === 'failed'
         ? ['Not sent. ', h('button', { class: 'link-retry', onclick: () => retry(m) }, 'Try again')]
-        : 'Sending'));
+        : m.state === 'unconfirmed'
+          ? ['Your phone hasn\'t confirmed this yet. ', h('button', { class: 'link-retry', onclick: () => retry(m) }, 'Send again')]
+          : 'Sending'));
     } else if (last) {
       row.append(h('div', { class: 'stamp', text: new Date(m.date).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) }));
     }
@@ -465,7 +468,7 @@ async function send(ta) {
   }
   ta.value = '';
   ta.style.height = 'auto';
-  const p = { body, thread, addresses: addresses.map((a) => ({ address: a })), date: Date.now(), state: 'pending' };
+  const p = { key: `p${Date.now()}-${Math.random()}`, device: state.deviceId, body, thread, addresses: addresses.map((a) => ({ address: a })), date: Date.now(), state: 'pending' };
   state.pending.push(p);
   if (thread !== null) renderThreadPane(false);
   else toast('Sending', 'progress', 4000);
@@ -476,12 +479,14 @@ async function send(ta) {
     renderThreadPane(false);
     return toast(String(e), 'error');
   }
-  // No confirmation within 45 s means the phone didn't send it (no signal, no permission).
-  setTimeout(() => { if (state.pending.includes(p)) { p.state = 'failed'; renderThreadPane(false); } }, 45000);
+  // No echo within 45 s: maybe no signal or permission, maybe just slow. Say so, don't claim failure.
+  setTimeout(() => { if (state.pending.includes(p)) { p.state = 'unconfirmed'; renderThreadPane(false); } }, 45000);
 }
 
-function retry(p) {
-  state.pending.splice(state.pending.indexOf(p), 1);
+function retry(m) {
+  // Rendered messages are copies, so find the pending entry by its key.
+  const i = state.pending.findIndex((p) => p.key === m.key);
+  if (i >= 0) state.pending.splice(i, 1);
   const ta = $('.composer textarea');
   if (ta) { ta.value = p.body; send(ta); }
 }
@@ -680,6 +685,7 @@ const apps = {
   formError: null,
   timer: null,
   polling: false,
+  serial: null, // adb device the list belongs to
   menu: new Set(), // packages with an entry in the desktop's app menu
   recent: (() => { try { return JSON.parse(localStorage.getItem('tether.recentApps') || '[]'); } catch { return []; } })(),
 };
@@ -707,6 +713,12 @@ async function pollApps() {
   const st = apps.status;
   if (st.device) {
     apps.setup = false;
+    if (st.device.serial !== apps.serial) {
+      // A different phone: its apps, not the last one's.
+      apps.serial = st.device.serial;
+      apps.list = null;
+      apps.error = null;
+    }
     if (!apps.list && !apps.loading && !apps.error) loadApps();
   } else if (st.adb && st.scrcpy && !st.scrcpyTooOld && st.phase === 'idle' && !st.error && wantsSetup()) {
     // The setup screen shows the QR code straight away; nothing to click first.
@@ -759,7 +771,7 @@ function renderApps() {
   swap(page, () => {
     if (!st) return h('div', { class: 'empty' }, h('div', { class: 'spinner' }), h('p', { text: 'Checking your phone' }));
     if (st.failed) return h('div', { class: 'empty' }, icon('alert'), h('p', { text: st.failed }),
-      h('button', { class: 'btn', onclick: pollApps }, icon('refresh', 'sm'), 'Try again'));
+      h('button', { class: 'btn', 'data-key': 'apps-retry', onclick: pollApps }, icon('refresh', 'sm'), 'Try again'));
     if (!st.adb || !st.scrcpy || st.scrcpyTooOld) return appsHelper(st);
     if (!st.device) return appsSetup(st);
     return appsGrid(st);
@@ -779,12 +791,12 @@ function appsHelper(st) {
     st.error ? h('p', { class: 'note error', role: 'alert' }, icon('alert', 'sm'), st.error) : null,
     st.canDownload
       ? h('div', { class: 'row' },
-        h('button', { class: 'btn primary', disabled: downloading, onclick: () => api('apps_download').then(pollApps).catch((e) => toast(String(e), 'error')) },
+        h('button', { class: 'btn primary', 'data-key': 'apps-download', disabled: downloading, onclick: () => api('apps_download').then(pollApps).catch((e) => toast(String(e), 'error')) },
           downloading ? h('span', { class: 'spinner sm', 'aria-hidden': 'true' }) : icon('download', 'sm'),
           downloading ? 'Downloading (18 MB)' : 'Download helper (18 MB)'),
         h('span', { class: 'hint', text: 'Or install scrcpy 3.0 or newer yourself.' }))
       : h('div', { class: 'row' },
-        h('button', { class: 'btn', onclick: pollApps }, icon('refresh', 'sm'), 'Check again'),
+        h('button', { class: 'btn', 'data-key': 'apps-check', onclick: pollApps }, icon('refresh', 'sm'), 'Check again'),
         h('span', { class: 'hint', text: 'Install scrcpy 3.0 or newer and adb first.' })));
 }
 
@@ -795,7 +807,7 @@ function appsSetup(st) {
       h('ol', { class: 'steps' }, h('li', { text: 'On your phone, open Settings, then Developer options.' }), h('li', { text: 'Turn on Wireless debugging.' })),
       st.error ? h('p', { class: 'note error', role: 'alert' }, icon('alert', 'sm'), st.error)
         : h('div', { class: 'row' }, h('span', { class: 'spinner sm', 'aria-hidden': 'true' }), h('span', { class: 'hint', text: 'Looking for your phone' })),
-      h('div', { class: 'row' }, h('button', { class: 'btn', onclick: () => { apps.setup = true; api('apps_cancel').then(pollApps); } }, 'Set up again')));
+      h('div', { class: 'row' }, h('button', { class: 'btn', 'data-key': 'apps-setup-again', onclick: () => { apps.setup = true; api('apps_cancel').then(pollApps); } }, 'Set up again')));
   }
   const phase = st.phase;
   let side;
@@ -809,7 +821,7 @@ function appsSetup(st) {
   } else {
     side = h('div', { class: 'qr-card' },
       st.error ? h('p', { class: 'note error', role: 'alert' }, icon('alert', 'sm'), st.error) : h('div', { class: 'spinner' }),
-      st.error ? h('button', { class: 'btn primary', onclick: () => api('apps_pair_qr').then(pollApps) }, icon('refresh', 'sm'), 'Show a new code') : null);
+      st.error ? h('button', { class: 'btn primary', 'data-key': 'apps-new-code', onclick: () => api('apps_pair_qr').then(pollApps) }, icon('refresh', 'sm'), 'Show a new code') : null);
   }
   return h('div', { class: 'apps-setup' },
     appsIntro("Use your phone's apps on this computer", 'Each app opens in its own window, with its sound on Android 11 or newer. Set it up once; it takes a minute.'),
@@ -821,7 +833,7 @@ function appsSetup(st) {
           ? h('li', {}, h('b', { text: 'Tap Pair device with pairing code. ' }), 'Type the address and the code it shows.')
           : h('li', {}, h('b', { text: 'Tap Pair device with QR code ' }), 'and scan the code here.')),
       side),
-    h('button', { class: 'btn ghost link-btn', onclick: () => { apps.byCode = !apps.byCode; api(apps.byCode ? 'apps_cancel' : 'apps_pair_qr').then(pollApps); } },
+    h('button', { class: 'btn ghost link-btn', 'data-key': 'apps-mode', onclick: () => { apps.byCode = !apps.byCode; api(apps.byCode ? 'apps_cancel' : 'apps_pair_qr').then(pollApps); } },
       apps.byCode ? 'Scan a QR code instead' : 'Pair with a code instead'));
 }
 
@@ -838,7 +850,7 @@ function codeForm(st) {
     h('label', {}, h('span', { text: 'IP address and port' }), h('input', { name: 'address', 'data-key': 'apps-addr', placeholder: '192.168.1.20:41234', required: true, autocomplete: 'off', value: apps.addr, oninput: (e) => { apps.addr = e.target.value; } })),
     h('label', {}, h('span', { text: 'Wi-Fi pairing code' }), h('input', { name: 'code', 'data-key': 'apps-code', inputmode: 'numeric', placeholder: '123456', required: true, autocomplete: 'off', value: apps.code, oninput: (e) => { apps.code = e.target.value; } })),
     apps.formError || st.error ? h('p', { class: 'note error', role: 'alert' }, icon('alert', 'sm'), apps.formError || st.error) : null,
-    h('button', { class: 'btn primary', type: 'submit', disabled: busy },
+    h('button', { class: 'btn primary', type: 'submit', 'data-key': 'apps-pair', disabled: busy },
       busy ? h('span', { class: 'spinner sm', 'aria-hidden': 'true' }) : null, busy ? (st.phase === 'pairing' ? 'Pairing' : 'Connecting') : 'Pair'));
 }
 
@@ -874,7 +886,7 @@ function appsGrid(st) {
   const recent = q ? [] : apps.recent.map((p) => all.find((a) => a.package === p)).filter(Boolean);
   let body;
   if (apps.loading && !apps.list) body = h('div', { class: 'empty' }, h('div', { class: 'spinner' }), h('p', { text: 'Getting the list of apps from your phone' }));
-  else if (apps.error) body = h('div', { class: 'empty' }, icon('alert'), h('p', { text: apps.error }), h('button', { class: 'btn', onclick: loadApps }, icon('refresh', 'sm'), 'Try again'));
+  else if (apps.error) body = h('div', { class: 'empty' }, icon('alert'), h('p', { text: apps.error }), h('button', { class: 'btn', 'data-key': 'apps-reload', onclick: loadApps }, icon('refresh', 'sm'), 'Try again'));
   else if (!shown.length) body = h('div', { class: 'empty' }, h('p', { text: q ? `No app matches "${apps.filter}".` : 'No apps found on the phone.' }));
   else {
     body = h('div', { class: 'apps-body' },
@@ -886,7 +898,7 @@ function appsGrid(st) {
     h('div', { class: 'apps-head' },
       h('div', { class: 'row' },
         h('div', {}, h('h1', { text: 'Apps' }), h('p', { class: 'sub', text: `From ${device()?.name || st.device.model || 'your phone'}. Pin an app to add it to this computer's app menu.` })),
-        h('button', { class: 'btn', disabled: !!apps.opening, onclick: () => openApp(null) },
+        h('button', { class: 'btn', 'data-key': 'apps-screen', disabled: !!apps.opening, onclick: () => openApp(null) },
           apps.opening === 'screen' ? h('span', { class: 'spinner sm', 'aria-hidden': 'true' }) : icon('phone', 'sm'), 'Phone screen')),
       h('label', { class: 'search' }, icon('search', 'sm'),
         h('input', { type: 'search', 'data-key': 'apps-filter', placeholder: 'Search apps', 'aria-label': 'Search apps', value: apps.filter,

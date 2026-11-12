@@ -377,8 +377,11 @@ impl Service {
         let from = self.inner.attachment_file(unique_identifier);
         let dir = &self.inner.config.downloads_dir;
         std::fs::create_dir_all(dir)?;
-        let to = unique_path(dir, &safe_file_name(unique_identifier));
-        std::fs::copy(&from, &to)?;
+        let to = reserve_path(dir, &safe_file_name(unique_identifier))?;
+        if let Err(e) = std::fs::copy(&from, &to) {
+            let _ = std::fs::remove_file(&to);
+            return Err(e.into());
+        }
         Ok(to)
     }
 
@@ -513,7 +516,7 @@ impl Inner {
         }
         let gen = self.next_gen.fetch_add(1, Ordering::Relaxed);
         let mut devs = self.lock();
-        if let Some(d) = devs.get(&id) {
+        if let Some(d) = devs.get_mut(&id) {
             if let Some(trusted) = &d.trusted_cert {
                 if *trusted != peer_cert {
                     // Someone else is using this id, or the phone was reset. Never silently re-trust.
@@ -523,6 +526,17 @@ impl Inner {
                     );
                     return;
                 }
+            }
+            // A pairing in progress was confirmed for the certificate on the screen at the time
+            // (the verification code is derived from it). A link with another certificate must
+            // not inherit it, or an impostor could win the race and get pinned.
+            let cert_changed = d.link.as_ref().is_some_and(|l| l.cert != peer_cert);
+            if cert_changed && !matches!(d.pair, Pair::None | Pair::Paired) {
+                warn!(
+                    "{} reconnected with another certificate during pairing; pairing cancelled",
+                    d.identity.device_name
+                );
+                d.pair = Pair::None;
             }
         }
 
@@ -812,7 +826,7 @@ impl Inner {
 
     fn on_pair_request(&self, d: &mut Dev, p: &Packet, reply: impl Fn(bool)) {
         let ts = p.i64("timestamp").unwrap_or(0);
-        if (now_secs() - ts).abs() > PAIR_MAX_SKEW_SECS {
+        if !clock_close_enough(ts) {
             warn!(
                 "pair request from {} refused: clocks differ by over 30 minutes",
                 d.identity.device_name
@@ -837,16 +851,28 @@ impl Inner {
         let dir = self.config.downloads_dir.clone();
         let result: Result<PathBuf> = async {
             tokio::fs::create_dir_all(&dir).await?;
-            let path = unique_path(&dir, &safe_file_name(&name));
-            let partial = path.with_extension("part");
-            let mut f = tokio::fs::File::create(&partial).await?;
-            match payload::fetch(target, &self.tls, &cert, size, &mut f).await {
-                Ok(_) => {
-                    tokio::fs::rename(&partial, &path).await?;
-                    Ok(path)
-                }
+            // The final name is claimed up front (an empty file, created exclusively) so two
+            // transfers, or a file the user saves meanwhile, can never share or overwrite it.
+            let path = reserve_path(&dir, &safe_file_name(&name))?;
+            let mut partial = path.clone().into_os_string();
+            partial.push(".part");
+            let partial = PathBuf::from(partial);
+            let fetched = async {
+                let mut f = tokio::fs::OpenOptions::new()
+                    .write(true)
+                    .create_new(true)
+                    .open(&partial)
+                    .await?;
+                payload::fetch(target, &self.tls, &cert, size, &mut f).await?;
+                tokio::fs::rename(&partial, &path).await?;
+                Ok::<_, Error>(())
+            }
+            .await;
+            match fetched {
+                Ok(()) => Ok(path),
                 Err(e) => {
                     let _ = tokio::fs::remove_file(&partial).await;
+                    let _ = tokio::fs::remove_file(&path).await;
                     Err(e)
                 }
             }
@@ -1085,6 +1111,12 @@ impl Inner {
                         SocketAddr::new(addr.ip(), UDP_PORT),
                     )
                     .await;
+                // The phone drops a second UDP or TCP contact from one IP within 1 s (protocol.md,
+                // pitfall 3). Give it time to dial us back, and only dial ourselves if it didn't.
+                tokio::time::sleep(Duration::from_millis(1500)).await;
+                if inner.has_link_at(addr) {
+                    return;
+                }
                 match link::connect(addr, &inner.identity, &inner.tls).await {
                     Ok(l) => inner.on_link_at(l, Some(addr)),
                     Err(e) => debug!("redial {addr} failed: {e}"),
@@ -1092,6 +1124,12 @@ impl Inner {
             });
         }
         any_missing
+    }
+
+    fn has_link_at(&self, addr: SocketAddr) -> bool {
+        self.lock()
+            .values()
+            .any(|d| d.link.is_some() && d.last_address.is_some_and(|a| a.ip() == addr.ip()))
     }
 
     /// After sleep or a network change: dial paired phones now. After a long sleep, drop links
@@ -1353,19 +1391,34 @@ fn safe_file_name(name: &str) -> String {
     }
 }
 
-fn unique_path(dir: &Path, name: &str) -> PathBuf {
-    let first = dir.join(name);
-    if !first.exists() {
-        return first;
-    }
+/// Pair requests carry the sender's clock; untrusted, so no arithmetic that can overflow.
+fn clock_close_enough(ts: i64) -> bool {
+    now_secs().abs_diff(ts) <= PAIR_MAX_SKEW_SECS.unsigned_abs()
+}
+
+/// Claims `name` in `dir`, or "name (1).ext", "name (2).ext"..., by creating it exclusively.
+fn reserve_path(dir: &Path, name: &str) -> std::io::Result<PathBuf> {
     let (stem, ext) = match name.rsplit_once('.') {
         Some((s, e)) if !s.is_empty() => (s.to_string(), format!(".{e}")),
         _ => (name.to_string(), String::new()),
     };
-    (1..10_000)
-        .map(|i| dir.join(format!("{stem} ({i}){ext}")))
-        .find(|p| !p.exists())
-        .unwrap_or(first)
+    let candidates = std::iter::once(dir.join(name))
+        .chain((1..10_000).map(|i| dir.join(format!("{stem} ({i}){ext}"))));
+    for p in candidates {
+        match std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&p)
+        {
+            Ok(_) => return Ok(p),
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(e) => return Err(e),
+        }
+    }
+    Err(std::io::Error::new(
+        std::io::ErrorKind::AlreadyExists,
+        "too many files with this name",
+    ))
 }
 
 #[cfg(test)]
@@ -1379,5 +1432,26 @@ mod tests {
         assert_eq!(safe_file_name(".bashrc"), "bashrc");
         assert_eq!(safe_file_name(""), "file");
         assert_eq!(safe_file_name("photo.jpg"), "photo.jpg");
+    }
+
+    #[test]
+    fn pair_clock_check_survives_extreme_values() {
+        assert!(clock_close_enough(now_secs()));
+        assert!(!clock_close_enough(i64::MIN));
+        assert!(!clock_close_enough(i64::MAX));
+        assert!(!clock_close_enough(0));
+    }
+
+    #[test]
+    fn reserved_names_never_collide() {
+        let dir = std::env::temp_dir().join(format!("tether-reserve-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let a = reserve_path(&dir, "photo.jpg").unwrap();
+        let b = reserve_path(&dir, "photo.jpg").unwrap();
+        let c = reserve_path(&dir, "photo.png").unwrap();
+        assert_eq!(a.file_name().unwrap(), "photo.jpg");
+        assert_eq!(b.file_name().unwrap(), "photo (1).jpg");
+        assert_eq!(c.file_name().unwrap(), "photo.png");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

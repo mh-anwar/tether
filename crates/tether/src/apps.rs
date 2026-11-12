@@ -257,6 +257,24 @@ fn parse_apps(out: &str) -> Vec<PhoneApp> {
         .collect()
 }
 
+/// `scrcpy --version`, remembered per binary (path and modification time): the Apps page asks
+/// for status every few seconds and the answer only changes when scrcpy is replaced.
+async fn scrcpy_version(prog: &Path) -> Option<u32> {
+    static CACHE: Mutex<Option<(PathBuf, std::time::SystemTime, Option<u32>)>> = Mutex::new(None);
+    let mtime = std::fs::metadata(prog).and_then(|m| m.modified()).ok()?;
+    if let Some((p, t, v)) = &*CACHE.lock().unwrap_or_else(|e| e.into_inner()) {
+        if p == prog && *t == mtime {
+            return *v;
+        }
+    }
+    let v = run(prog, &["--version"], Duration::from_secs(5))
+        .await
+        .ok()
+        .and_then(|(_, out)| scrcpy_major(&out));
+    *CACHE.lock().unwrap_or_else(|e| e.into_inner()) = Some((prog.to_path_buf(), mtime, v));
+    v
+}
+
 fn scrcpy_major(version_out: &str) -> Option<u32> {
     let v = version_out.split_whitespace().nth(1)?;
     v.split('.').next()?.parse().ok()
@@ -279,12 +297,25 @@ fn phone_ips(svc: &Service) -> Vec<String> {
 
 async fn online_device(svc: &Service) -> Result<Option<AdbDevice>> {
     let (_, out) = adb(&["devices", "-l"], Duration::from_secs(15)).await?;
-    let mut devs: Vec<AdbDevice> = parse_devices(&out)
+    let devs: Vec<AdbDevice> = parse_devices(&out)
         .into_iter()
         .filter(|d| d.online)
         .collect();
-    let ips = phone_ips(svc);
-    devs.sort_by_key(|d| !ips.iter().any(|ip| d.serial.starts_with(&format!("{ip}:"))));
+    pick_device(devs, &phone_ips(svc))
+}
+
+/// The phone to use: the one at the KDE Connect phone's address, else the only one. With several
+/// and no match, refuse rather than open apps on an emulator or someone else's phone.
+fn pick_device(devs: Vec<AdbDevice>, ips: &[String]) -> Result<Option<AdbDevice>> {
+    let at_ip = |d: &AdbDevice| ips.iter().any(|ip| d.serial.starts_with(&format!("{ip}:")));
+    if devs.len() > 1 && !devs.iter().any(at_ip) {
+        bail!(
+            "Several Android devices are connected to this computer. Unplug or turn off wireless \
+             debugging on the ones you don't want."
+        );
+    }
+    let mut devs = devs;
+    devs.sort_by_key(|d| !at_ip(d));
     Ok(devs.into_iter().next())
 }
 
@@ -298,17 +329,16 @@ pub async fn status(svc: &Service) -> Result<Value> {
     let adb_path = tool("adb");
     let scrcpy_path = tool("scrcpy");
     let scrcpy_major = match &scrcpy_path {
-        Some(p) => run(p, &["--version"], Duration::from_secs(5))
-            .await
-            .ok()
-            .and_then(|(_, out)| scrcpy_major(&out)),
+        Some(p) => scrcpy_version(p).await,
         None => None,
     };
+    let mut device_error = None;
     let device = if adb_path.is_some() {
         match online_device(svc).await {
             Ok(d) => d,
             Err(e) => {
                 warn!("adb: {e:#}");
+                device_error = Some(e.to_string());
                 None
             }
         }
@@ -331,7 +361,7 @@ pub async fn status(svc: &Service) -> Result<Value> {
         "scrcpyTooOld": scrcpy_major.is_some_and(|m| m < 3),
         "canDownload": cfg!(target_arch = "x86_64"),
         "phase": s.phase,
-        "error": s.error,
+        "error": s.error.clone().or(device_error),
         "qr": qr,
         "pairedBefore": paired_marker().exists(),
         "device": device.map(|d| json!({"serial": d.serial, "model": d.model})),
@@ -857,6 +887,29 @@ mod tests {
         assert!(d[0].online);
         assert_eq!(d[0].model.as_deref(), Some("SM S911B"));
         assert!(!d[1].online);
+    }
+
+    #[test]
+    fn picks_the_right_phone() {
+        let dev = |serial: &str| AdbDevice {
+            serial: serial.into(),
+            online: true,
+            model: None,
+        };
+        let ips = vec!["192.168.1.5".to_string()];
+        let one = pick_device(vec![dev("adb-X._adb-tls-connect._tcp")], &ips).unwrap();
+        assert!(one.is_some());
+        let two = vec![dev("emulator-5554"), dev("192.168.1.5:37199")];
+        assert_eq!(
+            pick_device(two, &ips).unwrap().unwrap().serial,
+            "192.168.1.5:37199"
+        );
+        assert!(pick_device(
+            vec![dev("emulator-5554"), dev("adb-X._adb-tls-connect._tcp")],
+            &ips
+        )
+        .is_err());
+        assert!(pick_device(vec![], &ips).unwrap().is_none());
     }
 
     #[test]
