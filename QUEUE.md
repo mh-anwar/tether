@@ -21,7 +21,7 @@ Status marks: `[ ]` open, `[~]` in progress (say who/which branch), `[x]` done (
 
 Owner feedback on v0.2.0 with the real phone (2026-11-12). Details and hypotheses: HANDOFF.md.
 
-- [ ] Q31 **After an upgrade the new window talks to the old background service** (found 2026-11-12 from the
+- [~] Q31 (built 2026-11-12, commit bca5e69; not yet tried on the owner's laptop) **After an upgrade the new window talks to the old background service** (found 2026-11-12 from the
   owner's screenshot on 0.3.0: the error text was 0.2.0's, and the phone IP wasn't filled in because the
   old service doesn't send it). The old service (login service or the previous window's copy) keeps
   running, so none of 0.3.0's pairing fixes were actually live. Fix: `identity` returns the service's
@@ -29,20 +29,30 @@ Owner feedback on v0.2.0 with the real phone (2026-11-12). Details and hypothese
   restart) and starts its own copy; also re-point the login service at the new install (`autostart on`
   already runs at each launch). Done when: installing a new version over a running old one shows the new
   behaviour without a reboot.
-- [ ] Q26b **Pairing by code is still too much** (owner, 2026-11-12, screenshot: "no one is going to do
+- [~] Q26b (built 2026-11-12: one 6-digit box, address only behind "Enter the address yourself"; tries the code on the phone's open ports when the port isn't announced. No screenshot taken yet) **Pairing by code is still too much** (owner, 2026-11-12, screenshot: "no one is going to do
   this"). The form showed IP, port and code fields at once, plus a QR-mode error ("scan again") in code mode.
   Direction: one 6-digit field and nothing else; Tether finds the phone's port itself (works once Q31 is
   fixed: the 0.3.0 service asks the phone directly). If the phone can't be found, say what to check on the
   phone instead of showing more fields; keep manual IP/port only behind a small "Enter the address
   yourself" link. Clear QR errors when switching mode. Show a sketch or screenshot to the owner first.
   Done when: the owner pairs by typing only the 6 digits.
-- [~] Q25 **QR pairing for phone apps fails on the real phone** (same Wi-Fi). Done on this box: Tether now
+- [~] Q25 **QR pairing for phone apps fails on the real phone** (same Wi-Fi). 2026-11-12: owner on 0.3.0: phone stuck on "Pairing device" = phone scanned the QR and waits for the laptop to connect, so the laptop never found the phone's pairing port. Added: mDNS question from our own `<ip>:5353` with the QU bit (firewall-friendly), and a last-resort sweep of the phone's TCP ports 32768-60999 trying the password on each (mdns_probe::open_ports, apps::pair_by_sweep). Diagnostics now in the window ("Show details" under errors), not a terminal command. Done on this box: Tether now
   also asks the phone directly for its wireless-debugging ports (unicast to `<phone IP>:5353`, gets past
   firewalls that drop multicast), logs what it sees, and `tether apps doctor` prints a diagnosis. Not yet
   tried on the real phone. Done when: the owner scans the QR and an app opens; if it still fails, the
   owner's `tether apps doctor` output says why.
 - [~] Q26 **Pairing by code is too hard**: 0.3.0 finds the port itself when it can, else asks for port (and IP
   if unknown). Owner found it still too much; continued as Q26b.
+- [ ] Q32 **Copy a screenshot from a phone notification** (owner, 2026-11-12). When the phone takes a screenshot,
+  its notification should offer "Copy" (image to the clipboard) and "Save". Notification packets only carry the
+  app/large icon (low-res thumbnail), so the full picture needs the file: either KDE Connect's sftp plugin
+  (`kdeconnect.sftp.request`, phone answers with ip/port/user/password/path) to fetch the newest file in
+  DCIM/Screenshots, or the share plugin. Check what kdeconnect-android puts in the screenshot notification first.
+- [ ] Q33 **"Phone on your desktop" feel** (owner's vision, 2026-11-12): like T3 Code over SSH, where the remote
+  machine feels local. Ideas: browse/drag phone files and photos in the window (sftp plugin), newest photos and
+  screenshots strip, drag a photo from the phone into any desktop app, copy any notification image.
+  Rule from the owner: everything must work from the window; never ask people to run commands
+  (no `tether ...` in UI copy or in instructions to the owner).
 - [ ] Q27 **Window feels slow**: measure (open-to-first-paint, render time with 500 threads), then batch
   renders and render only what changed. Done when: numbers before/after, and the owner says it's snappy.
 - [ ] Q28 **Notifications and messages appear late**: cache the thread list on disk so the window opens

@@ -70,3 +70,8 @@ Traps that already cost time. Add new ones here with the symptom first.
   answered directly, the KDE Connect phone IP).
 - **`adb pair` code in arguments**: visible to other users in /proc; we pass it on stdin (adb reads it
   when the argument is left out, `client/commandline.cpp`).
+
+- **Phone stuck on "Pairing device" after scanning the phone-apps QR code**: the phone did scan and is waiting
+  for the computer to connect to its pairing port; the computer never heard the phone's mDNS announcement
+  (firewall dropping multicast, or the phone ignoring legacy-unicast questions). Tether now also asks from its
+  own `<ip>:5353` with the unicast-reply bit and, failing that, tries the password on the phone's open ports.

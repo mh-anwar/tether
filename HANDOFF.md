@@ -70,4 +70,18 @@ appears in your own command line).
 - Then: Q27 (slow window, measure first; write the timing as a WebDriver check), then Q28 (thread
   cache), then Q10 (tray).
 
+## Session 2026-11-12 evening (commit bca5e69 on branch t3/d9dd7be9, NOT pushed, NOT released)
+Owner on 0.3.0: QR pairing for phone apps: phone stuck on "Pairing device" (it scanned; laptop never connected).
+Owner rule: never expect people to run commands like `tether apps doctor`; everything from the window.
+Built (cargo check, `cargo test -p tether` 17 pass, fmt; NOT yet clippy/workspace tests/WebDriver/screenshot):
+- `mdns_probe::probe` also asks from `<our ip>:5353` with the QU bit; `open_ports` sweeps the phone's ephemeral
+  ports; `apps::pair_by_sweep` tries the QR password / code on each open port (after ~4 s with no answer, every 8 s).
+- `apps_pair_code` takes `address` optional; the code form is one 6-digit box (+ "Enter the address yourself").
+- "Show details" (apps_doctor text + Copy details) under pairing errors in the window.
+- Q31: daemon `identity` returns `version`; the window stops a service of another version (shutdown, or kill by
+  the socket peer's pid if it's an old one without shutdown) and starts its own (`replace_if_outdated`).
+Next: clippy + workspace tests, WebDriver check of the code form (testing/ui/wd.sh), Xvfb screenshot for the
+owner, update docs/gotchas.md (stuck "Pairing device" symptom) and README (drop `tether apps doctor` as the
+user path), then ask the owner to approve pushing and releasing 0.3.1. Then Q32 (screenshot copy), Q33.
+
 Delete this file once the five points above are done or moved into QUEUE/docs.
