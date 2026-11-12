@@ -383,6 +383,13 @@ h2 { font-size: 14px; }
 .apps-body { padding: 8px 20px 24px; }
 .apps-body h2 { font-size: 12px; font-weight: 600; color: var(--text-3); text-transform: uppercase; letter-spacing: .04em; margin: 14px 0 8px; }
 .app-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 6px; }
+.app-tile-wrap { position: relative; }
+.app-tile-wrap .app-tile { width: 100%; }
+.app-tile-wrap .pin { position: absolute; top: 4px; right: 4px; padding: 4px; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--text-3); opacity: 0; }
+.app-tile-wrap:hover .pin, .app-tile-wrap .pin:focus-visible, .app-tile-wrap .pin.on { opacity: 1; }
+.app-tile-wrap .pin:hover { background: var(--bg-active); color: var(--text); }
+.app-tile-wrap .pin.on { color: var(--accent); }
+@media (hover: none) { .app-tile-wrap .pin { opacity: 1; } }
 .app-tile { display: grid; justify-items: center; gap: 8px; padding: 12px 6px 10px; border: 1px solid transparent; border-radius: var(--radius); background: transparent; color: var(--text); }
 .app-tile:hover:not(:disabled) { background: var(--bg-hover); }
 .app-tile:disabled { opacity: .55; cursor: default; }

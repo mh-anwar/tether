@@ -680,6 +680,7 @@ const apps = {
   formError: null,
   timer: null,
   polling: false,
+  menu: new Set(), // packages with an entry in the desktop's app menu
   recent: (() => { try { return JSON.parse(localStorage.getItem('tether.recentApps') || '[]'); } catch { return []; } })(),
 };
 
@@ -725,7 +726,10 @@ async function loadApps() {
   apps.loading = true;
   apps.error = null;
   renderApps();
-  try { apps.list = await api('apps_list'); } catch (e) { apps.error = String(e); }
+  try {
+    apps.list = await api('apps_list');
+    apps.menu = new Set(await api('apps_menu').catch(() => []));
+  } catch (e) { apps.error = String(e); }
   apps.loading = false;
   renderApps();
 }
@@ -840,9 +844,27 @@ function codeForm(st) {
 
 function appTile(a) {
   const opening = apps.opening === a.package;
-  return h('button', { class: 'app-tile', 'data-key': `app-${a.package}`, title: a.package, disabled: !!apps.opening && !opening, onclick: () => openApp(a) },
-    opening ? h('div', { class: 'avatar' }, h('span', { class: 'spinner sm', 'aria-hidden': 'true' })) : avatar(a.name, false),
-    h('span', { class: 'name', text: opening ? 'Opening' : a.name }));
+  const inMenu = apps.menu.has(a.package);
+  return h('div', { class: 'app-tile-wrap' },
+    h('button', { class: 'app-tile', 'data-key': `app-${a.package}`, title: a.package, disabled: !!apps.opening && !opening, onclick: () => openApp(a) },
+      opening ? h('div', { class: 'avatar' }, h('span', { class: 'spinner sm', 'aria-hidden': 'true' })) : avatar(a.name, false),
+      h('span', { class: 'name', text: opening ? 'Opening' : a.name })),
+    h('button', { class: `pin ${inMenu ? 'on' : ''}`, 'data-key': `pin-${a.package}`,
+      title: inMenu ? `Remove ${a.name} from this computer's app menu` : `Add ${a.name} to this computer's app menu`,
+      'aria-label': inMenu ? `Remove ${a.name} from the app menu` : `Add ${a.name} to the app menu`,
+      'aria-pressed': inMenu ? 'true' : 'false', onclick: () => toggleMenuEntry(a) }, icon('pin', 'sm')));
+}
+
+async function toggleMenuEntry(a) {
+  const on = !apps.menu.has(a.package);
+  try {
+    await api('apps_menu_set', { package: a.package, name: a.name, on });
+    if (on) apps.menu.add(a.package); else apps.menu.delete(a.package);
+    toast(on ? `${a.name} is in your app menu` : `${a.name} removed from your app menu`);
+  } catch (e) {
+    toast(String(e), 'error');
+  }
+  renderApps();
 }
 
 function appsGrid(st) {
@@ -863,7 +885,7 @@ function appsGrid(st) {
   return [
     h('div', { class: 'apps-head' },
       h('div', { class: 'row' },
-        h('div', {}, h('h1', { text: 'Apps' }), h('p', { class: 'sub', text: `From ${device()?.name || st.device.model || 'your phone'}. Each app opens in its own window.` })),
+        h('div', {}, h('h1', { text: 'Apps' }), h('p', { class: 'sub', text: `From ${device()?.name || st.device.model || 'your phone'}. Pin an app to add it to this computer's app menu.` })),
         h('button', { class: 'btn', disabled: !!apps.opening, onclick: () => openApp(null) },
           apps.opening === 'screen' ? h('span', { class: 'spinner sm', 'aria-hidden': 'true' }) : icon('phone', 'sm'), 'Phone screen')),
       h('label', { class: 'search' }, icon('search', 'sm'),

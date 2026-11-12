@@ -708,6 +708,120 @@ fn which(name: &str) -> Option<PathBuf> {
         .find(|p| is_executable(p))
 }
 
+// ---- phone apps in the desktop's app menu ----
+
+fn menu_dir() -> Option<PathBuf> {
+    dirs::data_dir().map(|d| d.join("applications"))
+}
+
+fn menu_file(package: &str) -> Option<PathBuf> {
+    menu_dir().map(|d| d.join(format!("tether-app-{package}.desktop")))
+}
+
+fn valid_package(pkg: &str) -> bool {
+    !pkg.is_empty()
+        && pkg
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '_')
+}
+
+/// Packages name their icon differently (deb, AppImage, tarball), so entries carry their own.
+fn menu_icon() -> Result<PathBuf> {
+    let icon = dirs::data_dir()
+        .map(|d| d.join("tether/menu-icon.png"))
+        .ok_or_else(|| anyhow!("no data folder"))?;
+    if !icon.exists() {
+        if let Some(dir) = icon.parent() {
+            std::fs::create_dir_all(dir)?;
+        }
+        std::fs::write(&icon, include_bytes!("../../tether-app/icons/icon.png"))?;
+    }
+    Ok(icon)
+}
+
+fn menu_entry(package: &str, name: &str, icon: &Path) -> Result<String> {
+    let (prog, pre) = crate::autostart::cli_command()?;
+    if prog.contains(['\n', '\r']) {
+        bail!("Tether's path contains a line break; move it somewhere else first.");
+    }
+    let name: String = name.chars().filter(|c| !c.is_control()).collect();
+    let mut exec = vec![crate::autostart::quote_desktop(&prog)];
+    exec.extend(pre.iter().map(|a| a.to_string()));
+    exec.extend(["apps".to_string(), package.to_string()]);
+    Ok(format!(
+        "[Desktop Entry]\nType=Application\nName={name}\nComment={name} on your phone, opened by Tether\n\
+         Exec={}\nIcon={}\nCategories=Network;\nStartupNotify=false\nX-Tether-Package={package}\n",
+        exec.join(" "),
+        icon.display()
+    ))
+}
+
+/// Packages that have an entry in the app menu.
+pub fn menu_entries() -> Value {
+    let mut out = vec![];
+    if let Some(Ok(rd)) = menu_dir().map(std::fs::read_dir) {
+        for e in rd.flatten() {
+            let f = e.file_name().to_string_lossy().into_owned();
+            if let Some(pkg) = f
+                .strip_prefix("tether-app-")
+                .and_then(|r| r.strip_suffix(".desktop"))
+            {
+                out.push(pkg.to_string());
+            }
+        }
+    }
+    json!(out)
+}
+
+pub fn set_menu_entry(package: &str, name: &str, on: bool) -> Result<Value> {
+    if !valid_package(package) {
+        bail!("not an app package name");
+    }
+    let path = menu_file(package).ok_or_else(|| anyhow!("no data folder"))?;
+    if on {
+        std::fs::create_dir_all(path.parent().ok_or_else(|| anyhow!("no data folder"))?)?;
+        std::fs::write(&path, menu_entry(package, name, &menu_icon()?)?)?;
+    } else {
+        match std::fs::remove_file(&path) {
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => return Err(e.into()),
+            _ => {}
+        }
+    }
+    Ok(json!(true))
+}
+
+/// Rewrites existing entries so they point at this copy of Tether (an AppImage may have moved).
+pub fn refresh_menu_entries() {
+    let Some(Ok(rd)) = menu_dir().map(std::fs::read_dir) else {
+        return;
+    };
+    for e in rd.flatten() {
+        let f = e.file_name().to_string_lossy().into_owned();
+        let Some(pkg) = f
+            .strip_prefix("tether-app-")
+            .and_then(|r| r.strip_suffix(".desktop"))
+        else {
+            continue;
+        };
+        let Ok(text) = std::fs::read_to_string(e.path()) else {
+            continue;
+        };
+        let name = text
+            .lines()
+            .find_map(|l| l.strip_prefix("Name="))
+            .unwrap_or(pkg)
+            .to_string();
+        let Ok(icon) = menu_icon() else { return };
+        if valid_package(pkg) {
+            if let Ok(entry) = menu_entry(pkg, &name, &icon) {
+                if entry != text {
+                    let _ = std::fs::write(e.path(), entry);
+                }
+            }
+        }
+    }
+}
+
 /// The QR code as an SVG path, dark modules on a light square with the standard quiet zone.
 fn qr_svg(data: &str) -> Result<String> {
     let code = qrcode::QrCode::new(data.as_bytes()).map_err(|e| anyhow!("QR code: {e}"))?;
@@ -793,6 +907,15 @@ mod tests {
             scrcpy_error("INFO: x\nERROR: Server connection failed\n"),
             "Server connection failed"
         );
+    }
+
+    #[test]
+    fn menu_entry_text() {
+        let e = menu_entry("com.spotify.music", "Spot\nify", Path::new("/x/icon.png")).unwrap();
+        assert!(e.contains("\nName=Spotify\n"));
+        assert!(e.contains(" apps com.spotify.music\n"));
+        assert!(!valid_package("a b"));
+        assert!(!valid_package(""));
     }
 
     #[test]

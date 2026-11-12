@@ -128,7 +128,19 @@ async fn run(cli: Cli) -> Result<()> {
         }
         return Ok(());
     }
-    client::run(cli.device, cli.cmd).await
+    // Launched from a phone-app menu entry there is no terminal to print to; say it on screen.
+    let from_menu = matches!(cli.cmd, Cmd::Apps { .. })
+        && !std::io::IsTerminal::is_terminal(&std::io::stdout());
+    let result = client::run(cli.device, cli.cmd).await;
+    if let (true, Err(e)) = (from_menu, &result) {
+        let _ = notify_rust::Notification::new()
+            .appname("Tether")
+            .summary("Couldn't open the phone app")
+            .body(&format!("{e}"))
+            .show_async()
+            .await;
+    }
+    result
 }
 
 pub fn socket_path() -> PathBuf {

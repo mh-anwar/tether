@@ -178,6 +178,13 @@ fn main() {
             .status();
         std::process::exit(status.ok().and_then(|s| s.code()).unwrap_or(1));
     }
+    // Phone-app menu entries of an AppImage run `Tether.AppImage --tether apps <package>`.
+    if std::env::args().nth(1).as_deref() == Some("--tether") {
+        let status = std::process::Command::new(tether_bin())
+            .args(std::env::args().skip(2))
+            .status();
+        std::process::exit(status.ok().and_then(|s| s.code()).unwrap_or(1));
+    }
     std::thread::spawn(sync_autostart);
     tauri::Builder::default()
         .manage(Daemon::default())

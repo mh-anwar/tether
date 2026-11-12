@@ -25,6 +25,7 @@ pub async fn run(cfg: Config) -> Result<()> {
     if cfg.clipboard_sync {
         crate::clipsync::start(service.clone());
     }
+    crate::apps::refresh_menu_entries();
     let path = crate::socket_path();
     tokio::select! {
         r = crate::api::serve(service, &path) => r?,

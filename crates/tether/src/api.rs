@@ -137,6 +137,11 @@ async fn call(svc: &Service, method: &str, p: &Value) -> Result<Value> {
         "apps_cancel" => Ok(crate::apps::cancel()),
         "apps_download" => crate::apps::download(svc),
         "apps_list" => crate::apps::list(svc).await,
+        "apps_menu" => Ok(crate::apps::menu_entries()),
+        "apps_menu_set" => {
+            let on = p.get("on").and_then(Value::as_bool).unwrap_or(true);
+            crate::apps::set_menu_entry(s(p, "package")?, s(p, "name")?, on)
+        }
         "apps_open" => {
             let package = p.get("package").and_then(Value::as_str);
             let title = p.get("title").and_then(Value::as_str).unwrap_or("Phone");

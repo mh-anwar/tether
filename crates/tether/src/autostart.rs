@@ -28,6 +28,16 @@ fn daemon_command() -> Result<(String, &'static str)> {
     Ok((exe.to_string_lossy().into_owned(), "daemon"))
 }
 
+/// The program and leading arguments that run a `tether` subcommand from a desktop entry. An AppImage
+/// forwards everything after `--tether` to its bundled `tether`.
+pub fn cli_command() -> Result<(String, Vec<&'static str>)> {
+    if let Ok(appimage) = std::env::var("APPIMAGE") {
+        return Ok((appimage, vec!["--tether"]));
+    }
+    let exe = std::env::current_exe().context("finding the tether binary")?;
+    Ok((exe.to_string_lossy().into_owned(), vec![]))
+}
+
 fn is_plain(s: &str) -> bool {
     s.chars()
         .all(|c| c.is_ascii_alphanumeric() || "/._-+".contains(c))
@@ -48,7 +58,7 @@ fn quote_systemd(s: &str) -> String {
 
 /// Desktop-entry Exec: inside quotes `"` `` ` `` `$` `\` take a backslash, then the value's own
 /// escaping doubles every backslash again; `%` is a field code and is doubled.
-fn quote_desktop(s: &str) -> String {
+pub fn quote_desktop(s: &str) -> String {
     if is_plain(s) {
         return s.to_string();
     }
