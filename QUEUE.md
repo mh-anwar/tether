@@ -12,7 +12,7 @@ Status marks: `[ ]` open, `[~]` in progress (say who/which branch), `[x]` done (
   on 2026-11-11 as the differentiator (docs/positioning.md).
 - Q20 **Launch plan** (docs/positioning.md, "Going viral"): approve the order: public repo, Flathub, demo
   video, then posts.
-- Q17a **Make the GitHub repo public** when ready: Flathub needs it (docs/flathub.md).
+- Q17a **Make the GitHub repo public**: owner said not yet (2026-11-12), more to build first. Flathub waits on it.
 - Q2 **Extra ideas to approve or drop**: schedule a text to send later; quiet mode (phone notifications
   collected into one summary instead of popping up all day).
 
@@ -23,8 +23,8 @@ Status marks: `[ ]` open, `[~]` in progress (say who/which branch), `[x]` done (
   Waiting on the owner to install and pair. Done when: the owner pairs the phone and texts from the laptop.
 - [~] Q5 **Phone apps in their own windows** (branch t3/find-tether-differentiator): Apps page, QR or code
   pairing over wireless debugging, app list, open an app or the whole screen, one-click scrcpy download,
-  `tether apps <name>`. Verified with stand-in adb/scrcpy and the real scrcpy download. Done when: an app
-  from the owner's Samsung opens in a window on the laptop (needs a release with this in it).
+  `tether apps <name>`, pins with real icons. Released in v0.2.0; verified only with stand-in adb/scrcpy.
+  Done when: an app from the owner's Samsung opens in a window on the laptop.
 
 ## Next
 
