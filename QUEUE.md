@@ -20,11 +20,14 @@ Status marks: `[ ]` open, `[~]` in progress (say who/which branch), `[x]` done (
 
 Owner feedback on v0.2.0 with the real phone (2026-11-12). Details and hypotheses: HANDOFF.md.
 
-- [ ] Q25 **QR pairing for phone apps fails on the real phone** (same Wi-Fi). Add diagnostics first
-  (`tether apps doctor`: helper versions, `adb mdns check`, services seen), then fix. Done when: the owner
-  scans the QR and an app opens.
-- [ ] Q26 **Pairing by code is too hard**: prefill the phone's IP from KDE Connect, ask only for port and
-  6 digits, plain words. Done when: the owner pairs by code without help.
+- [~] Q25 **QR pairing for phone apps fails on the real phone** (same Wi-Fi). Done on this box: Tether now
+  also asks the phone directly for its wireless-debugging ports (unicast to `<phone IP>:5353`, gets past
+  firewalls that drop multicast), logs what it sees, and `tether apps doctor` prints a diagnosis. Not yet
+  tried on the real phone. Done when: the owner scans the QR and an app opens; if it still fails, the
+  owner's `tether apps doctor` output says why.
+- [~] Q26 **Pairing by code is too hard**: the form now finds the phone's pairing port by itself and asks
+  only for the 6 digits; if it can't, it asks for the port only (IP from KDE Connect), and pasting
+  "IP:port" fills both. Checked with stand-in adb. Done when: the owner pairs by code without help.
 - [ ] Q27 **Window feels slow**: measure (open-to-first-paint, render time with 500 threads), then batch
   renders and render only what changed. Done when: numbers before/after, and the owner says it's snappy.
 - [ ] Q28 **Notifications and messages appear late**: cache the thread list on disk so the window opens
@@ -75,6 +78,8 @@ Owner feedback on v0.2.0 with the real phone (2026-11-12). Details and hypothese
 
 ## Done
 
+- 2026-11-11 Phone-apps pairing: direct phone query past firewalls, `tether apps doctor`, code form that
+  needs only the 6 digits (verified with stand-ins; Q25/Q26 wait on the real phone).
 - 2026-11-12 v0.2.0 released; owner installed it, paired the Samsung, texts and notifications work.
 - 2026-11-11 Phone apps (Apps page, QR pairing, helper download, pin to the desktop's app menu),
   positioning, Flathub store listing.

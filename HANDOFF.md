@@ -20,7 +20,10 @@ Pairing the phone, texts and notifications work through the stock KDE Connect ap
    conversations on connect and the phone answers slowly, and the window shows nothing until then. Ideas:
    cache the last thread list on disk (as of today messages are memory-only, docs/architecture.md) so
    the window opens full; show "Loading from your phone" with what's cached meanwhile.
-3. **QR pairing for phone apps failed on the real phone** (same Wi-Fi). Unknown what the phone showed.
+3. **QR pairing for phone apps failed on the real phone** (2026-11-11 session: direct unicast query to the
+   phone's port 5353 added in `mdns_probe.rs`, plus `tether apps doctor`; needs the real phone to confirm.
+   If the doctor shows "no answer" from the phone directly and adb hears nothing, the next fallback is
+   code pairing, which now needs only the 6 digits.) (same Wi-Fi). Unknown what the phone showed.
    Ask the owner: did the phone say "Pairing" then fail, or did nothing happen after scanning?
    Facts: we ship adb 37 (scrcpy 5.0.1 bundle); its mDNS discovery (Openscreen) is on by default
    (`client/transport_mdns.cpp`, `ADB_MDNS_OPENSCREEN` only switches it off). Hypotheses:
@@ -34,7 +37,7 @@ Pairing the phone, texts and notifications work through the stock KDE Connect ap
    pairing-code path (point 4), made easy.
    Add a "Diagnostics" view (or `tether apps doctor`) that prints helper paths/versions, `adb mdns check`,
    seen services and the KDE Connect phone IP.
-4. **Pairing with a code is too hard.** Typing IP:port plus a code is developer stuff. Fix: prefill the
+4. **Pairing with a code is too hard.** (2026-11-11 session: done as described below, checked with stand-ins.) Typing IP:port plus a code is developer stuff. Fix: prefill the
    IP from KDE Connect (`phone_ips`), ask only for the port and the 6 digits, big inputs, paste support,
    and plain words ("the numbers after the colon"). Better still, avoid it by fixing QR (point 3).
 5. **Wants an icon in the status bar / tray** (QUEUE Q10). On i3 the bar shows only XEmbed tray icons;
