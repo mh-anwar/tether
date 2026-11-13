@@ -59,8 +59,6 @@ Owner feedback on v0.2.0 with the real phone (2026-11-12). Details and hypothese
   screenshots strip, drag a photo from the phone into any desktop app, copy any notification image.
   Rule from the owner: everything must work from the window; never ask people to run commands
   (no `tether ...` in UI copy or in instructions to the owner).
-- [ ] Q27 **Window feels slow**: measure (open-to-first-paint, render time with 500 threads), then batch
-  renders and render only what changed. Done when: numbers before/after, and the owner says it's snappy.
 - [ ] Q10 **Icon in the status bar / tray** with unread count (owner asked). Closing the window already
   keeps the service running. Care on i3: i3bar shows only XEmbed icons, Tauri's tray is AppIndicator (SNI);
   GNOME needs the AppIndicator extension. Done when: the icon shows on the owner's i3 and on KDE/GNOME.
@@ -117,6 +115,7 @@ Owner feedback on v0.2.0 with the real phone (2026-11-12). Details and hypothese
 
 ## Done
 
+- 2026-11-12 Q27: window speed with 500 conversations and 1500 contacts (`testing/ui/perf_window.py`): one incoming text 540 ms -> 34 ms, 20 together 5.3 s -> 32 ms, list draw 255 -> 57 ms. Contact index, one redraw per frame, rows reused, only ~80 rows drawn until scrolled. Not released; owner to judge the feel.
 - 2026-11-12 Q28: recent texts and contacts cached on disk; the window opens full after a restart, before the phone reconnects (checked with the fake phone off). Not released yet.
 - 2026-11-12 v0.3.2: paired phone apps reconnect without mDNS (Q34, waits on the real phone).
 - 2026-11-12 v0.3.1: phone found past firewalls (QU from :5353, port sweep), 6-digit-only code pairing, "Show details" in the window, new window replaces an outdated service. Waits on the real phone.

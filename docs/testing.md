@@ -41,6 +41,11 @@ Setup on a new machine: `cargo install tauri-driver --locked`; WebKitWebDriver i
 `webkitgtk-webdriver` on Debian/Ubuntu (`webkit2gtk4.1-devel` ships it on Fedora). Add a check to
 `test_window.py` for every new screen or flow. Screenshots (below) are still how to judge looks.
 
+## Window speed
+`testing/ui/wd.sh testing/ui/perf_window.py` fills the window with 500 conversations and 1500 contacts and
+times each kind of update, layout included; it fails if one incoming text takes over 50 ms. Run it after
+changing how lists render (`swap`, `renderList`, `invalidate` in `ui/app.js`).
+
 ## Stand-in phone + the window (UI)
 `crates/tether-core/examples/fake_phone.rs` speaks the real protocol with made-up texts, contacts and
 notifications (WhatsApp and Spotify with app icons as payloads); sent texts are echoed back and answered

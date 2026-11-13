@@ -74,7 +74,14 @@ function swap(container, build) {
   const key = active && container.contains(active) ? active.dataset.key : null;
   const saved = key ? { value: active.value, start: active.selectionStart, end: active.selectionEnd } : null;
   const scroll = container.scrollTop;
-  container.replaceChildren(...[build()].flat().filter(Boolean));
+  // Nodes that are already in place stay untouched (lists reuse their rows), so the browser only
+  // lays out what changed.
+  const nodes = [build()].flat().filter(Boolean).map((n) => (n instanceof Node ? n : document.createTextNode(String(n))));
+  nodes.forEach((n, i) => {
+    const cur = container.childNodes[i];
+    if (cur !== n) container.insertBefore(n, cur || null);
+  });
+  while (container.childNodes.length > nodes.length) container.lastChild.remove();
   container.scrollTop = scroll;
   if (key) {
     const el = container.querySelector(`[data-key="${CSS.escape(key)}"]`);
@@ -86,16 +93,46 @@ function swap(container, build) {
   }
 }
 
+// Updates from the phone come in bursts (hundreds of texts on connect). Each marks what it touched;
+// the screen is redrawn once per frame instead of once per packet.
+const dirty = new Set();
+let frame = 0;
+function invalidate(...parts) {
+  for (const p of parts) dirty.add(p);
+  if (!frame) frame = requestAnimationFrame(flushRender);
+}
+function flushRender() {
+  if (frame) cancelAnimationFrame(frame);
+  frame = 0;
+  const parts = new Set(dirty);
+  dirty.clear();
+  if (parts.has('list')) renderList();
+  if (parts.has('rail')) renderRail();
+  if (parts.has('thread')) renderThreadPane(false);
+  if (parts.has('feed')) renderFeed();
+}
+
 // ---------- formatting ----------
 const digits = (s) => String(s || '').replace(/\D/g, '');
 
+// Names by full number and by the last 9 digits, rebuilt when the contact list is replaced. Looking
+// through the whole list for every row made one incoming text cost a quarter second on a big phone.
+const contactIndex = { src: null, exact: new Map(), tail: new Map() };
 function nameFor(number) {
   const d = digits(number);
   if (!d) return number;
+  if (contactIndex.src !== state.contacts) {
+    contactIndex.src = state.contacts;
+    contactIndex.exact.clear(); contactIndex.tail.clear();
+    for (const c of state.contacts) {
+      if (!contactIndex.exact.has(c.number)) contactIndex.exact.set(c.number, c.name);
+      const t = c.number.slice(-9);
+      if (!contactIndex.tail.has(t)) contactIndex.tail.set(t, c.name);
+    }
+  }
   const tail = d.slice(-9);
-  const hit = state.contacts.find((c) => c.number === d) ||
-    (tail.length >= 7 ? state.contacts.find((c) => c.number.slice(-9) === tail) : null);
-  return hit ? hit.name : prettyNumber(number);
+  const hit = contactIndex.exact.get(d) ?? (tail.length >= 7 ? contactIndex.tail.get(tail) : undefined);
+  return hit ?? prettyNumber(number);
 }
 
 function prettyNumber(n) {
@@ -277,9 +314,9 @@ function buildLayout(app) {
           h('button', { class: 'btn ghost icon-only', title: 'New message (Ctrl+N)', 'aria-label': 'New message', onclick: () => openNew() }, icon('plus'))),
         h('label', { class: 'search' }, icon('search', 'sm'),
           h('input', { id: 'filter', type: 'search', placeholder: 'Search conversations', 'aria-label': 'Search conversations',
-            oninput: (e) => { state.filter = e.target.value; renderList(); },
+            oninput: (e) => { state.filter = e.target.value; listLimit = LIST_STEP; renderList(); },
             onkeydown: (e) => { if (e.key === 'ArrowDown') { e.preventDefault(); $('.thread-item')?.focus(); } } }))),
-      h('div', { class: 'threads', role: 'listbox', 'aria-label': 'Conversations', onkeydown: listKeys })),
+      h('div', { class: 'threads', role: 'listbox', 'aria-label': 'Conversations', onkeydown: listKeys, onscroll: listScroll })),
     h('main', { class: 'thread' }),
     h('main', { class: 'apps-page', 'aria-label': 'Phone apps' }),
     h('aside', { class: 'feed', 'aria-label': 'Notifications' }),
@@ -391,19 +428,47 @@ function renderList() {
         h('p', { text: d && d.connected ? 'Loading conversations' : 'Conversations appear when your phone is in reach.' }));
     }
     if (!items.length) return h('div', { class: 'empty' }, h('p', { text: `Nothing matches "${state.filter}".` }));
-    return items.map((m) => {
+    // The selected conversation is always drawn, however far down it is.
+    const shown = items.slice(0, Math.max(listLimit, items.findIndex((m) => m.thread_id === state.selected) + 1));
+    listMore = shown.length < items.length;
+    const rows = new Map();
+    const nodes = shown.map((m) => {
       const title = threadTitle(m.addresses);
       const unread = isUnread(m);
       const preview = (m.type === 2 ? 'You: ' : '') + (m.body || (m.attachments?.length ? 'Picture' : ''));
-      return h('button', {
-        class: `thread-item ${unread ? 'unread' : ''}`, role: 'option', 'data-key': `t${m.thread_id}`,
-        'aria-selected': state.selected === m.thread_id ? 'true' : 'false', onclick: () => selectThread(m.thread_id),
-      },
-      avatar(title, m.addresses.length > 1),
-      h('div', { style: 'min-width:0' }, h('div', { class: 'who', text: title }), h('div', { class: 'preview', text: preview })),
-      h('div', { class: 'meta' }, h('time', { text: shortTime(m.date) }), unread ? h('span', { class: 'unread-dot', 'aria-label': 'Unread' }) : null));
+      const selected = state.selected === m.thread_id;
+      const time = shortTime(m.date);
+      // Rows that look the same as last time are reused, so one new text builds one row, not all.
+      const sig = `${m._id}|${title}|${preview}|${time}|${unread}|${selected}`;
+      const old = listRows.get(m.thread_id);
+      const row = old && old.sig === sig ? old : { sig, el: threadRow(m, title, preview, time, unread, selected) };
+      rows.set(m.thread_id, row);
+      return row.el;
     });
+    listRows = rows;
+    return nodes;
   });
+}
+
+let listRows = new Map(); // thread id -> { sig, el }
+// Only the rows near what is on screen are drawn; scrolling towards the end draws the next batch.
+// Hundreds of rows made every new text re-lay out the whole list.
+const LIST_STEP = 80;
+let listLimit = LIST_STEP;
+let listMore = false;
+function listScroll(e) {
+  const box = e.currentTarget;
+  if (listMore && box.scrollHeight - box.scrollTop - box.clientHeight < 600) { listLimit += LIST_STEP; renderList(); }
+}
+
+function threadRow(m, title, preview, time, unread, selected) {
+  return h('button', {
+    class: `thread-item ${unread ? 'unread' : ''}`, role: 'option', 'data-key': `t${m.thread_id}`,
+    'aria-selected': selected ? 'true' : 'false', onclick: () => selectThread(m.thread_id),
+  },
+  avatar(title, m.addresses.length > 1),
+  h('div', { style: 'min-width:0' }, h('div', { class: 'who', text: title }), h('div', { class: 'preview', text: preview })),
+  h('div', { class: 'meta' }, h('time', { text: time }), unread ? h('span', { class: 'unread-dot', 'aria-label': 'Unread' }) : null));
 }
 
 function listKeys(e) {
@@ -1334,19 +1399,22 @@ function onEvent(ev) {
     case 'attachment': waitingAttachments.get(u.unique_identifier)?.resolve(u.path); waitingAttachments.delete(u.unique_identifier); break;
     case 'media': state.media = Object.fromEntries(u.players.map((p) => [p.name, p])); renderRail(); break;
     case 'signal': state.signal = u.signal; renderRail(); break;
-    case 'notification': state.notifications[u.id] = u; renderFeed(); renderRail(); break;
-    case 'notification_removed': delete state.notifications[u.id]; renderFeed(); renderRail(); break;
+    case 'notification': state.notifications[u.id] = u; invalidate('feed', 'rail'); break;
+    case 'notification_removed': delete state.notifications[u.id]; invalidate('feed', 'rail'); break;
     case 'messages':
       mergeMessages(u.messages);
       if (u.messages.some((m) => m.thread_id === state.selected)) {
         state.loadingThread = null;
         const msgs = threadMessages(state.selected);
         state.seen[state.selected] = msgs[msgs.length - 1].date; saveSeen();
+        invalidate('thread');
       }
-      renderList(); renderRail(); renderThreadPane(false); renderFeed();
+      // A confirmed text of ours removes its "Sending" bubble, wherever it was.
+      if (u.messages.some((m) => m.type === 2)) invalidate('thread');
+      invalidate('list', 'rail', 'feed');
       break;
     case 'contacts':
-      api('contacts', { device: state.deviceId }).then((c) => { state.contacts = c; renderList(); renderThreadPane(false); }).catch(() => {});
+      api('contacts', { device: state.deviceId }).then((c) => { state.contacts = c; invalidate('list', 'thread'); }).catch(() => {});
       break;
     case 'call': state.call = u.state === 'missed' ? null : u; renderRail(); break;
     case 'call_ended': state.call = null; renderRail(); break;

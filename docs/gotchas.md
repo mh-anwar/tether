@@ -62,6 +62,12 @@ Traps that already cost time. Add new ones here with the symptom first.
 - **Restart starts the old version from an AppImage**: the window's own binary lives in the old AppImage's
   mount; re-run `$APPIMAGE`, the file that was replaced.
 
+## Window
+- **Window freezes while texts arrive**: every phone update used to redraw whole lists at once. Updates now
+  call `invalidate(part)` and are drawn once per frame; `swap` leaves nodes that are already in place;
+  the conversation list reuses rows and draws 80 at a time. Calling `renderList()` straight from an event
+  handler brings the freeze back. `nameFor` uses an index; don't search `state.contacts` per row.
+
 ## Phone files
 - **Copy/Save on a screenshot says the phone didn't share its files**: the phone's "Filesystem expose"
   plugin is off or lacks storage permission, so it never answers `kdeconnect.sftp.request` (no error
