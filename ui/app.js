@@ -260,6 +260,7 @@ async function loadAll() {
     state.selected = null;
   }
   loadUpdate();
+  if (state.view === 'settings') loadSettings();
   if (state.deviceId) await loadDevice();
   render();
 }
@@ -292,15 +293,16 @@ function render() {
     swap(app, () => h('div', { class: 'boot' },
       state.bootFailed ? icon('alert', 'lg') : h('div', { class: 'spinner', 'aria-hidden': 'true' }),
       h('p', { text: state.bootFailed ? "Tether's background service isn't running." : 'Starting Tether' }),
-      state.bootFailed && h('p', { class: 'hint', text: 'It is restarted automatically. If this stays, run "tether daemon" once to see why.' })));
+      state.bootFailed && h('p', { class: 'hint', text: 'Tether keeps trying to start it. If this stays, close Tether and open it again.' })));
     return;
   }
   if (!state.deviceId) return renderPairPage(app);
   if (!$('.rail', app)) buildLayout(app);
-  app.className = `app ${state.feedOverlay ? 'feed-overlay' : ''} ${state.view === 'apps' ? 'view-apps' : ''} ${state.view === 'photos' ? 'view-photos' : ''}`;
+  app.className = `app ${state.feedOverlay ? 'feed-overlay' : ''} ${state.view === 'apps' ? 'view-apps' : ''} ${state.view === 'photos' ? 'view-photos' : ''} ${state.view === 'settings' ? 'view-settings' : ''}`;
   renderRail();
   if (state.view === 'apps') renderApps();
   else if (state.view === 'photos') renderPhotos();
+  else if (state.view === 'settings') renderSettings();
   else { renderList(); renderThreadPane(false); }
   renderFeed();
 }
@@ -321,6 +323,7 @@ function buildLayout(app) {
     h('main', { class: 'thread' }),
     h('main', { class: 'apps-page', 'aria-label': 'Phone apps' }),
     h('main', { class: 'photos-page', 'aria-label': 'Phone photos' }),
+    h('main', { class: 'settings-page', 'aria-label': 'Settings' }),
     h('aside', { class: 'feed', 'aria-label': 'Notifications' }),
   );
 }
@@ -353,7 +356,8 @@ function renderRail() {
       h('button', { 'aria-current': state.view === 'apps' ? 'page' : null, onclick: () => showView('apps') }, icon('apps'), h('span', { class: 'label', text: 'Apps' })),
       h('button', { 'aria-current': state.view === 'photos' ? 'page' : null, onclick: () => showView('photos') }, icon('image'), h('span', { class: 'label', text: 'Photos' })),
       h('button', { onclick: toggleFeed }, icon('bell'), h('span', { class: 'label', text: 'Notifications' }),
-        notes ? h('span', { class: 'count label', text: String(notes) }) : null)),
+        notes ? h('span', { class: 'count label', text: String(notes) }) : null),
+      h('button', { 'aria-current': state.view === 'settings' ? 'page' : null, onclick: () => showView('settings') }, icon('settings'), h('span', { class: 'label', text: 'Settings' }))),
     h('div', { class: 'spacer' }),
     updateCard(),
     h('div', { class: 'hint' }, icon('upload', 'sm'), 'Drop files anywhere to send'),
@@ -782,6 +786,84 @@ function openAttachment(a) {
   }, () => openAttachment(a));
 }
 
+// ---------- settings ----------
+const settings = { data: null, error: '', forgetting: false, saving: false };
+
+async function loadSettings() {
+  try { settings.data = await api('settings_get'); settings.error = ''; } catch (e) { settings.error = e.message || String(e); }
+  renderSettings();
+}
+
+// Saves one or more settings. Some need the background service to restart; it comes back by itself.
+async function saveSettings(changes, done = 'Saved') {
+  settings.saving = true;
+  try {
+    const r = await api('settings_set', changes);
+    toast(r.restart ? `${done}. Reconnecting to your phone` : done);
+    if (!r.restart) await loadSettings();
+    return true;
+  } catch (e) {
+    toast(e.message || String(e), 'error');
+    await loadSettings();
+    return false;
+  } finally { settings.saving = false; }
+}
+
+function settingSwitch(key, label, hint) {
+  const input = h('input', { type: 'checkbox', role: 'switch', 'data-key': `set-${key}`, checked: settings.data[key],
+    onchange: (e) => saveSettings({ [key]: e.target.checked }) });
+  return h('label', { class: 'setting check' }, input, h('span', {}, h('b', { text: label }), hint ? h('small', { text: hint }) : null));
+}
+
+function settingText(key, label, hint, button = 'Save') {
+  const input = h('input', { type: 'text', 'data-key': `set-${key}`, value: settings.data[key], 'aria-label': label });
+  return h('form', { class: 'setting', onsubmit: (e) => { e.preventDefault(); if (input.value.trim() !== String(settings.data[key])) saveSettings({ [key]: input.value.trim() }); } },
+    h('label', {}, h('b', { text: label }), hint ? h('small', { text: hint }) : null),
+    h('div', { class: 'field-row' }, input, h('button', { class: 'btn', type: 'submit' }, button)));
+}
+
+function renderSettings() {
+  const page = $('.settings-page');
+  if (!page || state.view !== 'settings') return;
+  const d = device();
+  const s = settings.data;
+  swap(page, () => {
+    const head = h('div', { class: 'apps-head' }, h('div', {}, h('h1', { text: 'Settings' }), s ? h('p', { class: 'sub', text: `Tether ${s.version}` }) : null));
+    if (settings.error) return [head, h('div', { class: 'empty' }, icon('alert'), h('p', { text: settings.error }),
+      h('button', { class: 'btn', onclick: loadSettings }, icon('refresh', 'sm'), 'Try again'))];
+    if (!s) return [head, h('div', { class: 'empty' }, h('div', { class: 'spinner' }), h('p', { text: 'Loading settings' }))];
+    const addr = h('input', { type: 'text', 'data-key': 'set-address', placeholder: '192.168.1.20', 'aria-label': "Phone's address" });
+    return [head, h('div', { class: 'settings-body' },
+      h('section', {}, h('h2', { text: 'This computer' }),
+        settingText('device_name', 'Name', 'What your phone calls this computer.'),
+        settingSwitch('autostart', 'Start Tether when I log in', 'Texts, notifications and the clipboard keep working with the window closed.'),
+        settingSwitch('auto_update', 'Install new versions by themselves', 'Off: Tether still tells you when there is one.'),
+        h('div', { class: 'setting' }, h('button', { class: 'btn', onclick: checkForUpdates }, icon('refresh', 'sm'), 'Check for updates'))),
+      h('section', {}, h('h2', { text: 'From your phone' }),
+        settingSwitch('mirror_notifications', 'Show phone notifications on this computer', 'They always show in the Tether window.'),
+        settingSwitch('clipboard_sync', 'Share the clipboard', 'What you copy on one is ready to paste on the other.'),
+        settingText('downloads_dir', 'Save files from the phone in', 'The whole path of a folder.')),
+      h('section', {}, h('h2', { text: 'Finding your phone' }),
+        h('p', { class: 'sub', text: "Tether finds your phone by itself on the same Wi-Fi. On a network where it can't (a VPN, some office or guest Wi-Fi), add the phone's address. It is in the phone's Wi-Fi settings, under the network's details." }),
+        s.addresses.length ? h('ul', { class: 'addr-list' }, s.addresses.map((a) => h('li', {}, h('span', { text: a }),
+          h('button', { class: 'btn ghost icon-only', 'aria-label': `Remove ${a}`, title: 'Remove', onclick: () => saveSettings({ addresses: s.addresses.filter((x) => x !== a) }, 'Removed') }, icon('trash', 'sm'))))) : null,
+        h('form', { class: 'setting', onsubmit: (e) => { e.preventDefault(); const v = addr.value.trim(); if (v && !s.addresses.includes(v)) saveSettings({ addresses: [...s.addresses, v] }, 'Added'); } },
+          h('div', { class: 'field-row' }, addr, h('button', { class: 'btn', type: 'submit' }, icon('plus', 'sm'), 'Add address')))),
+      d ? h('section', {}, h('h2', { text: d.name }),
+        settings.forgetting
+          ? h('div', { class: 'setting' }, h('p', { class: 'sub', text: `Forget ${d.name}? Its texts and notifications leave this computer, and you pair again to bring it back.` }),
+            h('div', { class: 'field-row' },
+              h('button', { class: 'btn danger', 'data-key': 'set-forget-yes', onclick: forgetPhone }, 'Forget this phone'),
+              h('button', { class: 'btn', onclick: () => { settings.forgetting = false; renderSettings(); } }, 'Keep it')))
+          : h('div', { class: 'setting' }, h('button', { class: 'btn', 'data-key': 'set-forget', onclick: () => { settings.forgetting = true; renderSettings(); } }, icon('trash', 'sm'), 'Forget this phone'))) : null)];
+  });
+}
+
+async function forgetPhone() {
+  settings.forgetting = false;
+  try { await api('unpair', { device: state.deviceId }); toast('Phone forgotten'); } catch (e) { toast(e.message || String(e), 'error'); renderSettings(); }
+}
+
 // ---------- photos ----------
 const photos = {
   status: 'idle', // idle | loading | ready | error
@@ -945,6 +1027,7 @@ function showView(view) {
   clearTimeout(apps.timer);
   if (view === 'apps') pollApps();
   if (view === 'photos' && photos.status !== 'ready') loadPhotos();
+  if (view === 'settings') loadSettings();
   render();
   if (view === 'messages') $('#filter')?.focus();
 }
@@ -1420,6 +1503,7 @@ function commands() {
   ].filter(Boolean);
   cmds.push({ label: 'Show phone apps', icon: 'apps', run: () => showView('apps') });
   cmds.push({ label: 'Show phone photos', icon: 'image', run: () => showView('photos') });
+  cmds.push({ label: 'Settings', icon: 'settings', run: () => showView('settings') });
   if (apps.status?.device) {
     cmds.push({ label: 'Show phone screen', icon: 'phone', run: () => openApp(null) });
     for (const a of apps.list || []) cmds.push({ label: `Open ${a.name}`, sub: 'Phone app', icon: 'apps', run: () => openApp(a) });

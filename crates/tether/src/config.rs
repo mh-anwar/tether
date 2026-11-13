@@ -2,8 +2,9 @@
 
 use std::{net::SocketAddr, path::PathBuf};
 
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
+use serde_json::{json, Value};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -42,10 +43,7 @@ impl Default for Config {
 
 impl Config {
     pub fn load() -> Result<Self> {
-        let dir = dirs::config_dir()
-            .context("no config directory")?
-            .join("tether");
-        let path = dir.join("config.json");
+        let path = config_path()?;
         let mut cfg: Config = match std::fs::read(&path) {
             Ok(b) => {
                 serde_json::from_slice(&b).with_context(|| format!("reading {}", path.display()))?
@@ -77,6 +75,96 @@ impl Config {
                 .collect(),
         }
     }
+}
+
+fn config_path() -> Result<PathBuf> {
+    Ok(dirs::config_dir()
+        .context("no config directory")?
+        .join("tether")
+        .join("config.json"))
+}
+
+/// What the Settings screen shows. `downloads_dir` is the folder in use, set or not.
+pub fn settings() -> Result<Value> {
+    let cfg = Config::load()?;
+    Ok(json!({
+        "device_name": tether_core::identity::sanitize_name(&cfg.device_name),
+        "addresses": cfg.addresses,
+        "mirror_notifications": cfg.mirror_notifications,
+        "clipboard_sync": cfg.clipboard_sync,
+        "downloads_dir": cfg.core().downloads_dir,
+        "auto_update": cfg.auto_update,
+        "autostart": crate::autostart::is_enabled(),
+        "version": env!("CARGO_PKG_VERSION"),
+    }))
+}
+
+/// Saves the given settings into config.json, leaving every other key as it was. Returns whether
+/// the service has to restart for them (the name, folder, addresses and clipboard are read at start).
+pub fn save_settings(changes: &Value) -> Result<bool> {
+    let path = config_path()?;
+    let mut file: serde_json::Map<String, Value> = std::fs::read(&path)
+        .ok()
+        .and_then(|b| serde_json::from_slice(&b).ok())
+        .unwrap_or_default();
+    let mut restart = false;
+    for (key, value) in changes.as_object().context("settings must be an object")? {
+        let value = match key.as_str() {
+            "device_name" => {
+                let name = value.as_str().unwrap_or("").trim();
+                if name.is_empty() {
+                    bail!("Give this computer a name.");
+                }
+                restart = true;
+                json!(tether_core::identity::sanitize_name(name))
+            }
+            "addresses" => {
+                let list: Vec<String> =
+                    serde_json::from_value(value.clone()).context("addresses must be a list")?;
+                if let Some(bad) = list.iter().find(|a| parse_addr(a).is_none()) {
+                    bail!("\"{bad}\" isn't an address. It looks like 192.168.1.20.");
+                }
+                restart = true;
+                json!(list)
+            }
+            "downloads_dir" => {
+                let dir = PathBuf::from(value.as_str().unwrap_or("").trim());
+                if !dir.is_absolute() {
+                    bail!("Give the whole path of the folder, starting with /.");
+                }
+                std::fs::create_dir_all(&dir)
+                    .with_context(|| format!("Can't use {} as a folder", dir.display()))?;
+                restart = true;
+                json!(dir)
+            }
+            "clipboard_sync" => {
+                restart = true;
+                json!(value
+                    .as_bool()
+                    .context("clipboard_sync must be on or off")?)
+            }
+            "mirror_notifications" | "auto_update" => {
+                json!(value.as_bool().context("must be on or off")?)
+            }
+            "autostart" => {
+                if value.as_bool().context("autostart must be on or off")? {
+                    crate::autostart::enable()?;
+                } else {
+                    crate::autostart::disable()?;
+                }
+                continue;
+            }
+            other => bail!("unknown setting '{other}'"),
+        };
+        file.insert(key.clone(), value);
+    }
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    let tmp = path.with_extension("json.tmp");
+    std::fs::write(&tmp, serde_json::to_vec_pretty(&file)?)?;
+    std::fs::rename(tmp, &path)?;
+    Ok(restart)
 }
 
 /// Accepts "1.2.3.4" or "1.2.3.4:1716".

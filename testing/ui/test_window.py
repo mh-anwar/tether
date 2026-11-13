@@ -103,8 +103,34 @@ try:
     def palette():
         d.find_element(By.TAG_NAME, "body").send_keys(Keys.CONTROL, "k")
         wait.until(EC.visibility_of_element_located((By.XPATH, "//*[normalize-space(.)='Check for updates']")))
-        d.find_element(By.TAG_NAME, "body").send_keys(Keys.ESCAPE)
+        d.switch_to.active_element.send_keys(Keys.ESCAPE)
+        wait.until(lambda _: not d.find_elements(By.CSS_SELECTOR, ".palette-backdrop"))
     check("Ctrl+K offers Check for updates", palette)
+
+    def settings_page():
+        button("Settings").click()
+        box = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "[data-key=set-auto_update]")))
+        was = box.is_selected()
+        box.click()
+        text_shown("Saved")
+        cfg = Path(os.environ["XDG_CONFIG_HOME"], "tether/config.json")
+        wait.until(lambda _: f'"auto_update": {str(not was).lower()}' in cfg.read_text())
+        wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "[data-key=set-auto_update]"))).click()
+        wait.until(lambda _: f'"auto_update": {str(was).lower()}' in cfg.read_text())
+    check("Settings page saves a switch", settings_page)
+
+    def rename_computer():
+        # A new name restarts the background service; the window must come back by itself.
+        name = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "[data-key=set-device_name]")))
+        old = name.get_attribute("value")
+        new = "Desk" if old != "Desk" else "Workstation"
+        name.clear()
+        name.send_keys(new, Keys.ENTER)
+        long = WebDriverWait(d, 40)
+        long.until(lambda _: d.execute_script("return state.me && state.me.deviceName") == new)
+        long.until(lambda _: d.execute_script("return !!(device() && device().connected)"))
+        long.until(lambda _: d.find_element(By.CSS_SELECTOR, "[data-key=set-device_name]").get_attribute("value") == new)
+    check("renaming the computer restarts the service and reconnects", rename_computer)
 finally:
     d.quit()
 

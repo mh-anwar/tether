@@ -238,6 +238,11 @@ pub fn start(url: Option<String>, auto: bool) {
     });
 }
 
+/// Settings screen: install new versions by themselves, or only offer them.
+pub fn set_auto(auto: bool) {
+    state().auto = auto;
+}
+
 pub fn status() -> Value {
     let k = kind();
     let s = state();

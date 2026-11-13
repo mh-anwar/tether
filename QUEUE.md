@@ -92,8 +92,6 @@ Owner feedback on v0.2.0 with the real phone (2026-11-12). Details and hypothese
 
 ## Later
 
-- [ ] Q11 **Settings screen**: device name, phone addresses for VPNs, notification mirroring, downloads folder,
-  unpair, clipboard sync on/off, start at login (both exist as config/CLI only).
 - [ ] Q12 **Narrow window layouts** checked with screenshots (720 px and 1000 px wide).
 - [ ] Q13 **Drag-and-drop send** verified for real (needs a session with a window manager or the owner).
 - [ ] Q14 **Notification icons** shown in the column (payload download exists; check with the real phone).
@@ -113,6 +111,8 @@ Owner feedback on v0.2.0 with the real phone (2026-11-12). Details and hypothese
 
 ## Done
 
+- 2026-11-12 Q11 Settings screen: computer name, start at login, auto-update, notification pop-ups, clipboard sharing, downloads folder, phone addresses, forget phone. WebDriver checks for a switch and for a rename (service restart + reconnect). Not released.
+- 2026-11-12 v0.3.3: text cache (Q28), screenshot Copy/Save (Q32), window speed (Q27), Photos page (Q33 first screen). Owner gave full autonomy, releases included.
 - 2026-11-12 Q27: window speed with 500 conversations and 1500 contacts (`testing/ui/perf_window.py`): one incoming text 540 ms -> 34 ms, 20 together 5.3 s -> 32 ms, list draw 255 -> 57 ms. Contact index, one redraw per frame, rows reused, only ~80 rows drawn until scrolled. Not released; owner to judge the feel.
 - 2026-11-12 Q28: recent texts and contacts cached on disk; the window opens full after a restart, before the phone reconnects (checked with the fake phone off). Not released yet.
 - 2026-11-12 v0.3.2: paired phone apps reconnect without mDNS (Q34, waits on the real phone).

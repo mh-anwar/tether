@@ -110,6 +110,16 @@ fn i(p: &Value, key: &str) -> Result<i64> {
         .ok_or_else(|| anyhow!("missing '{key}'"))
 }
 
+/// Stops the service after the reply has gone out, so the window knows it was heard; the window
+/// then starts a fresh copy (after an update, or to pick up changed settings).
+fn exit_soon() {
+    tokio::spawn(async {
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+        let _ = std::fs::remove_file(crate::socket_path());
+        std::process::exit(0);
+    });
+}
+
 async fn call(svc: &Service, method: &str, p: &Value) -> Result<Value> {
     let ok = || Ok(json!(true));
     match method {
@@ -145,13 +155,23 @@ async fn call(svc: &Service, method: &str, p: &Value) -> Result<Value> {
         "update_check" => crate::update::check(false).await,
         "update_install" => crate::update::install().await,
         "shutdown" => {
-            // After the reply goes out, so the window knows it was heard (it restarts us after an update).
-            tokio::spawn(async {
-                tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-                let _ = std::fs::remove_file(crate::socket_path());
-                std::process::exit(0);
-            });
+            exit_soon();
             ok()
+        }
+        "settings_get" => crate::config::settings(),
+        "settings_set" => {
+            let restart = crate::config::save_settings(p)?;
+            if let Some(on) = p.get("mirror_notifications").and_then(Value::as_bool) {
+                crate::notify::ENABLED.store(on, std::sync::atomic::Ordering::Relaxed);
+            }
+            if let Some(on) = p.get("auto_update").and_then(Value::as_bool) {
+                crate::update::set_auto(on);
+            }
+            if restart {
+                // The window starts a fresh service, which reads the new settings.
+                exit_soon();
+            }
+            Ok(json!({"restart": restart}))
         }
         "apps_find_port" => Ok(crate::apps::find_pairing_port(svc)),
         "apps_doctor" => crate::apps::doctor(svc).await,

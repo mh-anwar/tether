@@ -380,6 +380,25 @@ h2 { font-size: 14px; }
 .photo-tile:hover { border-color: var(--text-3); }
 .photo-tile.waiting { animation: wait-pulse 1.4s ease-in-out infinite; }
 @keyframes wait-pulse { 50% { opacity: .5; } }
+.settings-page { display: none; }
+.app.view-settings .list, .app.view-settings .thread { display: none; }
+.app.view-settings .settings-page { display: flex; flex-direction: column; grid-column: 2 / span 2; min-width: 0; overflow-y: auto; background: var(--bg-raised); }
+.settings-body { padding: 4px 20px 32px; max-width: 620px; display: grid; gap: 8px; }
+.settings-body section { display: grid; gap: 14px; padding: 16px 0; border-bottom: 1px solid var(--border); }
+.settings-body section:last-child { border-bottom: 0; }
+.settings-body h2 { font-size: 12px; font-weight: 600; color: var(--text-3); text-transform: uppercase; letter-spacing: .04em; margin: 0; }
+.settings-body .sub { margin: 0; color: var(--text-2); font-size: 13px; }
+.setting { display: grid; gap: 6px; justify-items: start; margin: 0; }
+.setting b { font-weight: 550; display: block; }
+.setting small { color: var(--text-3); font-size: 12.5px; display: block; }
+.setting.check { grid-template-columns: auto 1fr; gap: 10px; align-items: start; cursor: pointer; }
+.setting.check input { width: 16px; height: 16px; margin: 3px 0 0; accent-color: var(--accent); }
+.field-row { display: flex; gap: 8px; width: 100%; flex-wrap: wrap; }
+.field-row input { flex: 1; min-width: 180px; border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 6px 9px; background: var(--bg-raised); color: var(--text); font: inherit; }
+.field-row input:focus-visible { outline: none; border-color: var(--accent); box-shadow: var(--focus); }
+.addr-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.addr-list li { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 2px 4px 2px 9px; border: 1px solid var(--border); border-radius: var(--radius-sm); font-variant-numeric: tabular-nums; }
+.btn.danger { background: var(--danger); border-color: var(--danger); color: #fff; }
 .apps-setup { padding: 32px 36px; display: grid; gap: 20px; max-width: 860px; align-content: start; }
 .apps-setup.narrow { max-width: 560px; }
 .apps-intro h1 { font-size: 20px; margin: 0 0 6px; }

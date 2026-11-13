@@ -7,6 +7,9 @@ use tether_core::{plugins::Update, Event, PairState, Service};
 use tokio::sync::broadcast::error::RecvError;
 use tracing::debug;
 
+/// Settings screen switch; phone notifications still reach the window when off.
+pub static ENABLED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
+
 pub async fn mirror(service: Service) {
     let mut events = service.subscribe();
     // phone notification id -> desktop notification id, so dismissals on the phone close ours.
@@ -22,7 +25,10 @@ pub async fn mirror(service: Service) {
                 device_id,
                 update: Update::Notification(n),
             } => {
-                if n.silent || (n.title.is_empty() && n.text.is_empty()) {
+                if !ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+                    || n.silent
+                    || (n.title.is_empty() && n.text.is_empty())
+                {
                     continue;
                 }
                 let key = format!("{device_id}/{}", n.id);
