@@ -54,7 +54,7 @@ Owner feedback on v0.2.0 with the real phone (2026-11-12). Details and hypothese
   app/large icon (low-res thumbnail), so the full picture needs the file: either KDE Connect's sftp plugin
   (`kdeconnect.sftp.request`, phone answers with ip/port/user/password/path) to fetch the newest file in
   DCIM/Screenshots, or the share plugin. Check what kdeconnect-android puts in the screenshot notification first.
-- [ ] Q33 **"Phone on your desktop" feel** (owner's vision, 2026-11-12): like T3 Code over SSH, where the remote
+- [~] Q33 (first screen built 2026-11-12, not released: Photos page with Camera and Screenshots tabs, newest 60 each, previews made a few at a time and kept, open one to Copy or Save. Checked with the stand-in file server. Still open: drag a photo out into other apps, browse other folders, videos, HEIC) **"Phone on your desktop" feel** (owner's vision, 2026-11-12): like T3 Code over SSH, where the remote
   machine feels local. Ideas: browse/drag phone files and photos in the window (sftp plugin), newest photos and
   screenshots strip, drag a photo from the phone into any desktop app, copy any notification image.
   Rule from the owner: everything must work from the window; never ask people to run commands
@@ -76,8 +76,6 @@ Owner feedback on v0.2.0 with the real phone (2026-11-12). Details and hypothese
 - [ ] Q17 **Flathub**: Flatpak manifest with bundled adb + scrcpy, Background portal for start at login,
   screenshots, CI build, then the Flathub PR. Store listing is written (packaging/flatpak). Needs Q17a.
   Done when: `flatpak install flathub io.github.mh_anwar.Tether` works.
-- [ ] Q6 **Photos**: recent photos from the phone (SFTP plugin, see docs/protocol.md) in a grid; drag a photo
-  out to save it. Done when: the last 50 photos show within a few seconds.
 - [ ] Q7 **mDNS discovery** (`_kdeconnect._udp`) alongside UDP broadcast, for networks that drop broadcast.
   Wake and network-change reconnects are done (netwatch). Done when: a phone on a broadcast-blocking network
   connects without `tether connect`.

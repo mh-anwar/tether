@@ -52,6 +52,10 @@
   `tether` itself, the password travels in an env var). First use: Copy/Save on screenshot notifications
   (desktop popup buttons and the window's notification card) fetch the newest file in
   `DCIM/Screenshots` or `Pictures/Screenshots`; Copy puts it on the clipboard as image/png.
+  The Photos page lists the newest 60 pictures of `DCIM/Camera` and of the screenshot folders (`ls -1t`,
+  images only), gets previews six at a time in one sftp session (full file downloaded, 360 px JPEG kept in
+  `phone-files/thumbs/<hash of the phone path>.jpg`, turned upright from EXIF), and keeps the last 20
+  full-size pictures in `phone-files/full`. The sftp login is reused for five minutes.
 - `autostart`: `tether autostart on|off` writes a systemd user unit (XDG autostart fallback). The window
   turns it on at first launch and rewrites it each launch while on (follows a moved AppImage).
 
@@ -66,7 +70,7 @@ Request `{"id","method","params"}`, reply `{"id","result"|"error"}`, events push
   `update_install` (all return the update status: current, latest, kind, phase idle/checking/downloading/
   ready/installer, error, noReleases, installer path and command), `shutdown` (the window's restart after an
   update: the daemon exits, the window starts a fresh copy of itself, which starts the new daemon), `apps_download`, `apps_list`, `apps_open {package?, title}` (no package:
-  the whole screen), `apps_menu` (pinned packages), `screenshot_copy {device}`, `screenshot_save {device}` (returns `path`), `apps_menu_set {package, name, icon?, on}` (icon: a file from the
+  the whole screen), `apps_menu` (pinned packages), `photos_list {device}` (`folders: [{name, items: [phone path]}]`), `photos_thumbs {device, paths}` (phone path -> local preview or null), `photo_get|photo_copy|photo_save {device, path}`, `screenshot_copy {device}`, `screenshot_save {device}` (returns `path`), `apps_menu_set {package, name, icon?, on}` (icon: a file from the
   notification-icon cache, copied to `tether/menu-icons/`) (writes
   `$XDG_DATA_HOME/applications/tether-app-<package>.desktop` running `tether apps <package>`; the daemon
   rewrites their Exec at start so a moved AppImage still works, via `Tether.AppImage --tether ...`). The window polls `apps_status` while the Apps page is open.

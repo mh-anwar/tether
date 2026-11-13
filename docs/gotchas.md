@@ -72,6 +72,9 @@ Traps that already cost time. Add new ones here with the symptom first.
 - **Copy/Save on a screenshot says the phone didn't share its files**: the phone's "Filesystem expose"
   plugin is off or lacks storage permission, so it never answers `kdeconnect.sftp.request` (no error
   packet). On the phone: KDE Connect, this computer, Plugin settings, Filesystem expose.
+- **Photos previews are slow on the first visit**: the phone has no small versions to hand out, so each
+  preview downloads the whole photo once (several MB). They are kept afterwards. HEIC photos and videos
+  are not listed (no decoder).
 - **Screenshot buttons only in English**: notifications are matched on the word "screenshot" in the app
   name, title or text; other languages miss them.
 

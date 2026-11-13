@@ -106,3 +106,6 @@ connect announcements were hidden. Direct discovery on a real Android phone is s
   checked against a stand-in sshd (`testing/phone-files/serve.sh`), clipboard holds image/png. Needs
   "Filesystem expose" on the phone; real Samsung unverified (which folder, which notification text).
 - Both are unreleased on `main`. Next: Q33 (phone files in the window, same sftp path), Q27, Q10.
+- Later the same night (all unreleased on this branch, ahead of `main`): Q27 window speed (measured with
+  `testing/ui/perf_window.py`), Q33 first screen: Photos page (`ui/app.js` photos section,
+  `phonefiles.rs`). Next: owner's verdict on Photos, then drag-out, tray icon (Q10).
