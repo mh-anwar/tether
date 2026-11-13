@@ -65,6 +65,15 @@ async fn handle_conn(service: Service, stream: UnixStream) {
             }
         }
     });
+    let ui_tx = tx.clone();
+    let mut ui = UI_EVENTS.subscribe();
+    let forward_ui = tokio::spawn(async move {
+        while let Ok(v) = ui.recv().await {
+            if ui_tx.send(v).await.is_err() {
+                break;
+            }
+        }
+    });
     let writer = tokio::spawn(async move {
         while let Some(v) = rx.recv().await {
             let mut line = serde_json::to_vec(&v).unwrap_or_default();
@@ -94,6 +103,7 @@ async fn handle_conn(service: Service, stream: UnixStream) {
         });
     }
     forward.abort();
+    forward_ui.abort();
     drop(tx);
     let _ = writer.await;
 }
@@ -108,6 +118,14 @@ fn i(p: &Value, key: &str) -> Result<i64> {
     p.get(key)
         .and_then(Value::as_i64)
         .ok_or_else(|| anyhow!("missing '{key}'"))
+}
+
+/// Events from the service itself (not from a phone) to every connected window.
+static UI_EVENTS: std::sync::LazyLock<tokio::sync::broadcast::Sender<Value>> =
+    std::sync::LazyLock::new(|| tokio::sync::broadcast::channel(16).0);
+
+pub fn ui_event(event: Value) {
+    let _ = UI_EVENTS.send(event);
 }
 
 /// Stops the service after the reply has gone out, so the window knows it was heard; the window
@@ -156,6 +174,22 @@ async fn call(svc: &Service, method: &str, p: &Value) -> Result<Value> {
         "update_install" => crate::update::install().await,
         "shutdown" => {
             exit_soon();
+            ok()
+        }
+        "window_shown" => {
+            crate::tray::window_shown();
+            ok()
+        }
+        "seen_set" => {
+            // thread id -> date of the newest message read in the window (JSON keys are text).
+            let seen: std::collections::HashMap<String, i64> =
+                serde_json::from_value(p.get("seen").cloned().unwrap_or(Value::Null))
+                    .context("missing 'seen'")?;
+            crate::tray::set_seen(
+                seen.into_iter()
+                    .filter_map(|(k, v)| Some((k.parse().ok()?, v)))
+                    .collect(),
+            );
             ok()
         }
         "settings_get" => crate::config::settings(),

@@ -4125,6 +4125,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "uuid",
+ "x11rb",
  "zbus",
 ]
 

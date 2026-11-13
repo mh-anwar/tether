@@ -87,6 +87,18 @@ async fn connection_loop(app: tauri::AppHandle) {
                 if let Some(tx) = state.pending.lock().await.remove(&id) {
                     let _ = tx.send(v);
                 }
+            } else if v.get("event").and_then(Value::as_str) == Some("show_window") {
+                // A click on the tray icon: come to the front and say so, or the service
+                // starts another window.
+                if let Some(w) = app.get_webview_window("main") {
+                    let _ = w.unminimize();
+                    let _ = w.show();
+                    let _ = w.set_focus();
+                }
+                let app = app.clone();
+                tauri::async_runtime::spawn(async move {
+                    let _ = call(app.state::<Daemon>(), "window_shown".into(), json!({})).await;
+                });
             } else if v.get("event").is_some() {
                 let _ = app.emit("tether", v);
             }

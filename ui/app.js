@@ -46,6 +46,8 @@ function loadSeen() {
   try { return JSON.parse(localStorage.getItem('tether.seen') || '{}'); } catch { return {}; }
 }
 function saveSeen() {
+  // The service draws the tray icon's unread count from this.
+  if (state.daemon) api('seen_set', { seen: state.seen }).catch(() => {});
   try { localStorage.setItem('tether.seen', JSON.stringify(state.seen)); } catch { /* private mode */ }
 }
 
@@ -260,6 +262,7 @@ async function loadAll() {
     state.selected = null;
   }
   loadUpdate();
+  api('seen_set', { seen: state.seen }).catch(() => {});
   if (state.view === 'settings') loadSettings();
   if (state.deviceId) await loadDevice();
   render();

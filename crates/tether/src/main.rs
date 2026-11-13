@@ -12,6 +12,7 @@ mod mdns_probe;
 mod mprisd;
 mod notify;
 mod phonefiles;
+mod tray;
 mod update;
 
 use std::path::PathBuf;
