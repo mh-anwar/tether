@@ -405,6 +405,11 @@ fn seed() -> Phone {
         json!({"id": "0|com.spotify.music|4|", "appName": "Spotify", "title": "Now playing",
         "text": "Holocene by Bon Iver", "isClearable": false, "time": (now - 40 * min).to_string()}),
     );
+    add(
+        "0|com.android.systemui|5|",
+        json!({"id": "0|com.android.systemui|5|", "appName": "System UI", "title": "Screenshot saved",
+        "text": "Tap to see your screenshot", "isClearable": true, "time": (now - min).to_string()}),
+    );
     Phone {
         next_id: 100,
         msgs,
@@ -759,6 +764,23 @@ async fn handle(
                 println!("reply to notification: {:?}", p.str("message"));
                 vec![]
             }
+            // SftpPlugin.kt answer. FAKE_SFTP="ip:port:user:root" points at a test SFTP server
+            // (see docs/testing.md); without it the phone stays silent, like file access turned off.
+            "kdeconnect.sftp.request" => match std::env::var("FAKE_SFTP") {
+                Ok(v) => {
+                    let f: Vec<&str> = v.splitn(4, ':').collect();
+                    match f.as_slice() {
+                        [ip, port, user, root] => vec![Packet::new(
+                            "kdeconnect.sftp",
+                            json!({"ip": ip, "port": port.parse::<i64>().unwrap_or(0), "user": user,
+                                   "password": "fake-one-time", "path": root,
+                                   "multiPaths": [root], "pathNames": ["Internal storage"]}),
+                        )],
+                        _ => vec![],
+                    }
+                }
+                Err(_) => vec![],
+            },
             "kdeconnect.sms.request_conversations" => {
                 let mut heads: BTreeMap<i64, &Msg> = BTreeMap::new();
                 for m in &ph.msgs {

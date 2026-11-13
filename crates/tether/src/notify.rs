@@ -42,6 +42,13 @@ pub async fn mirror(service: Service) {
                 if let Some(id) = replaces {
                     desk.id(id);
                 }
+                if crate::phonefiles::is_screenshot(&n.app, &n.title, &n.text) {
+                    // Waiting for the click owns the handle, so this one isn't closed from the phone.
+                    desk.action("copy", "Copy").action("save", "Save");
+                    shown.remove(&key);
+                    tokio::spawn(screenshot_actions(service.clone(), device_id, desk));
+                    continue;
+                }
                 match show(desk).await {
                     Some(h) => {
                         shown.insert(key, h);
@@ -92,6 +99,57 @@ pub async fn mirror(service: Service) {
             _ => {}
         }
     }
+}
+
+/// Shows a screenshot notification and acts on its Copy or Save button.
+async fn screenshot_actions(service: Service, device_id: String, desk: notify_rust::Notification) {
+    let clicked = tokio::task::spawn_blocking(move || {
+        let handle = desk.show().ok()?;
+        let mut clicked = None;
+        handle.wait_for_action(|a| clicked = Some(a.to_string()));
+        clicked
+    })
+    .await
+    .ok()
+    .flatten();
+    let Some(action) = clicked.filter(|a| a == "copy" || a == "save") else {
+        return;
+    };
+    let mut progress = notify_rust::Notification::new();
+    progress
+        .appname("Tether")
+        .summary(if action == "copy" {
+            "Copying the screenshot"
+        } else {
+            "Saving the screenshot"
+        })
+        .body("Getting it from your phone.");
+    let handle = show(progress).await;
+    let (summary, body) = if action == "copy" {
+        match crate::phonefiles::copy_screenshot(&service, &device_id).await {
+            Ok(()) => (
+                "Screenshot copied".to_string(),
+                "Paste it anywhere.".to_string(),
+            ),
+            Err(e) => ("Couldn't copy the screenshot".to_string(), e.to_string()),
+        }
+    } else {
+        match crate::phonefiles::save_screenshot(&service, &device_id).await {
+            Ok(p) => (
+                "Screenshot saved".to_string(),
+                p.to_string_lossy().into_owned(),
+            ),
+            Err(e) => ("Couldn't save the screenshot".to_string(), e.to_string()),
+        }
+    };
+    let mut done = notify_rust::Notification::new();
+    done.appname("Tether")
+        .summary(&summary)
+        .body(&escape(&body));
+    if let Some(h) = &handle {
+        done.id(h.id());
+    }
+    show(done).await;
 }
 
 async fn show(n: notify_rust::Notification) -> Option<notify_rust::NotificationHandle> {

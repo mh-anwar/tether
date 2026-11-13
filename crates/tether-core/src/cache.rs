@@ -3,13 +3,7 @@
 //!
 //! Message contents are private: files are readable only by the user and removed on unpair.
 
-use std::{
-    collections::BTreeMap,
-    fs,
-    io::Write,
-    os::unix::fs::{DirBuilderExt, OpenOptionsExt},
-    path::PathBuf,
-};
+use std::{fs, os::unix::fs::DirBuilderExt, path::PathBuf};
 
 use serde::{Deserialize, Serialize};
 
@@ -47,10 +41,7 @@ impl Snapshot {
     /// Fills `data` with the cached texts and contacts.
     pub fn restore(self, data: &mut DeviceData) {
         for m in self.messages {
-            data.threads
-                .entry(m.thread_id)
-                .or_insert_with(BTreeMap::new)
-                .insert(m.id, m);
+            data.threads.entry(m.thread_id).or_default().insert(m.id, m);
         }
         data.contacts = self.contacts;
     }
@@ -84,14 +75,7 @@ impl Cache {
             .mode(0o700)
             .create(&self.dir)?;
         let tmp = path.with_extension("json.tmp");
-        let mut f = fs::OpenOptions::new()
-            .write(true)
-            .create(true)
-            .truncate(true)
-            .mode(0o600)
-            .open(&tmp)?;
-        f.write_all(&serde_json::to_vec(snap)?)?;
-        f.sync_all()?;
+        crate::cert::write_private(&tmp, &serde_json::to_vec(snap)?)?;
         fs::rename(tmp, path)?;
         Ok(())
     }
@@ -127,7 +111,10 @@ mod tests {
         for i in 0..40 {
             data.threads.entry(1).or_default().insert(i, msg(i, 1, i));
         }
-        data.threads.entry(2).or_default().insert(100, msg(100, 2, 5));
+        data.threads
+            .entry(2)
+            .or_default()
+            .insert(100, msg(100, 2, 5));
         cache
             .save(id, &Snapshot::of(&data))
             .unwrap_or_else(|e| panic!("{e}"));

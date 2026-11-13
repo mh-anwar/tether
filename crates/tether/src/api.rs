@@ -258,6 +258,14 @@ async fn call(svc: &Service, method: &str, p: &Value) -> Result<Value> {
                         plugins::mpris::set_position(s(p, "player")?, i(p, "position_ms")?),
                     )
                     .map(|_| json!(true))?),
+                "screenshot_copy" => {
+                    crate::phonefiles::copy_screenshot(svc, dev).await?;
+                    ok()
+                }
+                "screenshot_save" => {
+                    let to = crate::phonefiles::save_screenshot(svc, dev).await?;
+                    Ok(json!({"path": to.to_string_lossy()}))
+                }
                 "share_file" => {
                     let n = svc.share_file(dev, Path::new(s(p, "path")?)).await?;
                     Ok(json!({"bytes": n}))

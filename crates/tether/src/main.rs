@@ -11,6 +11,7 @@ mod exec;
 mod mdns_probe;
 mod mprisd;
 mod notify;
+mod phonefiles;
 mod update;
 
 use std::path::PathBuf;
@@ -98,6 +99,7 @@ pub enum Toggle {
 }
 
 fn main() -> Result<()> {
+    phonefiles::answer_askpass();
     let cli = Cli::parse();
     if let Cmd::Daemon = cli.cmd {
         clipsync::guess_display_env();

@@ -15,7 +15,7 @@ tauri-build = { version = "2", features = [] }
 # Tauri: the window, using the system WebKitGTK so the binary stays small.
 tauri = { version = "2", features = ["protocol-asset"] }
 # Clipboard for "copy code" and pasting into the phone; works on X11 and Wayland.
-arboard = { version = "3", default-features = false, features = ["wayland-data-control"] }
+arboard = { version = "3", default-features = false, features = ["wayland-data-control", "image-data"] }
 anyhow.workspace = true
 tokio.workspace = true
 serde.workspace = true

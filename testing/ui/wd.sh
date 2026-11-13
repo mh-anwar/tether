@@ -27,6 +27,11 @@ cleanup() {
 }
 trap cleanup EXIT
 Xvfb "$DISPLAY_NUM" -screen 0 1400x900x24 -nolisten tcp >/dev/null 2>&1 & pids+=($!)
+# The phone's file server, once the service has created its key (after the first run).
+if [ -f "$W/data/tether/key.der" ] && [ -x /usr/sbin/sshd ]; then
+  "$ROOT/testing/phone-files/serve.sh" "$W" "$W/data" 2300 > "$W/sftp.out" & pids+=($!)
+  sleep 1; export FAKE_SFTP=$(head -1 "$W/sftp.out")
+fi
 "$BIN/examples/fake_phone" 127.0.0.1:1716 "$W/phone" > "$W/phone.log" 2>&1 & pids+=($!)
 "${TAURI_DRIVER:-$HOME/.cargo/bin/tauri-driver}" --port "$PORT" --native-port $((PORT + 1)) > "$W/wd.log" 2>&1 & pids+=($!)
 sleep 2

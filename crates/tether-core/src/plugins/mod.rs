@@ -4,6 +4,7 @@
 pub mod contacts;
 pub mod mpris;
 pub mod notification;
+pub mod sftp;
 pub mod sms;
 pub mod telephony;
 
@@ -42,6 +43,7 @@ pub fn incoming_capabilities() -> Vec<String> {
         contacts::RESPONSE_UIDS,
         contacts::RESPONSE_VCARDS,
         mpris::MPRIS,
+        sftp::SFTP,
     ]
     .map(String::from)
     .to_vec()
@@ -66,6 +68,7 @@ pub fn outgoing_capabilities() -> Vec<String> {
         contacts::REQUEST_UIDS,
         contacts::REQUEST_VCARDS,
         mpris::REQUEST,
+        sftp::REQUEST,
     ]
     .map(String::from)
     .to_vec()

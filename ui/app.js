@@ -1089,6 +1089,10 @@ function noteCard(n) {
   if (n.reply_id) acts.push(h('button', { class: 'btn', onclick: () => openReply(card, n) }, icon('reply', 'sm'), 'Reply'));
   const code = findCode(`${n.title} ${n.text}`);
   if (code) acts.push(h('button', { class: 'chip code', onclick: () => copy(code, 'Code copied') }, icon('key', 'sm'), `Copy ${code}`));
+  if (isScreenshot(n)) {
+    acts.push(h('button', { class: 'btn', onclick: (e) => screenshot(e.currentTarget, 'copy') }, icon('copy', 'sm'), 'Copy'));
+    acts.push(h('button', { class: 'btn', onclick: (e) => screenshot(e.currentTarget, 'save') }, icon('download', 'sm'), 'Save'));
+  }
   for (const a of n.actions || []) acts.push(h('button', { class: 'btn', onclick: () => noteAction(n, a) }, a));
   if (acts.length) card.append(h('div', { class: 'acts' }, acts));
   return card;
@@ -1110,6 +1114,25 @@ function openReply(card, n) {
   const box = h('div', { class: 'reply-box' }, input, h('button', { class: 'btn primary icon-only', 'aria-label': 'Send reply', onclick: go }, icon('send', 'sm')));
   card.append(box);
   input.focus();
+}
+
+// Same test as the service's desktop popup (phonefiles::is_screenshot).
+function isScreenshot(n) {
+  return [n.app, n.title, n.text].some((s) => (s || '').toLowerCase().includes('screenshot'));
+}
+
+async function screenshot(btn, mode) {
+  const busy = toast(mode === 'copy' ? 'Copying the screenshot from your phone' : 'Saving the screenshot from your phone', 'progress', 90000);
+  btn.disabled = true;
+  try {
+    if (mode === 'copy') {
+      await api('screenshot_copy', { device: state.deviceId });
+      toast('Screenshot copied');
+    } else {
+      const r = await api('screenshot_save', { device: state.deviceId });
+      toast(`Saved to ${r.path.split('/').slice(-2).join('/')}`);
+    }
+  } catch (e) { toast(String(e), 'error'); } finally { busy.remove(); btn.disabled = false; }
 }
 
 async function dismiss(n) {

@@ -15,8 +15,10 @@ tracing-subscriber.workspace = true
 clap.workspace = true
 dirs.workspace = true
 notify-rust.workspace = true
+# Phone screenshots onto the clipboard: decode the phone's PNG or JPEG (Samsung saves JPEG).
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 # Clipboard sync in the background service; same features as tether-app so builds share it.
-arboard = { version = "3", default-features = false, features = ["wayland-data-control"] }
+arboard = { version = "3", default-features = false, features = ["wayland-data-control", "image-data"] }
 # The phone's media player on the desktop's D-Bus (media keys). Already built for notify-rust.
 zbus = { version = "6", default-features = false, features = ["default-rt", "proxy", "service"] }
 # Phone apps: QR code for wireless-debugging pairing (no image deps), helper checksum, random secrets.

@@ -46,6 +46,15 @@ try:
     check("window connects to the phone", lambda: text_shown("Connected"))
     check("conversations load", lambda: wait.until(lambda _: d.find_elements(By.CSS_SELECTOR, ".threads > *")))
 
+    def copy_screenshot():
+        if not os.environ.get("FAKE_SFTP"):
+            raise RuntimeError("no stand-in file server (FAKE_SFTP); run wd.sh once more")
+        card = wait.until(EC.visibility_of_element_located(
+            (By.CSS_SELECTOR, "article.note-card[aria-label*='Screenshot saved']")))
+        card.find_element(By.XPATH, ".//button[normalize-space(.)='Copy']").click()
+        text_shown("Screenshot copied")
+    check("screenshot notification copies the picture", copy_screenshot)
+
     def apps_page():
         button("Apps").click()
         text_shown("phone's apps")

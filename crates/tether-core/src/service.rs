@@ -21,14 +21,14 @@ use tokio::{
 use tracing::{debug, info, warn};
 
 use crate::{
+    cache::{Cache, Snapshot},
     cert::{self, LocalCert},
     discovery,
     identity::{self, Identity, MAX_TCP_PORT, MIN_TCP_PORT, PROTOCOL_VERSION, UDP_PORT},
     link::{self, Link},
     packet::Packet,
     payload,
-    plugins::{self, sms, DeviceData, Update},
-    cache::{Cache, Snapshot},
+    plugins::{self, sftp, sms, DeviceData, Update},
     store::{Store, TrustedDevice},
     tls::TlsContext,
     Error, Result,
@@ -117,6 +117,8 @@ struct Dev {
     last_dial: Option<Instant>,
     /// Texts or contacts changed since the last write of the on-disk cache.
     cache_dirty: bool,
+    /// Callers waiting for the phone's file server to answer `sftp::request`.
+    sftp_waiters: Vec<tokio::sync::oneshot::Sender<std::result::Result<sftp::Login, String>>>,
 }
 
 struct Inner {
@@ -191,6 +193,7 @@ impl Service {
                     data,
                     last_dial: None,
                     cache_dirty: false,
+                    sftp_waiters: Vec::new(),
                 },
             );
         }
@@ -259,6 +262,14 @@ impl Service {
         let mut v: Vec<_> = devs.values().map(|d| self.inner.summary(d)).collect();
         v.sort_by(|a, b| b.connected.cmp(&a.connected).then(a.name.cmp(&b.name)));
         v
+    }
+
+    pub fn data_dir(&self) -> &Path {
+        &self.inner.config.data_dir
+    }
+
+    pub fn key_pem(&self) -> String {
+        self.inner.cert.key_pem()
     }
 
     pub fn device_data(&self, id: &str) -> Result<DeviceData> {
@@ -386,10 +397,15 @@ impl Service {
     /// Copies a downloaded picture message into the downloads folder; returns where it went.
     pub fn save_attachment(&self, unique_identifier: &str) -> Result<PathBuf> {
         let from = self.inner.attachment_file(unique_identifier);
+        self.save_to_downloads(&from, unique_identifier)
+    }
+
+    /// Copies `from` into the downloads folder as `name` (made safe and unique).
+    pub fn save_to_downloads(&self, from: &Path, name: &str) -> Result<PathBuf> {
         let dir = &self.inner.config.downloads_dir;
         std::fs::create_dir_all(dir)?;
-        let to = reserve_path(dir, &safe_file_name(unique_identifier))?;
-        if let Err(e) = std::fs::copy(&from, &to) {
+        let to = reserve_path(dir, &safe_file_name(name))?;
+        if let Err(e) = std::fs::copy(from, &to) {
             let _ = std::fs::remove_file(&to);
             return Err(e.into());
         }
@@ -409,6 +425,25 @@ impl Service {
             .as_ref()
             .ok_or_else(|| Error::NotConnected(id.into()))?;
         l.tx.try_send(p).map_err(|_| Error::NotConnected(id.into()))
+    }
+
+    /// Asks the phone to start its file server and returns how to log in. Fails with the phone's
+    /// own message, or `Timeout` when the phone doesn't answer (file access turned off there).
+    pub async fn sftp_login(&self, id: &str) -> Result<sftp::Login> {
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        {
+            let mut devs = self.inner.lock();
+            let d = devs
+                .get_mut(id)
+                .ok_or_else(|| Error::UnknownDevice(id.into()))?;
+            d.sftp_waiters.push(tx);
+        }
+        self.send(id, sftp::request())?;
+        match tokio::time::timeout(Duration::from_secs(15), rx).await? {
+            Ok(Ok(login)) => Ok(login),
+            Ok(Err(msg)) => Err(Error::Protocol(msg)),
+            Err(_) => Err(Error::NotConnected(id.into())),
+        }
     }
 
     /// Sends a file. Resolves once the phone has finished downloading it.
@@ -613,6 +648,7 @@ impl Inner {
             data: DeviceData::default(),
             last_dial: None,
             cache_dirty: false,
+            sftp_waiters: Vec::new(),
         });
         d.identity = peer;
         if tcp_addr.is_some() {
@@ -691,6 +727,15 @@ impl Inner {
 
         let Some(link) = d.link.as_ref() else { return };
         let (addr, cert) = (link.addr, link.cert.clone());
+
+        if p.kind == sftp::SFTP {
+            if let Some(answer) = sftp::parse(&p) {
+                for w in d.sftp_waiters.drain(..) {
+                    let _ = w.send(answer.clone());
+                }
+            }
+            return;
+        }
 
         // Payload-bearing packets need the network; start the transfer outside the lock.
         if let Some(port) = p.payload_port() {

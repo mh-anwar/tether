@@ -57,10 +57,38 @@ impl LocalCert {
             key_der: key.serialize_der(),
         })
     }
+
+    /// The private key as PKCS#8 PEM for OpenSSH. The phone's file server accepts the key of our
+    /// pinned certificate (kdeconnect-android SftpPlugin `SimplePublicKeyAuthenticator`;
+    /// kdeconnect-kde plugins/sftp/mounter.cpp passes it as `IdentityFile`).
+    pub fn key_pem(&self) -> String {
+        const T: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+        let mut b64 = String::new();
+        for c in self.key_der.chunks(3) {
+            let n = c
+                .iter()
+                .enumerate()
+                .fold(0u32, |n, (i, b)| n | (*b as u32) << (16 - 8 * i));
+            for i in 0..4 {
+                b64.push(if i <= c.len() {
+                    T[(n >> (18 - 6 * i) & 63) as usize] as char
+                } else {
+                    '='
+                });
+            }
+        }
+        let mut pem = String::from("-----BEGIN PRIVATE KEY-----\n");
+        for line in b64.as_bytes().chunks(64) {
+            pem.push_str(&String::from_utf8_lossy(line));
+            pem.push('\n');
+        }
+        pem.push_str("-----END PRIVATE KEY-----\n");
+        pem
+    }
 }
 
 #[cfg(unix)]
-fn write_private(path: &Path, data: &[u8]) -> Result<()> {
+pub(crate) fn write_private(path: &Path, data: &[u8]) -> Result<()> {
     use std::io::Write;
     use std::os::unix::fs::OpenOptionsExt;
     let mut f = fs::OpenOptions::new()
@@ -74,7 +102,7 @@ fn write_private(path: &Path, data: &[u8]) -> Result<()> {
 }
 
 #[cfg(not(unix))]
-fn write_private(path: &Path, data: &[u8]) -> Result<()> {
+pub(crate) fn write_private(path: &Path, data: &[u8]) -> Result<()> {
     Ok(fs::write(path, data)?)
 }
 
