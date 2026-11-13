@@ -43,6 +43,11 @@
     <color type="primary" scheme_preference="dark">#1f2a40</color>
   </branding>
   <releases>
+    <release version="0.3.3" date="2026-11-12">
+      <description>
+        <p>A Photos page with the newest camera photos and screenshots from your phone, Copy and Save on screenshot notifications, conversations that are there as soon as the window opens, and a window that stays quick with hundreds of conversations.</p>
+      </description>
+    </release>
     <release version="0.3.2" date="2026-11-12">
       <description>
         <p>After pairing phone apps, Tether now reaches the phone even when the network hides its announcements, and reconnects to it on its own later.</p>
