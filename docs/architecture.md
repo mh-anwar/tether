@@ -15,6 +15,9 @@
 - `tls`: accept any cert in the handshake, trust decided after by pinning (see decisions.md).
 - `link`: TCP + TLS + v8 identity exchange, both roles. `payload`: file transfer sockets.
 - `discovery`: UDP 1716 (exclusive bind). `store`: paired devices as JSON in `$XDG_DATA_HOME/tether/devices`.
+- `cache`: the newest 30 texts per thread and the contacts of each paired phone in
+  `$XDG_DATA_HOME/tether/cache/<id>.json` (0600, deleted on unpair), written at most every 5 s tick after
+  texts or contacts arrive and loaded at start, so the window opens full before the phone reconnects.
 - `service`: the state machine. One `Dev` per known device: identity, pinned cert, last address, live link,
   pair state, plugin data. Links are replaced, never duplicated; redials every 15 s while a paired device
   is away; pair requests expire after 30 s.
@@ -43,6 +46,12 @@
   the old inode). `.deb`/`.rpm`: on request, the package goes to Downloads and is opened. Dev builds
   (`target/`) and Flatpak never update. `exec.rs` holds the curl/wget and process helpers it shares with
   `apps`.
+- `phonefiles`: files from the phone's own file server (KDE Connect's sftp plugin, "Filesystem expose"
+  on the phone). `Service::sftp_login` asks for it; the system `sftp` client logs in with our certificate's
+  key (PEM in `data/tether/phone-files/key.pem`), the one-time password as fallback (`SSH_ASKPASS` runs
+  `tether` itself, the password travels in an env var). First use: Copy/Save on screenshot notifications
+  (desktop popup buttons and the window's notification card) fetch the newest file in
+  `DCIM/Screenshots` or `Pictures/Screenshots`; Copy puts it on the clipboard as image/png.
 - `autostart`: `tether autostart on|off` writes a systemd user unit (XDG autostart fallback). The window
   turns it on at first launch and rewrites it each launch while on (follows a moved AppImage).
 
@@ -57,7 +66,7 @@ Request `{"id","method","params"}`, reply `{"id","result"|"error"}`, events push
   `update_install` (all return the update status: current, latest, kind, phase idle/checking/downloading/
   ready/installer, error, noReleases, installer path and command), `shutdown` (the window's restart after an
   update: the daemon exits, the window starts a fresh copy of itself, which starts the new daemon), `apps_download`, `apps_list`, `apps_open {package?, title}` (no package:
-  the whole screen), `apps_menu` (pinned packages), `apps_menu_set {package, name, icon?, on}` (icon: a file from the
+  the whole screen), `apps_menu` (pinned packages), `screenshot_copy {device}`, `screenshot_save {device}` (returns `path`), `apps_menu_set {package, name, icon?, on}` (icon: a file from the
   notification-icon cache, copied to `tether/menu-icons/`) (writes
   `$XDG_DATA_HOME/applications/tether-app-<package>.desktop` running `tether apps <package>`; the daemon
   rewrites their Exec at start so a moved AppImage still works, via `Tether.AppImage --tether ...`). The window polls `apps_status` while the Apps page is open.

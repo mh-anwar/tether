@@ -62,6 +62,13 @@ Traps that already cost time. Add new ones here with the symptom first.
 - **Restart starts the old version from an AppImage**: the window's own binary lives in the old AppImage's
   mount; re-run `$APPIMAGE`, the file that was replaced.
 
+## Phone files
+- **Copy/Save on a screenshot says the phone didn't share its files**: the phone's "Filesystem expose"
+  plugin is off or lacks storage permission, so it never answers `kdeconnect.sftp.request` (no error
+  packet). On the phone: KDE Connect, this computer, Plugin settings, Filesystem expose.
+- **Screenshot buttons only in English**: notifications are matched on the word "screenshot" in the app
+  name, title or text; other languages miss them.
+
 ## Phone apps (adb)
 - **QR pairing never finds the phone**: adb (37, from the scrcpy bundle) finds phones over multicast DNS
   (Openscreen, on by default; `ADB_MDNS_OPENSCREEN=0` switches to the system's Bonjour). A firewall that

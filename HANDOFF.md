@@ -98,3 +98,11 @@ Validation this session: `cargo check -p tether -p tether-app`, combined binary 
 transport test, workspace tests, clippy with warnings denied, fmt check, and seven WebDriver checks
 passed. The real window reached the app grid using stand-in adb/scrcpy, then reconnected after mDNS
 connect announcements were hidden. Direct discovery on a real Android phone is still unverified.
+
+## Session 2026-11-12 night (v0.3.2 released, owner approved push + release)
+- 0.3.2 = the Reconnecting fix above (Q34). Waits on the owner's Samsung.
+- Q28 built: texts and contacts cached on disk (`tether-core/src/cache.rs`); checked with the fake phone off.
+- Q32 built: Copy/Save on screenshot notifications over the phone's sftp plugin (`tether/src/phonefiles.rs`),
+  checked against a stand-in sshd (`testing/phone-files/serve.sh`), clipboard holds image/png. Needs
+  "Filesystem expose" on the phone; real Samsung unverified (which folder, which notification text).
+- Both are unreleased on `main`. Next: Q33 (phone files in the window, same sftp path), Q27, Q10.

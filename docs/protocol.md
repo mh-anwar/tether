@@ -264,6 +264,8 @@ Direction: P->D = phone sends, D->P = desktop (us) sends. Android files under `A
   P->D `kdeconnect.sftp`: `ip`, `port` (1739..1764), `user: "kdeconnect"`, `password` (fresh each time), `path`
   (single root or `/`), `multiPaths: string[]`, `pathNames: string[]`; or `{errorMessage}`; `{serverRunning: false}` sent on
   plugin create. Server auth: password **or** public key equal to our TLS cert's public key (`SimplePublicKeyAuthenticator`).
+  Tether uses it (phonefiles.rs) and treats no answer within 15 s as the plugin being off or lacking storage
+  permission on the phone (the phone loads it only when allowed).
 - **mousepad** (brief): `kdeconnect.mousepad.request` fields `dx`, `dy` (double), `singleclick`, `doubleclick`,
   `middleclick`, `rightclick`, `singlehold`, `singlerelease`, `scroll`, `key`, `specialKey: int`, `alt`/`ctrl`/`shift`/`super`
   (`mousepad/MousePadPlugin.kt`, `mousereceiver/MouseReceiverPlugin.kt`); D->P `kdeconnect.mousepad.keyboardstate`

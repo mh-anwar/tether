@@ -41,7 +41,7 @@ Owner feedback on v0.2.0 with the real phone (2026-11-12). Details and hypothese
   first connection and later reconnects, remembers a verified connection address, bounds incorrect-port
   attempts, and prevents overlapping automatic reconnect jobs. Workspace checks and seven WebDriver
   checks passed, including app-grid pairing and reconnect without mDNS. Built locally; not released or tried on
-  the owner's Samsung. Done when: the paired phone reaches the app grid on the owner's laptop.
+  the owner's Samsung. Released in 0.3.2. Done when: the paired phone reaches the app grid on the owner's laptop.
 - [~] Q25 **QR pairing for phone apps fails on the real phone** (same Wi-Fi). 2026-11-12: owner on 0.3.0: phone stuck on "Pairing device" = phone scanned the QR and waits for the laptop to connect, so the laptop never found the phone's pairing port. Added: mDNS question from our own `<ip>:5353` with the QU bit (firewall-friendly), and a last-resort sweep of the phone's TCP ports 32768-60999 trying the password on each (mdns_probe::open_ports, apps::pair_by_sweep). Diagnostics now in the window ("Show details" under errors), not a terminal command. Done on this box: Tether now
   also asks the phone directly for its wireless-debugging ports (unicast to `<phone IP>:5353`, gets past
   firewalls that drop multicast), logs what it sees, and `tether apps doctor` prints a diagnosis. Not yet
@@ -49,7 +49,7 @@ Owner feedback on v0.2.0 with the real phone (2026-11-12). Details and hypothese
   owner's `tether apps doctor` output says why.
 - [~] Q26 **Pairing by code is too hard**: 0.3.0 finds the port itself when it can, else asks for port (and IP
   if unknown). Owner found it still too much; continued as Q26b.
-- [ ] Q32 **Copy a screenshot from a phone notification** (owner, 2026-11-12). When the phone takes a screenshot,
+- [~] Q32 (built 2026-11-12, not released; checked with a stand-in phone file server, not the Samsung) **Copy a screenshot from a phone notification** (owner, 2026-11-12). Copy and Save buttons on screenshot notifications, in the desktop popup and the window, fetch the newest file over the phone's sftp plugin. Needs "Filesystem expose" on in KDE Connect on the phone. Original note: When the phone takes a screenshot,
   its notification should offer "Copy" (image to the clipboard) and "Save". Notification packets only carry the
   app/large icon (low-res thumbnail), so the full picture needs the file: either KDE Connect's sftp plugin
   (`kdeconnect.sftp.request`, phone answers with ip/port/user/password/path) to fetch the newest file in
@@ -61,8 +61,6 @@ Owner feedback on v0.2.0 with the real phone (2026-11-12). Details and hypothese
   (no `tether ...` in UI copy or in instructions to the owner).
 - [ ] Q27 **Window feels slow**: measure (open-to-first-paint, render time with 500 threads), then batch
   renders and render only what changed. Done when: numbers before/after, and the owner says it's snappy.
-- [ ] Q28 **Notifications and messages appear late**: cache the thread list on disk so the window opens
-  full, show cached data while the phone answers. Done when: reopening the window shows texts at once.
 - [ ] Q10 **Icon in the status bar / tray** with unread count (owner asked). Closing the window already
   keeps the service running. Care on i3: i3bar shows only XEmbed icons, Tauri's tray is AppIndicator (SNI);
   GNOME needs the AppIndicator extension. Done when: the icon shows on the owner's i3 and on KDE/GNOME.
@@ -119,6 +117,8 @@ Owner feedback on v0.2.0 with the real phone (2026-11-12). Details and hypothese
 
 ## Done
 
+- 2026-11-12 Q28: recent texts and contacts cached on disk; the window opens full after a restart, before the phone reconnects (checked with the fake phone off). Not released yet.
+- 2026-11-12 v0.3.2: paired phone apps reconnect without mDNS (Q34, waits on the real phone).
 - 2026-11-12 v0.3.1: phone found past firewalls (QU from :5353, port sweep), 6-digit-only code pairing, "Show details" in the window, new window replaces an outdated service. Waits on the real phone.
 - 2026-11-12 v0.3.0: auto-update, phone-apps pairing fixes (Q25/Q26 wait on the real phone).
 - 2026-11-11 Phone-apps pairing: direct phone query past firewalls, `tether apps doctor`, code form that

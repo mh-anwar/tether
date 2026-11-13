@@ -57,6 +57,12 @@ testing/ui/run.sh stop
 Look at every screenshot you take. Unset `RUST_LOG` when calling `uv` (it changes uv's logging).
 The window is 1200x780 at the top-left (no window manager); there is no drag-and-drop or resizing.
 
+## Phone files (sftp)
+`testing/phone-files/serve.sh WORKDIR DATA_HOME [PORT]` runs a user-level sshd that accepts the test
+service's key and serves two screenshots; it prints the `FAKE_SFTP` value that makes `fake_phone` answer
+`kdeconnect.sftp.request`. `wd.sh` starts it by itself once the service's key exists (from the second run
+on) and checks Copy on the screenshot notification.
+
 ## Updates (nothing published)
 `testing/update/fake-release.sh DIR PORT [VERSION]` serves a stand-in GitHub release (latest.json, the
 no-admin tarball built from the debug binaries with a marker line appended, SHA256SUMS). Set
