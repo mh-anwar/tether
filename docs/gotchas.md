@@ -68,6 +68,13 @@ Traps that already cost time. Add new ones here with the symptom first.
   the conversation list reuses rows and draws 80 at a time. Calling `renderList()` straight from an event
   handler brings the freeze back. `nameFor` uses an index; don't search `state.contacts` per row.
 
+## Tray
+- **No tray icon on GNOME**: GNOME has no tray without the "AppIndicator and KStatusNotifierItem Support"
+  extension. With it the icon appears within 10 s (the service looks for the watcher on that interval).
+- **Icon with a black square on a transparent bar**: a tray that draws with transparency must publish
+  `_NET_SYSTEM_TRAY_VISUAL` (a 32-bit visual); without it the icon is mixed with the bar colour read
+  from the screen, which a compositor can get wrong.
+
 ## Phone files
 - **Copy/Save on a screenshot says the phone didn't share its files**: the phone's "Filesystem expose"
   plugin is off or lacks storage permission, so it never answers `kdeconnect.sftp.request` (no error

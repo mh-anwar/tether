@@ -41,6 +41,13 @@ Setup on a new machine: `cargo install tauri-driver --locked`; WebKitWebDriver i
 `webkitgtk-webdriver` on Debian/Ubuntu (`webkit2gtk4.1-devel` ships it on Fedora). Add a check to
 `test_window.py` for every new screen or flow. Screenshots (below) are still how to judge looks.
 
+## Tray icon
+`testing/ui/trayhost.py :57` is a stand-in bar tray (XEmbed): start it next to `run.sh start`, the icon docks
+within 5 s at the top right of the virtual screen; click it with `drive.py :57 click 1230 30`.
+`testing/ui/sniwatcher.py` is a stand-in desktop tray (StatusNotifierWatcher): run it with the service's
+`DBUS_SESSION_BUS_ADDRESS` (from `/proc/<service pid>/environ`); it prints the title and icon sizes, calls
+Activate, and the XEmbed icon leaves the bar while it runs.
+
 ## Window speed
 `testing/ui/wd.sh testing/ui/perf_window.py` fills the window with 500 conversations and 1500 contacts and
 times each kind of update, layout included; it fails if one incoming text takes over 50 ms. Run it after

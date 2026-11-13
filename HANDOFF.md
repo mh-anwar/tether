@@ -109,3 +109,6 @@ connect announcements were hidden. Direct discovery on a real Android phone is s
 - Later the same night (all unreleased on this branch, ahead of `main`): Q27 window speed (measured with
   `testing/ui/perf_window.py`), Q33 first screen: Photos page (`ui/app.js` photos section,
   `phonefiles.rs`). Next: owner's verdict on Photos, then drag-out, tray icon (Q10).
+- Then Settings screen (Q11, done) and tray icon (Q10, `crates/tether/src/tray.rs`), released as 0.3.4.
+  Owner granted full autonomy on 2026-11-12, releases included (memory: working-preferences).
+  Next ideas: drag a photo out of the Photos page, Q21 phone readiness checklist, Q12 narrow layouts, Q4 calls.

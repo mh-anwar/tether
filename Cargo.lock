@@ -4106,7 +4106,7 @@ dependencies = [
 
 [[package]]
 name = "tether"
-version = "0.3.3"
+version = "0.3.4"
 dependencies = [
  "anyhow",
  "arboard",
@@ -4131,7 +4131,7 @@ dependencies = [
 
 [[package]]
 name = "tether-app"
-version = "0.3.3"
+version = "0.3.4"
 dependencies = [
  "anyhow",
  "arboard",
@@ -4145,7 +4145,7 @@ dependencies = [
 
 [[package]]
 name = "tether-core"
-version = "0.3.3"
+version = "0.3.4"
 dependencies = [
  "hex",
  "rcgen",

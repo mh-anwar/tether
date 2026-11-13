@@ -43,6 +43,11 @@
     <color type="primary" scheme_preference="dark">#1f2a40</color>
   </branding>
   <releases>
+    <release version="0.3.4" date="2026-11-12">
+      <description>
+        <p>A Settings screen, and a tray icon that shows how many conversations are unread and opens the window with a click.</p>
+      </description>
+    </release>
     <release version="0.3.3" date="2026-11-12">
       <description>
         <p>A Photos page with the newest camera photos and screenshots from your phone, Copy and Save on screenshot notifications, conversations that are there as soon as the window opens, and a window that stays quick with hundreds of conversations.</p>
