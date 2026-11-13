@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Stand-in for the phone's file server ("Filesystem expose"): a user-level OpenSSH sshd on
 # 127.0.0.1:$PORT that accepts Tether's key (DATA/tether/key.der, created on its first run) and
-# serves ROOT with two screenshots. Prints the FAKE_SFTP value for examples/fake_phone; runs
+# serves ROOT with two screenshots and five camera photos (plus a video, which is skipped). Prints the FAKE_SFTP value for examples/fake_phone; runs
 # until killed. Usage: serve.sh WORKDIR DATA_HOME [PORT]
 set -euo pipefail
 W=$1 DATA=$2 PORT=${3:-2299}
@@ -11,6 +11,11 @@ S=$W/sftp; mkdir -p "$S/root/DCIM/Screenshots"
 cp "$ART/photo-cake.jpg" "$S/root/DCIM/Screenshots/Screenshot_20261101-090000.jpg"
 cp "$ART/photo-dog.jpg" "$S/root/DCIM/Screenshots/Screenshot_20261112-185300.jpg"
 touch -d 2026-11-01 "$S/root/DCIM/Screenshots/Screenshot_20261101-090000.jpg"
+mkdir -p "$S/root/DCIM/Camera"
+n=0; for f in photo-dog art-debussy photo-cake art-kob art-mezz; do
+  n=$((n + 1)); cp "$ART/$f.jpg" "$S/root/DCIM/Camera/20261112_18000$n.jpg"; touch -d "2026-11-12 18:0$n" "$S/root/DCIM/Camera/20261112_18000$n.jpg"
+done
+: > "$S/root/DCIM/Camera/20261112_180009.mp4"
 python3 - "$DATA/tether/key.der" > "$S/key.pem" <<'PY'
 import base64, sys
 b = base64.b64encode(open(sys.argv[1], "rb").read()).decode()

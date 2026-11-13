@@ -55,6 +55,18 @@ try:
         text_shown("Screenshot copied")
     check("screenshot notification copies the picture", copy_screenshot)
 
+    def photos_page():
+        button("Photos").click()
+        wait.until(lambda _: len(d.find_elements(By.CSS_SELECTOR, ".photo-tile img")) == 5)
+        d.find_element(By.XPATH, "//button[@role='tab'][contains(., 'Screenshots')]").click()
+        wait.until(lambda _: len(d.find_elements(By.CSS_SELECTOR, ".photo-tile img")) == 2)
+        d.find_element(By.CSS_SELECTOR, ".photo-tile").click()
+        wait.until(EC.visibility_of_element_located((By.CSS_SELECTOR, ".viewer-body img")))
+        button("Save to Downloads").click()
+        text_shown("Saved to")
+        d.find_element(By.CSS_SELECTOR, ".viewer button[aria-label='Close']").click()
+    check("Photos page shows the phone's pictures and saves one", photos_page)
+
     def apps_page():
         button("Apps").click()
         text_shown("phone's apps")

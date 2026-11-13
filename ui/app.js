@@ -297,9 +297,10 @@ function render() {
   }
   if (!state.deviceId) return renderPairPage(app);
   if (!$('.rail', app)) buildLayout(app);
-  app.className = `app ${state.feedOverlay ? 'feed-overlay' : ''} ${state.view === 'apps' ? 'view-apps' : ''}`;
+  app.className = `app ${state.feedOverlay ? 'feed-overlay' : ''} ${state.view === 'apps' ? 'view-apps' : ''} ${state.view === 'photos' ? 'view-photos' : ''}`;
   renderRail();
   if (state.view === 'apps') renderApps();
+  else if (state.view === 'photos') renderPhotos();
   else { renderList(); renderThreadPane(false); }
   renderFeed();
 }
@@ -319,6 +320,7 @@ function buildLayout(app) {
       h('div', { class: 'threads', role: 'listbox', 'aria-label': 'Conversations', onkeydown: listKeys, onscroll: listScroll })),
     h('main', { class: 'thread' }),
     h('main', { class: 'apps-page', 'aria-label': 'Phone apps' }),
+    h('main', { class: 'photos-page', 'aria-label': 'Phone photos' }),
     h('aside', { class: 'feed', 'aria-label': 'Notifications' }),
   );
 }
@@ -349,6 +351,7 @@ function renderRail() {
       h('button', { 'aria-current': state.view === 'messages' ? 'page' : null, onclick: () => showView('messages') }, icon('message'), h('span', { class: 'label', text: 'Messages' }),
         unread ? h('span', { class: 'count label', text: String(unread), 'aria-label': `${unread} unread` }) : null),
       h('button', { 'aria-current': state.view === 'apps' ? 'page' : null, onclick: () => showView('apps') }, icon('apps'), h('span', { class: 'label', text: 'Apps' })),
+      h('button', { 'aria-current': state.view === 'photos' ? 'page' : null, onclick: () => showView('photos') }, icon('image'), h('span', { class: 'label', text: 'Photos' })),
       h('button', { onclick: toggleFeed }, icon('bell'), h('span', { class: 'label', text: 'Notifications' }),
         notes ? h('span', { class: 'count label', text: String(notes) }) : null)),
     h('div', { class: 'spacer' }),
@@ -744,31 +747,148 @@ async function fetchAttachment(a) {
   });
 }
 
-function openAttachment(a) {
+// A picture in a dialog: `buttons` go in its bar, `load` resolves to the element to show.
+function openViewer(label, buttons, load, retry) {
   const root = $('#palette-root');
   const back = document.activeElement;
   const close = () => { root.replaceChildren(); back?.focus?.(); };
   const body = h('div', { class: 'viewer-body' }, h('div', { class: 'spinner' }), h('p', { text: 'Getting it from your phone' }));
-  const save = h('button', { class: 'btn', disabled: true, onclick: async () => {
-    try { const r = await api('sms_attachment_save', { device: state.deviceId, unique_identifier: a.unique_identifier }); toast(`Saved to ${r.path.split('/').slice(-2).join('/')}`); } catch (e) { toast(String(e), 'error'); }
-  } }, icon('download', 'sm'), 'Save to Downloads');
   const closeBtn = h('button', { class: 'btn ghost icon-only', title: 'Close (Esc)', 'aria-label': 'Close', onclick: close }, icon('x'));
+  for (const b of buttons) b.disabled = true;
   root.replaceChildren(h('div', { class: 'palette-backdrop viewer-backdrop', onclick: (e) => { if (e.target === e.currentTarget) close(); },
     onkeydown: (e) => { if (e.key === 'Escape') close(); } },
-  h('div', { class: 'viewer', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Picture message' },
-    h('div', { class: 'viewer-bar' }, save, closeBtn), body)));
+  h('div', { class: 'viewer', role: 'dialog', 'aria-modal': 'true', 'aria-label': label },
+    h('div', { class: 'viewer-bar' }, buttons, closeBtn), body)));
   closeBtn.focus();
-  fetchAttachment(a).then((path) => {
-    const src = T.core.convertFileSrc(path);
-    const kind = a.mime_type || '';
-    body.replaceChildren(kind.startsWith('video/') ? h('video', { src, controls: true, autoplay: true })
-      : kind.startsWith('image/') ? h('img', { src, alt: 'Picture from the conversation' })
-        : h('p', { text: 'Downloaded. Save it to open it with another app.' }));
-    save.disabled = false;
+  load().then((el) => {
+    body.replaceChildren(el);
+    for (const b of buttons) b.disabled = false;
   }).catch((e) => {
     body.replaceChildren(icon('alert', 'lg'), h('p', { text: e.message || String(e) }),
-      h('button', { class: 'btn', onclick: () => { close(); openAttachment(a); } }, icon('refresh', 'sm'), 'Try again'));
+      h('button', { class: 'btn', onclick: () => { close(); retry(); } }, icon('refresh', 'sm'), 'Try again'));
   });
+}
+
+function openAttachment(a) {
+  const save = h('button', { class: 'btn', onclick: async () => {
+    try { const r = await api('sms_attachment_save', { device: state.deviceId, unique_identifier: a.unique_identifier }); toast(`Saved to ${r.path.split('/').slice(-2).join('/')}`); } catch (e) { toast(String(e), 'error'); }
+  } }, icon('download', 'sm'), 'Save to Downloads');
+  openViewer('Picture message', [save], async () => {
+    const src = T.core.convertFileSrc(await fetchAttachment(a));
+    const kind = a.mime_type || '';
+    return kind.startsWith('video/') ? h('video', { src, controls: true, autoplay: true })
+      : kind.startsWith('image/') ? h('img', { src, alt: 'Picture from the conversation' })
+        : h('p', { text: 'Downloaded. Save it to open it with another app.' });
+  }, () => openAttachment(a));
+}
+
+// ---------- photos ----------
+const photos = {
+  status: 'idle', // idle | loading | ready | error
+  error: '',
+  folders: [], // [{ name, items: [path on the phone] }]
+  tab: 0,
+  thumbs: new Map(), // path on the phone -> local preview file, or null when it couldn't be made
+  tiles: new Map(), // path on the phone -> its tile, updated in place as previews arrive
+  pumping: false,
+};
+
+async function loadPhotos() {
+  const id = state.deviceId;
+  photos.status = 'loading';
+  renderPhotos();
+  try {
+    const r = await api('photos_list', { device: id });
+    if (state.deviceId !== id) return;
+    photos.folders = r.folders;
+    photos.status = 'ready';
+    if (!photos.folders[photos.tab]?.items.length) photos.tab = Math.max(0, photos.folders.findIndex((f) => f.items.length));
+  } catch (e) {
+    photos.status = 'error';
+    photos.error = e.message || String(e);
+  }
+  renderPhotos();
+  pumpThumbs();
+}
+
+// Previews are made a few at a time, newest first, for the folder being looked at.
+async function pumpThumbs() {
+  if (photos.pumping) return;
+  photos.pumping = true;
+  try {
+    for (;;) {
+      if (state.view !== 'photos' || photos.status !== 'ready') return;
+      const id = state.deviceId;
+      const want = (photos.folders[photos.tab]?.items || []).filter((p) => !photos.thumbs.has(p)).slice(0, 6);
+      if (!want.length) return;
+      let got = {};
+      try { got = await api('photos_thumbs', { device: id, paths: want }); } catch (e) {
+        if (state.deviceId === id) { photos.status = 'error'; photos.error = e.message || String(e); renderPhotos(); }
+        return;
+      }
+      if (state.deviceId !== id) return;
+      for (const p of want) {
+        photos.thumbs.set(p, got[p] || null);
+        const tile = photos.tiles.get(p);
+        if (tile) fillTile(tile, p);
+      }
+    }
+  } finally { photos.pumping = false; }
+}
+
+const photoName = (path) => path.split('/').pop();
+
+function fillTile(tile, path) {
+  const thumb = photos.thumbs.get(path);
+  tile.classList.toggle('waiting', thumb === undefined);
+  if (thumb) tile.replaceChildren(h('img', { src: T.core.convertFileSrc(thumb), alt: '', loading: 'lazy' }));
+  else if (thumb === null) tile.replaceChildren(icon('image'), h('span', { text: 'No preview' }));
+  else tile.replaceChildren();
+}
+
+function photoTile(path) {
+  let tile = photos.tiles.get(path);
+  if (!tile) {
+    tile = h('button', { class: 'photo-tile', 'data-key': `p${path}`, 'aria-label': photoName(path), title: photoName(path), onclick: () => openPhoto(path) });
+    photos.tiles.set(path, tile);
+    fillTile(tile, path);
+  }
+  return tile;
+}
+
+function renderPhotos() {
+  const page = $('.photos-page');
+  if (!page || state.view !== 'photos') return;
+  const d = device();
+  swap(page, () => {
+    const head = h('div', { class: 'apps-head' },
+      h('div', { class: 'row' },
+        h('div', {}, h('h1', { text: 'Photos' }), h('p', { class: 'sub', text: `The newest pictures on ${d?.name || 'your phone'}. Open one to copy or save it.` })),
+        h('button', { class: 'btn', 'data-key': 'photos-refresh', disabled: photos.status === 'loading', onclick: loadPhotos }, icon('refresh', 'sm'), 'Refresh')),
+      photos.status === 'ready' ? h('div', { class: 'tabs', role: 'tablist', 'aria-label': 'Kind of picture' },
+        photos.folders.map((f, i) => h('button', { role: 'tab', 'data-key': `photos-tab-${i}`, 'aria-selected': photos.tab === i ? 'true' : 'false',
+          onclick: () => { photos.tab = i; renderPhotos(); pumpThumbs(); } }, f.name, h('span', { class: 'count', text: String(f.items.length) })))) : null);
+    if (photos.status === 'loading' || photos.status === 'idle') return [head, h('div', { class: 'empty' }, h('div', { class: 'spinner' }), h('p', { text: 'Getting your pictures from the phone' }))];
+    if (photos.status === 'error') return [head, h('div', { class: 'empty' }, icon('alert'), h('p', { text: photos.error }),
+      h('button', { class: 'btn', 'data-key': 'photos-retry', onclick: loadPhotos }, icon('refresh', 'sm'), 'Try again'))];
+    const folder = photos.folders[photos.tab];
+    if (!folder || !folder.items.length) return [head, h('div', { class: 'empty' }, icon('image'), h('p', { text: 'No pictures here yet.' }))];
+    return [head, h('div', { class: 'photo-grid', role: 'tabpanel', 'aria-label': folder.name }, folder.items.map(photoTile))];
+  });
+}
+
+function openPhoto(path) {
+  const act = (method, done) => async (e) => {
+    const btn = e.currentTarget;
+    btn.disabled = true;
+    try { done(await api(method, { device: state.deviceId, path })); } catch (err) { toast(String(err), 'error'); } finally { btn.disabled = false; }
+  };
+  const copyBtn = h('button', { class: 'btn', onclick: act('photo_copy', () => toast('Picture copied')) }, icon('copy', 'sm'), 'Copy');
+  const save = h('button', { class: 'btn', onclick: act('photo_save', (r) => toast(`Saved to ${r.path.split('/').slice(-2).join('/')}`)) }, icon('download', 'sm'), 'Save to Downloads');
+  openViewer(photoName(path), [copyBtn, save], async () => {
+    const r = await api('photo_get', { device: state.deviceId, path });
+    return h('img', { src: T.core.convertFileSrc(r.path), alt: photoName(path) });
+  }, () => openPhoto(path));
 }
 
 // ---------- banners ----------
@@ -824,6 +944,7 @@ function showView(view) {
   state.view = view;
   clearTimeout(apps.timer);
   if (view === 'apps') pollApps();
+  if (view === 'photos' && photos.status !== 'ready') loadPhotos();
   render();
   if (view === 'messages') $('#filter')?.focus();
 }
@@ -1298,6 +1419,7 @@ function commands() {
     recentCode() && { label: `Copy code ${recentCode().code}`, sub: recentCode().from, icon: 'key', run: () => copy(recentCode().code, 'Code copied') },
   ].filter(Boolean);
   cmds.push({ label: 'Show phone apps', icon: 'apps', run: () => showView('apps') });
+  cmds.push({ label: 'Show phone photos', icon: 'image', run: () => showView('photos') });
   if (apps.status?.device) {
     cmds.push({ label: 'Show phone screen', icon: 'phone', run: () => openApp(null) });
     for (const a of apps.list || []) cmds.push({ label: `Open ${a.name}`, sub: 'Phone app', icon: 'apps', run: () => openApp(a) });
@@ -1384,7 +1506,7 @@ function onEvent(ev) {
     const becamePaired = ev.pair === 'paired' && (!before || before.pair !== 'paired');
     const cameBack = ev.id === state.deviceId && ev.connected && before && !before.connected;
     const lost = ev.id === state.deviceId && ev.pair !== 'paired';
-    if (lost) { state.deviceId = null; state.threads.clear(); state.notifications = {}; }
+    if (lost) { state.deviceId = null; state.threads.clear(); state.notifications = {}; photos.status = 'idle'; photos.folders = []; photos.thumbs.clear(); photos.tiles.clear(); }
     if (becamePaired && !state.deviceId) { state.deviceId = ev.id; loadDevice().then(render); }
     else if (cameBack) loadDevice().then(render);
     if (!state.deviceId || !$('.rail')) return render();

@@ -7,7 +7,7 @@ use std::{
     path::{Path, PathBuf},
     process::Stdio,
     sync::{Mutex, OnceLock},
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use anyhow::{anyhow, bail, Context, Result};
@@ -39,10 +39,16 @@ pub fn is_screenshot(app: &str, title: &str, text: &str) -> bool {
         .any(|s| s.to_lowercase().contains("screenshot"))
 }
 
-/// Downloads the newest screenshot on the phone into Tether's data folder; returns where it went
-/// and its name on the phone (already dated, like `Screenshot_20261112-185300.jpg`).
-pub async fn newest_screenshot(svc: &Service, dev: &str) -> Result<(PathBuf, String)> {
-    let login = svc.sftp_login(dev).await.map_err(|e| match e {
+/// Camera photos: every phone uses DCIM/Camera.
+const CAMERA_DIRS: [&str; 1] = ["DCIM/Camera"];
+/// How many pictures of each kind the Photos page lists.
+const LIST_LIMIT: usize = 60;
+/// Full-size pictures kept on disk after viewing; older ones are deleted.
+const FULL_KEEP: usize = 20;
+const THUMB_SIZE: u32 = 360;
+
+fn explain(e: Error) -> anyhow::Error {
+    match e {
         Error::Timeout => anyhow!(
             "Your phone didn't share its files. In KDE Connect on the phone, open this computer, \
              then Plugin settings, and turn on Filesystem expose."
@@ -50,55 +56,241 @@ pub async fn newest_screenshot(svc: &Service, dev: &str) -> Result<(PathBuf, Str
         Error::NotConnected(_) => anyhow!("Your phone isn't connected."),
         Error::Protocol(msg) => anyhow!("Your phone said: {msg}"),
         e => e.into(),
-    })?;
-    let dir = svc.data_dir().join("phone-files");
+    }
+}
+
+fn files_dir(svc: &Service) -> PathBuf {
+    svc.data_dir().join("phone-files")
+}
+
+/// The phone keeps its file server up while connected, so a login is reused for a few minutes
+/// instead of asking again for every batch of thumbnails.
+static LOGIN: Mutex<Option<(Instant, String, Login)>> = Mutex::new(None);
+const LOGIN_FOR: Duration = Duration::from_secs(300);
+
+async fn login(svc: &Service, dev: &str, fresh: bool) -> Result<Login> {
+    if !fresh {
+        let cached = LOGIN.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some((at, d, l)) = cached.as_ref() {
+            if d == dev && at.elapsed() < LOGIN_FOR {
+                return Ok(l.clone());
+            }
+        }
+    }
+    let l = svc.sftp_login(dev).await.map_err(explain)?;
+    *LOGIN.lock().unwrap_or_else(|e| e.into_inner()) =
+        Some((Instant::now(), dev.to_string(), l.clone()));
+    Ok(l)
+}
+
+/// Runs sftp commands on the phone. `commands` gets the login (for the shared folders) and
+/// returns the script; a remembered login that no longer works is replaced once.
+async fn sftp(
+    svc: &Service,
+    dev: &str,
+    commands: impl Fn(&Login) -> Result<String>,
+) -> Result<String> {
+    let dir = files_dir(svc);
     std::fs::create_dir_all(&dir)?;
     let key = dir.join("key.pem");
     write_private(&key, svc.key_pem().as_bytes())?;
+    let first = login(svc, dev, false).await?;
+    match run_sftp(&first, &key, &commands(&first)?).await {
+        Ok(out) => Ok(out),
+        Err(_) => {
+            let again = login(svc, dev, true).await?;
+            run_sftp(&again, &key, &commands(&again)?).await
+        }
+    }
+}
 
+fn list_script(login: &Login, dirs: &[&str]) -> Result<String> {
     let mut list = String::new();
     for root in &login.roots {
-        for sub in SCREENSHOT_DIRS {
+        for sub in dirs {
             let path = format!("{}/{sub}", root.trim_end_matches('/'));
             list.push_str(&format!("ls -1t {}\n", quote(&path)?));
         }
     }
-    let out = run_sftp(&login, &key, &list).await?;
-    let remote = newest_image(&out).ok_or_else(|| {
+    Ok(list)
+}
+
+/// Fetches phone files into local paths in one session.
+async fn fetch(svc: &Service, dev: &str, files: &[(String, PathBuf)]) -> Result<()> {
+    let mut script = String::new();
+    for (remote, local) in files {
+        let _ = std::fs::remove_file(local);
+        let local = local.to_str().context("data folder path isn't text")?;
+        script.push_str(&format!("get {} {}\n", quote(remote)?, quote(local)?));
+    }
+    sftp(svc, dev, |_| Ok(script.clone())).await?;
+    Ok(())
+}
+
+/// Recent pictures on the phone, newest first within each kind: camera photos and screenshots.
+pub async fn list_photos(svc: &Service, dev: &str) -> Result<serde_json::Value> {
+    let mut folders = vec![];
+    for (name, dirs) in [
+        ("Camera", &CAMERA_DIRS[..]),
+        ("Screenshots", &SCREENSHOT_DIRS[..]),
+    ] {
+        let out = sftp(svc, dev, |l| list_script(l, dirs)).await?;
+        let items: Vec<String> = images(&out).take(LIST_LIMIT).collect();
+        folders.push(serde_json::json!({"name": name, "items": items}));
+    }
+    Ok(serde_json::json!({ "folders": folders }))
+}
+
+/// A stable local file name for a picture on the phone.
+fn local_name(remote: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let hash = hex::encode(&Sha256::digest(remote.as_bytes())[..12]);
+    format!("{hash}.{}", extension(remote))
+}
+
+fn check_picture(remote: &str) -> Result<()> {
+    if !is_image(remote) {
+        bail!("That isn't a picture Tether can show.");
+    }
+    Ok(())
+}
+
+/// Small previews of phone pictures, made once and kept: remote path -> local file (null when
+/// that picture couldn't be fetched or read).
+pub async fn thumbs(svc: &Service, dev: &str, remotes: &[String]) -> Result<serde_json::Value> {
+    let dir = files_dir(svc).join("thumbs");
+    let tmp = files_dir(svc).join("tmp");
+    std::fs::create_dir_all(&dir)?;
+    std::fs::create_dir_all(&tmp)?;
+    let mut out = serde_json::Map::new();
+    let mut missing = vec![];
+    for r in remotes {
+        check_picture(r)?;
+        let thumb = dir.join(local_name(r)).with_extension("jpg");
+        if thumb.is_file() {
+            out.insert(r.clone(), thumb.to_string_lossy().into());
+        } else {
+            missing.push((r.clone(), tmp.join(local_name(r)), thumb));
+        }
+    }
+    if !missing.is_empty() {
+        let files: Vec<_> = missing
+            .iter()
+            .map(|(r, t, _)| (r.clone(), t.clone()))
+            .collect();
+        fetch(svc, dev, &files).await?;
+        let made = tokio::task::spawn_blocking(move || {
+            missing
+                .into_iter()
+                .map(|(remote, full, thumb)| {
+                    let ok = make_thumb(&full, &thumb).is_ok();
+                    let _ = std::fs::remove_file(&full);
+                    (remote, ok.then_some(thumb))
+                })
+                .collect::<Vec<_>>()
+        })
+        .await?;
+        for (remote, thumb) in made {
+            out.insert(
+                remote,
+                thumb.map_or(serde_json::Value::Null, |t| t.to_string_lossy().into()),
+            );
+        }
+    }
+    Ok(out.into())
+}
+
+fn open_upright(path: &Path) -> Result<image::DynamicImage> {
+    use image::ImageDecoder;
+    let mut decoder = image::ImageReader::open(path)?
+        .with_guessed_format()?
+        .into_decoder()?;
+    // Phone cameras store the picture sideways and say so in the file.
+    let orientation = decoder.orientation()?;
+    let mut img = image::DynamicImage::from_decoder(decoder)?;
+    img.apply_orientation(orientation);
+    Ok(img)
+}
+
+fn make_thumb(full: &Path, thumb: &Path) -> Result<()> {
+    let small = open_upright(full)?
+        .thumbnail(THUMB_SIZE, THUMB_SIZE)
+        .to_rgb8();
+    let tmp = thumb.with_extension("part");
+    small.save_with_format(&tmp, image::ImageFormat::Jpeg)?;
+    std::fs::rename(tmp, thumb)?;
+    Ok(())
+}
+
+/// Downloads one picture in full size for viewing, copying or saving.
+pub async fn full_picture(svc: &Service, dev: &str, remote: &str) -> Result<PathBuf> {
+    check_picture(remote)?;
+    let dir = files_dir(svc).join("full");
+    std::fs::create_dir_all(&dir)?;
+    let local = dir.join(local_name(remote));
+    if !local.is_file() {
+        let part = local.with_extension("part");
+        fetch(svc, dev, &[(remote.to_string(), part.clone())]).await?;
+        if !part.is_file() {
+            bail!("Couldn't download the picture from your phone.");
+        }
+        std::fs::rename(part, &local)?;
+        prune(&dir, FULL_KEEP);
+    }
+    Ok(local)
+}
+
+/// Keeps the `keep` newest files of a folder.
+fn prune(dir: &Path, keep: usize) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    let mut files: Vec<_> = entries
+        .flatten()
+        .filter_map(|e| Some((e.metadata().ok()?.modified().ok()?, e.path())))
+        .collect();
+    files.sort_by_key(|f| std::cmp::Reverse(f.0));
+    for (_, path) in files.into_iter().skip(keep) {
+        let _ = std::fs::remove_file(path);
+    }
+}
+
+fn file_name(remote: &str) -> &str {
+    remote.rsplit('/').next().unwrap_or("picture.jpg")
+}
+
+/// Copies a phone picture to the clipboard as an image.
+pub async fn copy_picture(svc: &Service, dev: &str, remote: &str) -> Result<()> {
+    let path = full_picture(svc, dev, remote).await?;
+    tokio::task::spawn_blocking(move || set_clipboard_image(&path)).await?
+}
+
+/// Saves a phone picture into the downloads folder under its own name; returns where it went.
+pub async fn save_picture(svc: &Service, dev: &str, remote: &str) -> Result<PathBuf> {
+    let path = full_picture(svc, dev, remote).await?;
+    Ok(svc.save_to_downloads(&path, file_name(remote))?)
+}
+
+async fn newest_screenshot(svc: &Service, dev: &str) -> Result<String> {
+    let out = sftp(svc, dev, |l| list_script(l, &SCREENSHOT_DIRS)).await?;
+    let newest = images(&out).next();
+    newest.ok_or_else(|| {
         anyhow!(
             "There are no screenshots on your phone, or it doesn't share the folder they are in."
         )
-    })?;
-    let name = remote
-        .rsplit('/')
-        .next()
-        .unwrap_or("screenshot.png")
-        .to_string();
-    let local = dir.join(format!("latest.{}", extension(&name)));
-    let _ = std::fs::remove_file(&local);
-    let local_str = local.to_str().context("data folder path isn't text")?;
-    run_sftp(
-        &login,
-        &key,
-        &format!("get {} {}\n", quote(&remote)?, quote(local_str)?),
-    )
-    .await?;
-    if !local.is_file() {
-        bail!("Couldn't download the screenshot from your phone.");
-    }
-    Ok((local, name))
+    })
 }
 
 /// Copies the newest screenshot to the clipboard as an image.
 pub async fn copy_screenshot(svc: &Service, dev: &str) -> Result<()> {
-    let (path, _) = newest_screenshot(svc, dev).await?;
-    tokio::task::spawn_blocking(move || set_clipboard_image(&path)).await?
+    let remote = newest_screenshot(svc, dev).await?;
+    copy_picture(svc, dev, &remote).await
 }
 
 /// Saves the newest screenshot into the downloads folder; returns where it went.
 pub async fn save_screenshot(svc: &Service, dev: &str) -> Result<PathBuf> {
-    let (path, name) = newest_screenshot(svc, dev).await?;
-    Ok(svc.save_to_downloads(&path, &name)?)
+    let remote = newest_screenshot(svc, dev).await?;
+    save_picture(svc, dev, &remote).await
 }
 
 async fn run_sftp(login: &Login, key: &Path, commands: &str) -> Result<String> {
@@ -156,24 +348,25 @@ async fn run_sftp(login: &Login, key: &Path, commands: &str) -> Result<String> {
     Ok(stdout)
 }
 
-/// First image path in `ls -1t` output (newest first, folders in the order asked).
-fn newest_image(out: &str) -> Option<String> {
+const IMAGE_EXTENSIONS: [&str; 4] = ["png", "jpg", "jpeg", "webp"];
+
+fn is_image(name: &str) -> bool {
+    name.rsplit_once('.')
+        .is_some_and(|(_, e)| IMAGE_EXTENSIONS.contains(&e.to_lowercase().as_str()))
+}
+
+/// Picture paths in `ls -1t` output (newest first, folders in the order asked).
+fn images(out: &str) -> impl Iterator<Item = String> + '_ {
     out.lines()
         .map(str::trim)
-        .filter(|l| !l.starts_with("sftp>"))
-        .find(|l| {
-            let l = l.to_lowercase();
-            [".png", ".jpg", ".jpeg", ".webp"]
-                .iter()
-                .any(|e| l.ends_with(e))
-        })
+        .filter(|l| !l.starts_with("sftp>") && is_image(l))
         .map(String::from)
 }
 
 fn extension(name: &str) -> String {
     name.rsplit_once('.')
         .map(|(_, e)| e.to_lowercase())
-        .filter(|e| ["png", "jpg", "jpeg", "webp"].contains(&e.as_str()))
+        .filter(|e| IMAGE_EXTENSIONS.contains(&e.as_str()))
         .unwrap_or_else(|| "png".into())
 }
 
@@ -200,7 +393,7 @@ fn write_private(path: &Path, data: &[u8]) -> Result<()> {
 /// The clipboard keeps the image only while its owner lives (X11), so the daemon holds one
 /// clipboard for its whole life.
 fn set_clipboard_image(path: &Path) -> Result<()> {
-    let img = image::open(path).context("The screenshot couldn't be read.")?;
+    let img = open_upright(path).context("The picture couldn't be read.")?;
     let rgba = img.to_rgba8();
     let (w, h) = rgba.dimensions();
     static CLIP: OnceLock<Mutex<Option<arboard::Clipboard>>> = OnceLock::new();
@@ -217,7 +410,7 @@ fn set_clipboard_image(path: &Path) -> Result<()> {
         height: h as usize,
         bytes: rgba.into_raw().into(),
     })
-    .context("Couldn't put the screenshot on the clipboard.")
+    .context("Couldn't put the picture on the clipboard.")
 }
 
 #[cfg(test)]
@@ -229,10 +422,16 @@ mod tests {
         let out = "sftp> ls -1t \"/s/DCIM/Screenshots\"\n/s/DCIM/Screenshots/.thumbs\n\
                    /s/DCIM/Screenshots/Screenshot_20261112.jpg\n/s/DCIM/Screenshots/old.png\n";
         assert_eq!(
-            newest_image(out).as_deref(),
-            Some("/s/DCIM/Screenshots/Screenshot_20261112.jpg")
+            images(out).collect::<Vec<_>>(),
+            [
+                "/s/DCIM/Screenshots/Screenshot_20261112.jpg",
+                "/s/DCIM/Screenshots/old.png"
+            ]
         );
-        assert!(newest_image("sftp> ls\n").is_none());
+        assert!(images("sftp> ls\n").next().is_none());
+        assert_eq!(local_name("/a/b.JPG"), local_name("/a/b.JPG"));
+        assert!(local_name("/a/b.JPG").ends_with(".jpg"));
+        assert!(check_picture("/a/video.mp4").is_err());
         assert!(is_screenshot("System UI", "Screenshot saved", ""));
         assert!(!is_screenshot("WhatsApp", "Leo", "see you"));
         assert!(quote("a\"b").is_err());

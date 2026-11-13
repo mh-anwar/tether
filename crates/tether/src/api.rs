@@ -258,6 +258,25 @@ async fn call(svc: &Service, method: &str, p: &Value) -> Result<Value> {
                         plugins::mpris::set_position(s(p, "player")?, i(p, "position_ms")?),
                     )
                     .map(|_| json!(true))?),
+                "photos_list" => crate::phonefiles::list_photos(svc, dev).await,
+                "photos_thumbs" => {
+                    let paths: Vec<String> =
+                        serde_json::from_value(p.get("paths").cloned().unwrap_or(Value::Null))
+                            .context("missing 'paths'")?;
+                    crate::phonefiles::thumbs(svc, dev, &paths).await
+                }
+                "photo_get" => {
+                    let to = crate::phonefiles::full_picture(svc, dev, s(p, "path")?).await?;
+                    Ok(json!({"path": to.to_string_lossy()}))
+                }
+                "photo_copy" => {
+                    crate::phonefiles::copy_picture(svc, dev, s(p, "path")?).await?;
+                    ok()
+                }
+                "photo_save" => {
+                    let to = crate::phonefiles::save_picture(svc, dev, s(p, "path")?).await?;
+                    Ok(json!({"path": to.to_string_lossy()}))
+                }
                 "screenshot_copy" => {
                     crate::phonefiles::copy_screenshot(svc, dev).await?;
                     ok()
