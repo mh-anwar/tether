@@ -14,6 +14,7 @@ computer. It works on GNOME, KDE, Xfce, i3, Sway and other desktops.
 - Send files and links to the phone by dropping them on the window. Files shared from the phone go to
   your Downloads folder, links open in the browser, and text goes to the clipboard.
 - Browse the phone's storage (Files page) and its newest photos and screenshots (Photos page).
+- Take a photo with the phone's camera from the computer (KDE Connect Android apps that still offer it).
 - Clipboard sync for text, both ways.
 - Control the phone's music from the window or the desktop's media keys, and control the computer's
   music from the phone. Music on the computer pauses during calls.

@@ -587,3 +587,59 @@ async fn phone_without_sms_is_not_ready_via_both_apis() -> Result<()> {
     sim.disconnect();
     Ok(())
 }
+
+#[tokio::test]
+async fn photo_from_the_phone_camera() -> Result<()> {
+    let api = start_daemon().await?;
+    let sim = api.paired().await?;
+    let downloads = api.dir.join("downloads");
+    api.device_call(&sim, "photo_take", json!({})).await?;
+    let saved = downloads.join("IMG_20261116_101500.jpg");
+    tokio::time::timeout(WAIT, async {
+        while !saved.exists() || std::fs::metadata(&saved).map(|m| m.len()).unwrap_or(0) == 0 {
+            tokio::time::sleep(std::time::Duration::from_millis(30)).await;
+        }
+    })
+    .await?;
+    assert!(sim
+        .received()
+        .iter()
+        .any(|r| r.packet.kind == "kdeconnect.photo.request"));
+    let jpeg = std::fs::read(&saved)?;
+    assert_eq!(&jpeg[..2], &[0xff, 0xd8]);
+    api.until("received_list", json!({}), |v| {
+        v.as_array()
+            .is_some_and(|a| a.iter().any(|f| f["name"] == "IMG_20261116_101500.jpg"))
+    })
+    .await?;
+    sim.disconnect();
+    Ok(())
+}
+
+#[tokio::test]
+async fn photo_needs_a_phone_that_offers_it() -> Result<()> {
+    let api = start_daemon().await?;
+    let sim = Simulator::with_capabilities(
+        api.dir.join("phone"),
+        tether_core::plugins::outgoing_capabilities()
+            .into_iter()
+            .filter(|c| c != "kdeconnect.photo.request")
+            .collect(),
+        tether_core::plugins::incoming_capabilities(),
+    )
+    .await?;
+    sim.connect(([127, 0, 0, 1], api.port).into()).await?;
+    api.pair_state(&sim, "unpaired").await?;
+    sim.pair().await?;
+    api.pair_state(&sim, "requested_by_peer").await?;
+    api.device_call(&sim, "accept", json!({})).await?;
+    api.pair_state(&sim, "paired").await?;
+    let err = api
+        .device_call(&sim, "photo_take", json!({}))
+        .await
+        .err()
+        .ok_or("photo_take worked on a phone without the camera plugin")?;
+    assert!(err.to_string().contains("can't take photos"), "{err}");
+    sim.disconnect();
+    Ok(())
+}

@@ -50,14 +50,12 @@ check on a real Android phone with the stock KDE Connect app (the owner's Samsun
   on the laptop.
 - [ ] Q17 **Flathub**: Flatpak manifest with bundled adb + scrcpy, Background portal for start at login,
   screenshots, CI build, then the Flathub PR. Store listing is written (packaging/flatpak). Needs Q17a.
-- [ ] Q36 **Take a photo with the phone's camera** (KDE Connect `kdeconnect.photo.request`) from the window.
 - [ ] Q37 **Window CI job blocking**: the WebDriver job in `.github/workflows/ci.yml` is still
   `continue-on-error`; make it required once it has passed reliably for a week.
 
 ## Later
 
 - [ ] Q13 **Drag-and-drop send** verified for real (needs a session with a window manager or the owner).
-- [ ] Q14 **Notification icons** shown in the column (payload download exists; check with the real phone).
 - [ ] Q18 **Real app icons for every app**: icons now come from notifications; the rest show letters. Next:
   pull icons from the phone over adb.
 - [ ] Q23 **Dialogs**: the command palette as a proper combobox for screen readers (focus return is done).
@@ -68,6 +66,9 @@ check on a real Android phone with the stock KDE Connect app (the owner's Samsun
 
 ## Done
 
+- 2026-11-16 Q36 take a photo with the phone's camera (`kdeconnect.photo.request`; Ctrl+K and the Photos page,
+  shown only for phones that still offer it; saved to Downloads and shown). Q14 notification app icons in the
+  column with a letter when the icon is missing or broken (checked with the stand-in phone, not the real one).
 - 2026-11-16 Tray polish: right-click menu (Open Tether, Ring my phone, Send files, Pause notification
   pop-ups, Quit Tether) over dbusmenu and as our own menu on XEmbed bars; tooltip with phone, battery and
   unread count; NeedsAttention with unread; one-colour icon on GNOME/KDE panels; no X11 on Wayland; unread

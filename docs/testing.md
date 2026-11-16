@@ -69,7 +69,8 @@ changing how lists render (`swap`, `renderList`, `invalidate` in `ui/app.js`).
 ## Stand-in phone + the window (UI)
 `crates/tether-core/examples/fake_phone.rs` speaks the real protocol with made-up texts, contacts and
 notifications (WhatsApp and Spotify with app icons as payloads); sent texts are echoed back and answered
-after 4 s.
+after 4 s. It answers "Take a photo" a second later with a JPEG (`FAKE_PHONE_PHOTO=cancel` closes the camera
+instead); `FAKE_PHONE_OMIT_CAPABILITIES=kdeconnect.photo.request` acts as a current Android app without it.
 
 ```sh
 box heavy -- cargo build -p tether -p tether-app && box heavy -- cargo build -p tether-core --example fake_phone

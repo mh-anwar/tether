@@ -128,6 +128,19 @@ pub fn ui_event(event: Value) {
     let _ = UI_EVENTS.send(event);
 }
 
+/// A file in the downloads folder (what the phone sent), refusing any other path.
+fn received_file(path: &str) -> Result<std::path::PathBuf> {
+    let downloads = crate::config::Config::load()?
+        .core()
+        .downloads_dir
+        .canonicalize()?;
+    let path = std::path::PathBuf::from(path).canonicalize()?;
+    if !path.starts_with(downloads) {
+        anyhow::bail!("This file is outside the downloads folder");
+    }
+    Ok(path)
+}
+
 /// Stops the service after the reply has gone out, so the window knows it was heard; the window
 /// then starts a fresh copy (after an update, or to pick up changed settings).
 pub(crate) fn exit_soon() {
@@ -152,16 +165,14 @@ async fn call(svc: &Service, method: &str, p: &Value) -> Result<Value> {
             Ok(v)
         }
         "received_list" => Ok(json!(crate::received::history())),
+        // The window may only load files from its own folders, so a camera photo saved in
+        // Downloads is shown from a copy next to the other full-size phone pictures.
+        "photo_preview" => {
+            let path = received_file(s(p, "path")?)?;
+            Ok(json!(crate::phonefiles::preview_copy(svc, &path)?))
+        }
         "received_open" | "received_show" => {
-            let path = std::path::PathBuf::from(s(p, "path")?);
-            let downloads = crate::config::Config::load()?
-                .core()
-                .downloads_dir
-                .canonicalize()?;
-            let path = path.canonicalize()?;
-            if !path.starts_with(downloads) {
-                anyhow::bail!("This file is outside the downloads folder");
-            }
+            let path = received_file(s(p, "path")?)?;
             let target = if method == "received_show" {
                 path.parent().context("no parent folder")?
             } else {
@@ -307,6 +318,7 @@ async fn call(svc: &Service, method: &str, p: &Value) -> Result<Value> {
                 "unpair" => Ok(svc.unpair(dev).map(|_| json!(true))?),
                 "ping" => Ok(svc.send(dev, plugins::ping()).map(|_| json!(true))?),
                 "ring" => Ok(svc.send(dev, plugins::ring_phone()).map(|_| json!(true))?),
+                "photo_take" => Ok(svc.take_photo(dev).map(|_| json!(true))?),
                 "mute" => Ok(svc
                     .send(dev, telephony::mute_ringer())
                     .map(|_| json!(true))?),
