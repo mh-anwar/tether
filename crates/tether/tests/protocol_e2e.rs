@@ -464,3 +464,40 @@ async fn simulator_json_control() -> Result<()> {
     .await?;
     Ok(())
 }
+
+#[tokio::test]
+async fn phone_without_sms_is_not_ready_via_both_apis() -> Result<()> {
+    let api = start_daemon().await?;
+    let sim = Simulator::with_capabilities(
+        api.dir.join("phone"),
+        tether_core::plugins::outgoing_capabilities(),
+        tether_core::plugins::incoming_capabilities()
+            .into_iter()
+            .filter(|c| c != "kdeconnect.sms.messages")
+            .collect(),
+    )
+    .await?;
+    sim.connect(([127, 0, 0, 1], api.port).into()).await?;
+    api.pair_state(&sim, "unpaired").await?;
+    sim.pair().await?;
+    api.pair_state(&sim, "requested_by_peer").await?;
+    api.device_call(&sim, "accept", json!({})).await?;
+    api.pair_state(&sim, "paired").await?;
+    let data = api.device_call(&sim, "device_data", json!({})).await?;
+    let devices = api.call("devices", json!({})).await?;
+    for data in [&data, &devices[0]] {
+        let texts = data["readiness"]
+            .as_array()
+            .ok_or("no checklist")?
+            .iter()
+            .find(|f| f["id"] == "texts")
+            .ok_or("no texts")?;
+        assert_eq!(texts["ready"], false);
+        assert!(!data["outgoing_capabilities"]
+            .as_array()
+            .ok_or("no capabilities")?
+            .contains(&json!("kdeconnect.sms.messages")));
+    }
+    sim.disconnect();
+    Ok(())
+}

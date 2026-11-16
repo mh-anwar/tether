@@ -66,6 +66,10 @@ pub enum PairState {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct DeviceSummary {
+    pub incoming_capabilities: Vec<String>,
+    pub outgoing_capabilities: Vec<String>,
+    pub readiness: Vec<crate::readiness::FeatureReadiness>,
+
     pub last_seen: Option<i64>,
     pub id: String,
     pub name: String,
@@ -285,7 +289,13 @@ impl Service {
     pub fn device_data(&self, id: &str) -> Result<DeviceData> {
         let devs = self.inner.lock();
         devs.get(id)
-            .map(|d| d.data.clone())
+            .map(|d| {
+                let mut data = d.data.clone();
+                data.incoming_capabilities = d.identity.incoming_capabilities.clone();
+                data.outgoing_capabilities = d.identity.outgoing_capabilities.clone();
+                data.readiness = crate::readiness::phone_readiness(&d.identity);
+                data
+            })
             .ok_or_else(|| Error::UnknownDevice(id.into()))
     }
 
@@ -588,6 +598,9 @@ impl Inner {
             cert::verification_key(&self.cert.cert_der, &cert, ts)
         });
         DeviceSummary {
+            incoming_capabilities: d.identity.incoming_capabilities.clone(),
+            outgoing_capabilities: d.identity.outgoing_capabilities.clone(),
+            readiness: crate::readiness::phone_readiness(&d.identity),
             last_seen: d.last_seen,
             id: d.identity.device_id.clone(),
             name: d.identity.device_name.clone(),

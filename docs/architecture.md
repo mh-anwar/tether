@@ -137,3 +137,5 @@ share validation. Commands execute as the logged-in user, without shell interpol
 control socket. `sim/scenario.rs` holds the seeded Android-style request responses; `examples/fake_phone`
 is the reconnecting screenshot wrapper. Daemon integration tests share a short-path XDG/process/API
 fixture in `crates/tether/tests/support`; `TETHER_PORT` isolates daemon TCP and UDP listeners.
+
+Phone setup: `readiness::phone_readiness` maps phone-direction capabilities to setup instructions. Both `devices` and `device_data` expose `incoming_capabilities`, `outgoing_capabilities`, and `readiness`. The `ready` flag means advertised, not verified permissions; Devices explains that limitation. Identity is retained with the trusted device and refreshed on reconnect.

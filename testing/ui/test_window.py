@@ -151,6 +151,29 @@ try:
         assert d.find_elements(By.XPATH, "//button[text()='Forget phone']")
     check("Devices page shows battery, signal and forget", device_card)
 
+    def readiness_checklist():
+        click("Devices")
+        text_shown("On your phone")
+        text_shown("does not report whether")
+        text_shown("Battery > Unrestricted")
+        rows = d.find_elements(By.CSS_SELECTOR, ".readiness-list li")
+        assert len(rows) == 17
+        texts = d.find_element(By.CSS_SELECTOR, '[data-feature="texts"]')
+        assert "Not advertised" in texts.text if "kdeconnect.sms.messages" in os.environ.get("FAKE_PHONE_OMIT_CAPABILITIES", "") else "Advertised" in texts.text
+        assert "Plugin settings > Send SMS" in texts.text
+        assert texts.find_elements(By.CSS_SELECTOR, "svg")
+        # Check the shared hints with the API's reduced-capability result.
+        d.execute_script("window.savedReadiness = device().readiness; device().readiness = device().readiness.map(f => ({...f, ready:false})); window.savedContacts = state.contacts; window.savedThreads = state.threads; state.threads = new Map(); renderList()")
+        try:
+            for view, feature in [("messages", "Send SMS"), ("contacts", "Contacts Synchronizer"), ("keyboard", "Keyboard receiver"), ("files", "Filesystem expose"), ("photos", "Filesystem expose")]:
+                d.execute_script("showView(arguments[0])", view)
+                if view == "contacts":
+                    d.execute_script("state.contacts = []; contactsQuery = ''; renderTools()")
+                text_shown(feature)
+        finally:
+            d.execute_script("device().readiness = savedReadiness; state.threads = savedThreads; state.contacts = savedContacts; showView('devices')")
+    check("phone capability checklist and shared setup hints", readiness_checklist)
+
     def screenshots():
         # The window's own pixels (no desktop around it); $TETHER_SHOTS picks the folder.
         output = Path(os.environ.get("TETHER_SHOTS") or Path(os.environ["XDG_CONFIG_HOME"]).parent / "shots")
@@ -172,6 +195,8 @@ try:
                 if view == "photos":
                     __import__("time").sleep(3)  # previews arrive a few at a time
                 d.save_screenshot(str(output / f"{name}{'-dark' if theme == 'dark' else ''}.png"))
+                if view == "devices":
+                    d.save_screenshot(str(output / ("readiness-dark.png" if theme == "dark" else "readiness.png")))
         d.execute_script("delete document.documentElement.dataset.theme")
         for width in [720, 1000]:
             d.set_window_size(width, 780)

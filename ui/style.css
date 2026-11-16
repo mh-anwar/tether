@@ -559,3 +559,11 @@ h2 { font-size: 14px; }
     --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 12px 32px rgba(0, 0, 0, .45);
     color-scheme: dark;
   }
+
+.phone-readiness { margin-top: 22px; border-top: 1px solid var(--border); padding-top: 18px; }
+.readiness-list { list-style: none; padding: 0; margin: 18px 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 28px; }
+.readiness-list li { padding: 12px 0; border-bottom: 1px solid var(--border); min-width: 0; }
+.readiness-list p { margin: 7px 0 0; color: var(--text-2); font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
+.readiness-status { margin-left: auto; color: var(--text-2); font-size: 12px; }
+.readiness-hint { color: var(--text-2); line-height: 1.5; }
+@media (max-width: 850px) { .readiness-list { grid-template-columns: 1fr; } }

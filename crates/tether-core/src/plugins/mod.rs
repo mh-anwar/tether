@@ -121,6 +121,10 @@ pub struct Signal {
 /// and resends it on every connection.
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct DeviceData {
+    pub incoming_capabilities: Vec<String>,
+    pub outgoing_capabilities: Vec<String>,
+    pub readiness: Vec<crate::readiness::FeatureReadiness>,
+
     pub keyboard_active: Option<bool>,
     pub battery: Option<Battery>,
     #[serde(skip)]

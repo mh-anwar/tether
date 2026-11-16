@@ -66,6 +66,19 @@ impl Drop for Inner {
 pub struct Simulator(Arc<Inner>);
 impl Simulator {
     pub async fn new(dir: impl AsRef<Path>) -> Result<Self> {
+        Self::with_capabilities(
+            dir,
+            plugins::outgoing_capabilities(),
+            plugins::incoming_capabilities(),
+        )
+        .await
+    }
+    /// Explicit phone-perspective capability sets for reduced-feature protocol peers.
+    pub async fn with_capabilities(
+        dir: impl AsRef<Path>,
+        incoming: Vec<String>,
+        outgoing: Vec<String>,
+    ) -> Result<Self> {
         let dir = dir.as_ref().to_path_buf();
         std::fs::create_dir_all(&dir)?;
         let path = dir.join("device_id");
@@ -81,8 +94,8 @@ impl Simulator {
             device_name: "Galaxy S24".into(),
             device_type: "phone".into(),
             protocol_version: PROTOCOL_VERSION,
-            incoming_capabilities: plugins::outgoing_capabilities(),
-            outgoing_capabilities: plugins::incoming_capabilities(),
+            incoming_capabilities: incoming,
+            outgoing_capabilities: outgoing,
             tcp_port: None,
         };
         Ok(Self(Arc::new(Inner {

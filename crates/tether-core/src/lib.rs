@@ -13,6 +13,7 @@ pub mod netwatch;
 pub mod packet;
 pub mod payload;
 pub mod plugins;
+pub mod readiness;
 pub mod service;
 pub mod store;
 pub mod tls;

@@ -13,7 +13,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         args.next()
             .unwrap_or_else(|| "/tmp/tether-fake-phone".into()),
     );
-    let sim = Simulator::new(&dir).await?;
+    let omitted = std::env::var("FAKE_PHONE_OMIT_CAPABILITIES").unwrap_or_default();
+    let keep = |cap: &String| !omitted.split(',').any(|omit| omit.trim() == cap);
+    let sim = Simulator::with_capabilities(
+        &dir,
+        tether_core::plugins::outgoing_capabilities()
+            .into_iter()
+            .filter(keep)
+            .collect(),
+        tether_core::plugins::incoming_capabilities()
+            .into_iter()
+            .filter(keep)
+            .collect(),
+    )
+    .await?;
     if let Some(socket) = args.next() {
         sim.control_socket(socket).await?;
     }

@@ -460,8 +460,8 @@ function renderList() {
     if (!state.threads.size) {
       const d = device();
       return h('div', { class: 'empty' },
-        d && d.connected ? h('div', { class: 'spinner' }) : icon('message'),
-        h('p', { text: d && d.connected ? 'Loading conversations' : 'Conversations appear when your phone is in reach.' }));
+        d && d.connected && !readinessHint('texts') ? h('div', { class: 'spinner' }) : icon('message'),
+        h('p', { text: d && d.connected ? (readinessHint('texts') ? 'Texts are not available yet.' : 'Loading conversations') : 'Conversations appear when your phone is in reach.' }), readinessHint('texts'));
     }
     if (!items.length) return h('div', { class: 'empty' }, h('p', { text: `Nothing matches "${state.filter}".` }));
     // The selected conversation is always drawn, however far down it is.
@@ -1024,6 +1024,7 @@ function renderPhotos() {
       photos.status === 'ready' ? h('div', { class: 'tabs', role: 'tablist', 'aria-label': 'Kind of picture' },
         photos.folders.map((f, i) => h('button', { role: 'tab', 'data-key': `photos-tab-${i}`, 'aria-selected': photos.tab === i ? 'true' : 'false',
           onclick: () => { photos.tab = i; renderPhotos(); pumpThumbs(); } }, f.name, h('span', { class: 'count', text: String(f.items.length) })))) : null);
+    if (device()?.readiness?.some((f) => f.id === 'sftp' && !f.ready)) return [head, h('div', { class: 'empty' }, icon('folder'), readinessHint('sftp'))];
     if (photos.status === 'loading' || photos.status === 'idle') return [head, h('div', { class: 'empty' }, h('div', { class: 'spinner' }), h('p', { text: 'Getting your pictures from the phone' }))];
     if (photos.status === 'error') return [head, h('div', { class: 'empty' }, icon('alert'), h('p', { text: photos.error }),
       h('button', { class: 'btn', 'data-key': 'photos-retry', onclick: loadPhotos }, icon('refresh', 'sm'), 'Try again'))];
@@ -1861,6 +1862,26 @@ async function chooseUpload() {
   try { for (const path of await T.core.invoke('choose_files')) await uploadFile(path); }
   catch (e) { toast(String(e), 'error'); }
 }
+// Setup copy comes from the same capability mapping used by the daemon API.
+function phoneSetup(feature, d = device()) {
+  const item = d?.readiness?.find((f) => f.id === feature);
+  return item ? `KDE Connect > ${state.me?.deviceName || 'this computer'} > Plugin settings > ${item.instruction}` : '';
+}
+function readinessHint(feature) {
+  const item = device()?.readiness?.find((f) => f.id === feature);
+  return item && !item.ready ? h('p', { class: 'readiness-hint', text: `Not advertised by your phone. ${phoneSetup(feature)}` }) : null;
+}
+function phoneChecklist(d) {
+  return h('section', { class: 'phone-readiness', 'aria-label': 'On your phone' },
+    h('h2', { text: 'On your phone' }),
+    h('p', { class: 'sub', text: 'These are the features your phone advertises. KDE Connect does not report whether their switches and permissions are on. Check the steps below if a feature does not work.' }),
+    !d.connected ? h('p', { text: 'Phone offline. Showing its last advertised features.' }) : null,
+    h('ul', { class: 'readiness-list' }, (d.readiness || []).map((f) => h('li', { 'data-feature': f.id, 'data-ready': String(f.ready) },
+      h('div', { class: 'row' }, icon(f.ready ? 'check' : 'alert', 'sm'), h('b', { text: f.label }), h('span', { class: 'readiness-status', text: f.ready ? 'Advertised' : 'Not advertised' })),
+      h('p', { text: phoneSetup(f.id, d) })))),
+    h('p', { class: 'sub', text: 'On Samsung phones: Settings > Apps > KDE Connect > Battery > Unrestricted. This helps keep the connection alive.' }));
+}
+
 function renderTools() {
   const page = $('.tools-page');
   if (!page || !['files', 'contacts', 'keyboard', 'devices'].includes(state.view)) return;
@@ -1876,12 +1897,12 @@ function renderTools() {
       h('div', { class: 'tools-body' },
         h('label', { class: 'search' }, icon('search', 'sm'), h('input', { type: 'search', 'data-key': 'contacts-search', 'aria-label': 'Search contacts', placeholder: 'Search names or numbers', value: contactsQuery, oninput: (e) => { contactsQuery = e.target.value; renderTools(); } })),
         !groups.size ? h('div', { class: 'empty' }, icon('user'), h('p', { text: query ? 'No matching contacts.' : 'No contacts shared yet.' }),
-          !query ? h('p', { text: 'On your phone, open KDE Connect → this computer → Plugin settings → Contacts. Turn it on and allow Contacts permission when asked.' }) : null) :
+          !query ? (readinessHint('contacts') || h('p', { text: phoneSetup('contacts') })) : null) :
           [...groups].map(([name, numbers]) => h('article', { class: 'contact-card' }, h('h2', { text: name }), numbers.map((c) =>
             h('div', { class: 'row' }, h('span', { class: 'grow', text: prettyNumber(c.number) }), toolButton('Text', () => openNew(c)), toolButton('Copy number', () => copy(c.number, 'Number copied'))))))) ]);
   } else if (state.view === 'keyboard') {
     swap(page, () => [toolHead('Keyboard', 'Type into the text field selected on your phone.'),
-      h('div', { class: 'tools-body keyboard-body' },
+      h('div', { class: 'tools-body keyboard-body' }, readinessHint('keyboard'),
         h('p', { class: 'banner', text: state.keyboardActive ? 'Your phone is ready. Select a text field on it, then type below.' : 'Pick KDE Connect Remote Keyboard as the keyboard on your phone.' }),
         !state.keyboardActive ? h('ol', { class: 'steps' }, h('li', { text: 'On the phone, open KDE Connect → this computer → Plugin settings → Remote keyboard and enable it.' }), h('li', { text: 'In Android keyboard settings, enable KDE Connect Remote Keyboard. Open a text field and pick it from the keyboard switcher.' })) : null,
         h('label', { for: 'keyboard-box', text: 'Type here to send keys' }),
@@ -1897,7 +1918,7 @@ function renderTools() {
       h('div', { class: 'tools-body' }, state.devices.map((d) => d.pair === 'paired' ? h('article', { class: 'contact-card' },
         h('h2', { text: d.name }), phoneFacts(d) ? h('p', { text: phoneFacts(d) }) : null, h('p', { text: d.connected ? `Connected${d.address ? ` · ${d.address}` : ''}` : (d.last_seen ? `Last seen ${ago(d.last_seen)} · Reconnecting` : 'Offline · Tether keeps reconnecting') }),
         h('div', { class: 'row' }, toolButton(d.id === state.deviceId ? 'Selected' : 'Use this phone', () => switchDevice(d.id), { disabled: d.id === state.deviceId }),
-          toolButton('Forget phone', () => askFile(`Forget ${d.name}?`, '', () => pairAction('unpair', d.id), true)))) : pairRow(d)),
+          toolButton('Forget phone', () => askFile(`Forget ${d.name}?`, '', () => pairAction('unpair', d.id), true))), phoneChecklist(d)) : pairRow(d)),
       toolButton('Look for phones', () => quick('refresh', 'Looking for phones', true)))]);
   }
 }
@@ -1908,7 +1929,7 @@ function renderFiles(page) {
   const parts = files.path.slice(root.length).split('/').filter(Boolean);
   swap(page, () => [toolHead('Files', 'Browse your phone. Drop files here to upload into the open folder.',
     toolButton('Refresh', () => loadFiles(files.path), { disabled: files.loading })),
-    h('div', { class: 'tools-body' },
+    h('div', { class: 'tools-body' }, readinessHint('sftp'),
       h('nav', { class: 'breadcrumbs', 'aria-label': 'Folder path' }, toolButton('Storage', () => loadFiles('')),
         root ? toolButton('Internal storage', () => loadFiles(root)) : null,
         parts.map((part, i) => toolButton(part, () => loadFiles(root.replace(/\/$/, '') + '/' + parts.slice(0, i + 1).join('/'))))),
@@ -1918,7 +1939,7 @@ function renderFiles(page) {
           ['name', 'size', 'date'].map((v) => h('option', { value: v, selected: files.sort === v, text: v[0].toUpperCase() + v.slice(1) })))),
         toolButton(files.reverse ? 'Descending' : 'Ascending', () => { files.reverse = !files.reverse; renderTools(); })),
       files.loading ? h('div', { class: 'empty', role: 'status' }, h('div', { class: 'spinner' }), 'Getting files from your phone') :
-      files.error ? h('div', { class: 'empty', role: 'alert' }, icon('alert'), h('p', { text: files.error }), h('p', { text: 'On your phone: KDE Connect → this computer → Plugin settings → Filesystem expose → enable. Open Filesystem expose settings, choose Add storage location, select a folder, and tap Use this folder → Allow.' }), toolButton('Try again', () => loadFiles(files.path))) :
+      files.error ? h('div', { class: 'empty', role: 'alert' }, icon('alert'), h('p', { text: files.error }), h('p', { text: phoneSetup('sftp') }), toolButton('Try again', () => loadFiles(files.path))) :
       !files.path ? h('div', { class: 'storage-roots' }, files.roots.length ? files.roots.map((root, i) => toolButton(files.roots.length === 1 ? 'Internal storage' : `Storage ${i + 1}`, () => loadFiles(root))) : h('p', { text: 'No storage shared. Add a storage location in KDE Connect → Filesystem expose on your phone.' })) :
       !entries.length ? h('div', { class: 'empty' }, icon('folder'), h('p', { text: 'This folder is empty. Upload a file or create a folder.' })) :
       h('div', { class: 'file-list' }, entries.map((entry) => h('article', { class: 'file-row' },

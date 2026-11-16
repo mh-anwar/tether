@@ -396,3 +396,6 @@ Reference: kdeconnect-kde `plugins/runcommand/runcommandplugin.cpp`,
 The daemon's optional `TETHER_PORT` overrides its local TCP/UDP listeners and broadcast destination;
 it does not relax the standard advertised TCP port validation on incoming discovery identities.
 See `testing.md` for scripting, captured payloads and the integration-test fixture.
+
+### Capability and permission distinction
+Verified against Android commit `1a5692f`, `plugins/PluginFactory.kt` (`incomingCapabilities` / `outgoingCapabilities`), `helpers/DeviceHelper.kt` and `Device.kt` (`addPlugin`, `isPluginEnabled`): identity advertises all installed plugin metadata. Disabled plugins and missing permissions affect loaded plugins separately. Never infer granted permissions from identity; the checklist labels the result Advertised. Missing capability is actionable, presence alone is not proof of readiness. Phone media uses the outgoing `kdeconnect.mpris` from `plugins/mprisreceiver/MprisReceiverPlugin.kt`; keyboard availability uses outgoing `kdeconnect.mousepad.keyboardstate` from `plugins/remotekeyboard/RemoteKeyboardPlugin.kt`.
