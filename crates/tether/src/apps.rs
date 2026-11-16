@@ -483,13 +483,9 @@ async fn connect_at(prog: &Path, addr: SocketAddr) -> Result<bool> {
         return Ok(false);
     }
     let (_, out) = run(prog, &["devices", "-l"], Duration::from_secs(5)).await?;
-    if !parse_devices(&out)
+    Ok(parse_devices(&out)
         .iter()
-        .any(|d| d.online && d.serial == addr.to_string())
-    {
-        return Ok(false);
-    }
-    Ok(true)
+        .any(|d| d.online && d.serial == addr.to_string()))
 }
 
 fn remember_connection(addr: SocketAddr) {
