@@ -334,6 +334,14 @@ function buildLayout(app) {
   );
 }
 
+const lowBattery = () => !!state.battery && !state.battery.charging && (state.battery.low || state.battery.charge <= 15);
+// What the phone reports about itself, for the Devices page (only the selected phone's data is loaded).
+function phoneFacts(d) {
+  if (d.id !== state.deviceId || !d.connected) return '';
+  const signal = Object.values(state.signal)[0], b = state.battery;
+  return [b && `Battery ${b.charge}%${b.charging ? ', charging' : ''}${lowBattery() ? ', low' : ''}`, signal && `${signal.network_type} signal`].filter(Boolean).join(' · ');
+}
+
 function renderRail() {
   const d = device();
   const rail = $('.rail');
@@ -343,7 +351,7 @@ function renderRail() {
     h('div', { class: 'phone-card' },
       h('div', { class: 'name' }, icon('phone'), h('span', { text: d ? d.name : 'Phone' })),
       d && d.connected ? h('div', { class: 'stats' },
-        state.battery && h('span', { title: 'Battery' }, batteryIcon(state.battery.charge, state.battery.charging), `${state.battery.charge}%${state.battery.charging ? ' · Charging' : ''}${state.battery.low || state.battery.charge <= 15 ? ' · Low battery' : ''}`),
+        state.battery && h('span', { title: 'Battery', class: lowBattery() ? 'low' : '' }, batteryIcon(state.battery.charge, state.battery.charging), `${state.battery.charge}%${state.battery.charging ? ' · Charging' : ''}${lowBattery() ? ' · Low battery' : ''}`),
         ...Object.values(state.signal).slice(0, 1).map((s) => h('span', { title: 'Signal' }, signalIcon(s.strength), s.network_type))) : null,
       h('div', { class: 'conn' },
         h('span', { class: `dot ${d && d.connected ? 'on' : 'wait'}` }),
@@ -366,7 +374,7 @@ function renderRail() {
         unread ? h('span', { class: 'count label', text: String(unread), 'aria-label': `${unread} unread` }) : null),
       h('button', { 'aria-current': state.view === 'apps' ? 'page' : null, onclick: () => showView('apps') }, icon('apps'), h('span', { class: 'label', text: 'Apps' })),
       h('button', { 'aria-current': state.view === 'photos' ? 'page' : null, onclick: () => showView('photos') }, icon('image'), h('span', { class: 'label', text: 'Photos' })),
-      ...[['files', 'Files', 'upload'], ['contacts', 'Contacts', 'phone'], ['keyboard', 'Keyboard', 'key'], ['devices', 'Devices', 'wifi']].map(([view, label, glyph]) =>
+      ...[['files', 'Files', 'folder'], ['contacts', 'Contacts', 'user'], ['keyboard', 'Keyboard', 'keyboard'], ['devices', 'Devices', 'phone']].map(([view, label, glyph]) =>
         h('button', { title: label, 'aria-label': label, 'aria-current': state.view === view ? 'page' : null, onclick: () => showView(view) }, icon(glyph), h('span', { class: 'label', text: label }))),
       h('button', { onclick: toggleFeed }, icon('bell'), h('span', { class: 'label', text: 'Notifications' }),
         notes ? h('span', { class: 'count label', text: String(notes) }) : null),
@@ -1449,7 +1457,8 @@ function pairRow(d) {
     requested_by_peer: [h('span', { class: 'verify', text: d.verification_key || '' }),
       h('button', { class: 'btn primary', onclick: () => pairAction('accept', d.id) }, 'Accept'),
       h('button', { class: 'btn', onclick: () => pairAction('reject', d.id) }, 'Decline')],
-    requested_by_us: [h('span', { class: 'verify', text: d.verification_key || '' }), h('div', { class: 'spinner', title: 'Waiting for the phone' })],
+    requested_by_us: [h('span', { class: 'verify', text: d.verification_key || '' }), h('div', { class: 'spinner', title: 'Waiting for the phone' }),
+      h('button', { class: 'btn', onclick: () => pairAction('reject', d.id) }, 'Cancel')],
   }[d.pair] || [h('button', { class: 'btn primary', onclick: () => pairAction('pair', d.id) }, 'Pair')];
   const sub = { requested_by_peer: 'Wants to pair. Check the phone shows the same code.', requested_by_us: 'Accept on the phone. It shows the same code.' }[d.pair] || 'Ready to pair';
   return h('div', { class: 'device-row' }, icon('phone'), h('div', { class: 'grow' }, h('b', { text: d.name }), h('span', { text: sub })), ...state_);
@@ -1571,7 +1580,8 @@ async function setupDrop() {
     const d = device();
     const t = e.payload.type;
     if (t === 'enter' || t === 'over') {
-      $('#drop-text').textContent = d && d.connected ? `Drop to send to ${d.name}` : 'Your phone is out of reach';
+      $('#drop-text').textContent = !(d && d.connected) ? 'Your phone is out of reach'
+        : state.view === 'files' ? (files.path ? `Drop to upload to ${files.path.split('/').pop() || 'this folder'}` : 'Open a folder to upload into') : `Drop to send to ${d.name}`;
       overlay.hidden = false;
     } else if (t === 'leave') {
       overlay.hidden = true;
@@ -1747,7 +1757,7 @@ function renderTools() {
     swap(page, () => [toolHead('Contacts', 'Contacts shared by your phone.'),
       h('div', { class: 'tools-body' },
         h('label', { class: 'search' }, icon('search', 'sm'), h('input', { type: 'search', 'data-key': 'contacts-search', 'aria-label': 'Search contacts', placeholder: 'Search names or numbers', value: contactsQuery, oninput: (e) => { contactsQuery = e.target.value; renderTools(); } })),
-        !groups.size ? h('div', { class: 'empty' }, icon('phone'), h('p', { text: query ? 'No matching contacts.' : 'No contacts shared yet.' }),
+        !groups.size ? h('div', { class: 'empty' }, icon('user'), h('p', { text: query ? 'No matching contacts.' : 'No contacts shared yet.' }),
           !query ? h('p', { text: 'On your phone, open KDE Connect → this computer → Plugin settings → Contacts. Turn it on and allow Contacts permission when asked.' }) : null) :
           [...groups].map(([name, numbers]) => h('article', { class: 'contact-card' }, h('h2', { text: name }), numbers.map((c) =>
             h('div', { class: 'row' }, h('span', { class: 'grow', text: prettyNumber(c.number) }), toolButton('Text', () => openNew(c)), toolButton('Copy number', () => copy(c.number, 'Number copied'))))))) ]);
@@ -1767,7 +1777,7 @@ function renderTools() {
   } else {
     swap(page, () => [toolHead('Devices', 'Pair, switch or forget a phone.', toolButton('Connect by address', connectByAddress)),
       h('div', { class: 'tools-body' }, state.devices.map((d) => d.pair === 'paired' ? h('article', { class: 'contact-card' },
-        h('h2', { text: d.name }), h('p', { text: d.connected ? `Connected${d.address ? ` · ${d.address}` : ''}` : (d.last_seen ? `Last seen ${ago(d.last_seen)} · Reconnecting` : 'Offline · Tether keeps reconnecting') }),
+        h('h2', { text: d.name }), phoneFacts(d) ? h('p', { text: phoneFacts(d) }) : null, h('p', { text: d.connected ? `Connected${d.address ? ` · ${d.address}` : ''}` : (d.last_seen ? `Last seen ${ago(d.last_seen)} · Reconnecting` : 'Offline · Tether keeps reconnecting') }),
         h('div', { class: 'row' }, toolButton(d.id === state.deviceId ? 'Selected' : 'Use this phone', () => switchDevice(d.id), { disabled: d.id === state.deviceId }),
           toolButton('Forget phone', () => askFile(`Forget ${d.name}?`, '', () => pairAction('unpair', d.id), true)))) : pairRow(d)),
       toolButton('Look for phones', () => quick('refresh', 'Looking for phones', true)))]);
@@ -1792,7 +1802,7 @@ function renderFiles(page) {
       files.loading ? h('div', { class: 'empty', role: 'status' }, h('div', { class: 'spinner' }), 'Getting files from your phone') :
       files.error ? h('div', { class: 'empty', role: 'alert' }, icon('alert'), h('p', { text: files.error }), h('p', { text: 'On your phone: KDE Connect → this computer → Plugin settings → Filesystem expose → enable. Open Filesystem expose settings, choose Add storage location, select a folder, and tap Use this folder → Allow.' }), toolButton('Try again', () => loadFiles(files.path))) :
       !files.path ? h('div', { class: 'storage-roots' }, files.roots.length ? files.roots.map((root, i) => toolButton(files.roots.length === 1 ? 'Internal storage' : `Storage ${i + 1}`, () => loadFiles(root))) : h('p', { text: 'No storage shared. Add a storage location in KDE Connect → Filesystem expose on your phone.' })) :
-      !entries.length ? h('div', { class: 'empty' }, icon('upload'), h('p', { text: 'This folder is empty. Upload a file or create a folder.' })) :
+      !entries.length ? h('div', { class: 'empty' }, icon('folder'), h('p', { text: 'This folder is empty. Upload a file or create a folder.' })) :
       h('div', { class: 'file-list' }, entries.map((entry) => h('article', { class: 'file-row' },
         h('div', { class: 'file-info' }, h('button', { class: 'file-name', onclick: () => entry.directory ? loadFiles(entry.path) : fileAction('open', entry), text: entry.name }),
           h('small', { text: `${entry.directory ? 'Folder' : formatFileSize(entry.size)} · ${entry.date}` })),

@@ -27,6 +27,8 @@ def check(name, fn):
         fn()
         print(f"ok    {name}")
     except Exception as e:  # report every step, not just the first failure
+        import traceback
+        traceback.print_exc(limit=3)
         failures.append(name)
         print(f"FAIL  {name}: {type(e).__name__} {str(e).splitlines()[0] if str(e) else ''}")
 
@@ -131,10 +133,18 @@ try:
         assert any(p.get("specialKey") == 12 for p in packets)
     check("Keyboard streams text and special keys with acknowledgements", keyboard_page)
 
+    def device_card():
+        button("Devices").click()
+        text_shown("Battery 82%")
+        text_shown("5G signal")
+        assert d.find_elements(By.XPATH, "//button[text()='Forget phone']")
+    check("Devices page shows battery, signal and forget", device_card)
+
     def screenshots():
         import subprocess
         output = Path("/home/pippin/tether-wt/shots")
         output.mkdir(exist_ok=True)
+        d.execute_script("contactsQuery = ''; state.selected = 1; document.querySelectorAll('.toast').forEach((t) => t.remove())")
         for theme in ["light", "dark"]:
             d.execute_script("document.documentElement.dataset.theme = arguments[0]", theme)
             for view, name in [("files", "files-page"), ("contacts", "contacts-page"), ("keyboard", "keyboard"), ("devices", "device-card")]:
@@ -143,9 +153,11 @@ try:
                 subprocess.run(["uv", "run", "-q", "--no-project", "--with", "pillow", "python", "testing/ui/shot.py", os.environ["DISPLAY"], str(output / f"{name}{'-dark' if theme == 'dark' else ''}.png")], check=True)
         for width in [720, 1000]:
             d.set_window_size(width, 780)
-            d.execute_script("showView('messages')")
-            assert d.execute_script("return document.documentElement.scrollWidth <= innerWidth")
-            subprocess.run(["uv", "run", "-q", "--no-project", "--with", "pillow", "python", "testing/ui/shot.py", os.environ["DISPLAY"], str(output / f"narrow-{width}.png")], check=True)
+            for view, name in [("messages", "narrow"), ("files", "narrow-files"), ("devices", "narrow-devices")]:
+                d.execute_script("showView(arguments[0])", view)
+                wait.until(lambda _: d.execute_script("return state.view !== 'files' || !files.loading"))
+                assert d.execute_script("return document.documentElement.scrollWidth <= innerWidth"), (view, width)
+                subprocess.run(["uv", "run", "-q", "--no-project", "--with", "pillow", "python", "testing/ui/shot.py", os.environ["DISPLAY"], str(output / f"{name}-{width}.png")], check=True)
         d.set_window_size(1200, 780)
     check("new pages and narrow layouts screenshots", screenshots)
 

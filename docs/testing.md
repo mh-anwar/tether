@@ -73,7 +73,8 @@ The window is 1200x780 at the top-left (no window manager); there is no drag-and
 `testing/phone-files/serve.sh WORKDIR DATA_HOME [PORT]` runs a user-level sshd that accepts the test
 service's key and serves two screenshots; it prints the `FAKE_SFTP` value that makes `fake_phone` answer
 `kdeconnect.sftp.request`. `wd.sh` starts it by itself once the service's key exists (from the second run
-on) and checks Copy on the screenshot notification.
+on) and checks Copy on the screenshot notification, the Files page (browse, create, rename, upload, save,
+delete; the stand-in starts from a clean folder each run) and the Photos page.
 
 ## Updates (nothing published)
 `testing/update/fake-release.sh DIR PORT [VERSION]` serves a stand-in GitHub release (latest.json, the
@@ -95,3 +96,10 @@ pillow`), write `"<name> <password>" > $FAKE_APPS_DIR/scanned`. Pair-by-code acc
 `com.example.broken` fails like an old phone. `touch $FAKE_APPS_DIR/codeopen` acts as the phone showing its
 pairing-code screen (the form then fills in the address). `TETHER_SCRCPY=` (empty) shows the helper-download screen.
 Use the stand-ins here rather than the real adb: its server listens on localhost:5037, shared with everyone on the box.
+
+## Window pages: Files, Contacts, Keyboard, Devices
+`test_window.py` covers each, and writes light and dark screenshots of them plus 720 and 1000 px layouts to
+`/home/pippin/tether-wt/shots/` (edit `output` in the `screenshots` check for another folder). `wd.sh` starts
+its own daemon and points the fake phone at the port it got (other agents' daemons hold 1716-1718), and sets
+`FAKE_MOUSEPAD_LOG`: every `kdeconnect.mousepad.request` the fake phone receives is appended there as JSON
+and answered with an `isAck` echo. Run one `wd.sh` at a time per `TETHER_UI_DIR` and display.

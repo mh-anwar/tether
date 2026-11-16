@@ -6,7 +6,8 @@
 set -euo pipefail
 W=$1 DATA=$2 PORT=${3:-2299}
 ART=$(cd "$(dirname "$0")/../fake-art" && pwd)
-S=$W/sftp; mkdir -p "$S/root/DCIM/Screenshots"
+S=$W/sftp; rm -rf "$S/root" # a clean phone each run, so tests can create and delete files
+mkdir -p "$S/root/DCIM/Screenshots"
 [ -f "$S/hostkey" ] || ssh-keygen -q -t ed25519 -f "$S/hostkey" -N ''
 cp "$ART/photo-cake.jpg" "$S/root/DCIM/Screenshots/Screenshot_20261101-090000.jpg"
 cp "$ART/photo-dog.jpg" "$S/root/DCIM/Screenshots/Screenshot_20261112-185300.jpg"

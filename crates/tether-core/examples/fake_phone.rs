@@ -937,9 +937,25 @@ fn record_mousepad(p: &Packet) -> Option<Packet> {
         }
     }
     let mut body = p.body.clone();
-    body["isAck"] = json!(true);
+    body.insert("isAck".into(), json!(true));
     Some(Packet::new(
         plugins::mousepad::ECHO,
         serde_json::Value::Object(body),
     ))
+}
+
+#[cfg(test)]
+mod window_tests {
+    use super::*;
+    #[test]
+    fn mousepad_ack_adds_a_new_field_without_panicking() {
+        let p = Packet::new(
+            plugins::mousepad::REQUEST,
+            json!({"key": "test", "sendAck": true}),
+        );
+        let ack = record_mousepad(&p).unwrap();
+        assert_eq!(ack.bool("isAck"), Some(true));
+        assert_eq!(ack.str("key"), Some("test"));
+        assert!(record_mousepad(&Packet::new("other", json!({}))).is_none());
+    }
 }

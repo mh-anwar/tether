@@ -170,6 +170,9 @@ pub async fn file_operation(
             format!("put {} {}\n", quote(local)?, quote(path)?)
         }
         "open" | "save" => {
+            if matches!(file_name(path), "" | "." | "..") {
+                bail!("Choose a file, not a folder.");
+            }
             let dir = files_dir(svc).join("files").join(local_name(path));
             std::fs::create_dir_all(&dir)?;
             let local = dir.join(file_name(path));
@@ -525,6 +528,31 @@ mod tests {
         assert_eq!(entry["path"], "/storage/my file.txt");
         assert_eq!(entry["size"], 123);
         assert!(parse_entry("sftp> ls", "/").is_none());
+    }
+
+    #[test]
+    fn listing_skips_dot_entries_and_reads_folders() {
+        let dir = parse_entry("drwxrwx--x 2 0 0 4096 Nov 12 2025 Camera", "/s/").unwrap();
+        assert_eq!(dir["directory"], true);
+        assert_eq!(dir["path"], "/s/Camera");
+        assert_eq!(dir["date"], "Nov 12 2025");
+        for name in [".", "..", "/s/."] {
+            assert!(
+                parse_entry(&format!("drwxr-xr-x 2 0 0 4096 Nov 12 18:01 {name}"), "/s").is_none()
+            );
+        }
+        // Server paths in the name column (some servers print full paths) shrink to the name.
+        let full = parse_entry("-rw-r--r-- 1 0 0 5 Nov 12 18:01 /s/a.txt", "/s").unwrap();
+        assert_eq!(full["name"], "a.txt");
+        assert!(parse_entry("total 12", "/s").is_none());
+    }
+
+    #[test]
+    fn quoting_refuses_what_sftp_cannot_carry() {
+        assert_eq!(quote("/s/my file").unwrap(), "\"/s/my file\"");
+        for bad in ["a\\b", "a\nb", "a\"b"] {
+            assert!(quote(bad).is_err());
+        }
     }
 
     #[test]
