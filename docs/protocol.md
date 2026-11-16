@@ -341,6 +341,16 @@ Direction: P->D = phone sends, D->P = desktop (us) sends. Android files under `A
 - Whether Android's PKIX path check enforces notBefore/notAfter on the stored self-signed peer cert.
 - Bluetooth backend (`A:backends/bluetooth/`) was not reviewed.
 
+## Remote keyboard
+Tether sends `kdeconnect.mousepad.request` with `key` or `specialKey` (1–32), boolean
+`shift`, `ctrl`, `alt`, `super`, and `sendAck: true`. Android sends
+`kdeconnect.mousepad.keyboardstate {state}` when its keyboard becomes available and
+`kdeconnect.mousepad.echo {isAck: true, key, specialKey?, ...modifiers}` after handling input.
+Sources checked 2026-11-16: Android `plugins/remotekeyboard/RemoteKeyboardPlugin.kt` and
+`plugins/remotekeyboardime/RemoteKeyboardIMEPlugin.kt`; KDE
+`plugins/mousepad/x11remoteinput.cpp`, `SpecialKeysMap` (Backspace=1, Tab=2,
+arrows=4–7, Home=10, End=11, Return=12, Delete=13, Escape=14, F1–F12=21–32).
+
 ## Desktop MPRIS, notifications and share batches
 - Both MPRIS packet types are advertised in both directions. Desktop player list includes
   `supportAlbumArtPayload`; metadata uses ms for `length`/`pos`/`SetPosition`, while relative `Seek`

@@ -97,11 +97,106 @@ async fn sftp(
     let first = login(svc, dev, false).await?;
     match run_sftp(&first, &key, &commands(&first)?).await {
         Ok(out) => Ok(out),
+        Err(e) if e.to_string().starts_with("Phone files:") => Err(e),
         Err(_) => {
             let again = login(svc, dev, true).await?;
             run_sftp(&again, &key, &commands(&again)?).await
         }
     }
+}
+
+/// One listing per session; metadata uses numeric owner/group so names cannot shift columns.
+pub async fn list_files(svc: &Service, dev: &str, path: Option<&str>) -> Result<serde_json::Value> {
+    let l = login(svc, dev, false).await?;
+    let Some(path) = path.filter(|p| !p.is_empty()) else {
+        return Ok(serde_json::json!({"roots": l.roots, "entries": []}));
+    };
+    let out = sftp(svc, dev, |_| Ok(format!("ls -lan {}\n", quote(path)?))).await?;
+    let entries: Vec<_> = out
+        .lines()
+        .filter_map(|line| parse_entry(line, path))
+        .collect();
+    Ok(serde_json::json!({"roots": l.roots, "entries": entries}))
+}
+
+fn parse_entry(line: &str, parent: &str) -> Option<serde_json::Value> {
+    let mut rest = line.trim();
+    let mut fields = Vec::new();
+    for _ in 0..8 {
+        let end = rest.find(char::is_whitespace)?;
+        fields.push(&rest[..end]);
+        rest = rest[end..].trim_start();
+    }
+    let mode = fields[0];
+    if !mode.starts_with(['d', '-']) || rest == "." || rest == ".." {
+        return None;
+    }
+    let name = rest.rsplit('/').next()?;
+    if name == "." || name == ".." {
+        return None;
+    }
+    Some(serde_json::json!({"name": name,
+        "path": format!("{}/{}", parent.trim_end_matches('/'), name),
+        "directory": mode.starts_with('d'), "size": fields[4].parse::<u64>().ok()?,
+        "date": format!("{} {} {}", fields[5], fields[6], fields[7])}))
+}
+
+/// Every mutation is a single command in the existing authenticated SFTP path.
+pub async fn file_operation(
+    svc: &Service,
+    dev: &str,
+    action: &str,
+    path: &str,
+    target: Option<&str>,
+    directory: bool,
+) -> Result<serde_json::Value> {
+    let script = match action {
+        "mkdir" => format!("mkdir {}\n", quote(path)?),
+        "delete" => format!(
+            "{} {}\n",
+            if directory { "rmdir" } else { "rm" },
+            quote(path)?
+        ),
+        "rename" => format!(
+            "rename {} {}\n",
+            quote(path)?,
+            quote(target.context("Missing new name")?)?
+        ),
+        "upload" => {
+            let local = target.context("Missing local file")?;
+            if !Path::new(local).is_file() {
+                bail!("Choose a file to upload.");
+            }
+            format!("put {} {}\n", quote(local)?, quote(path)?)
+        }
+        "open" | "save" => {
+            if matches!(file_name(path), "" | "." | "..") {
+                bail!("Choose a file, not a folder.");
+            }
+            let dir = files_dir(svc).join("files").join(local_name(path));
+            std::fs::create_dir_all(&dir)?;
+            let local = dir.join(file_name(path));
+            fetch(svc, dev, &[(path.into(), local.clone())]).await?;
+            if !local.is_file() {
+                bail!("The phone did not send this file.");
+            }
+            if action == "save" {
+                let saved = svc.save_to_downloads(&local, file_name(path))?;
+                return Ok(serde_json::json!({"path": saved}));
+            }
+            Command::new("xdg-open")
+                .arg(&local)
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()
+                .context("Could not open the file")?;
+            return Ok(serde_json::json!({"path": local}));
+        }
+        _ => bail!("Unknown file operation"),
+    };
+    sftp(svc, dev, |_| Ok(script.clone())).await?;
+    Ok(serde_json::json!(true))
 }
 
 fn list_script(login: &Login, dirs: &[&str]) -> Result<String> {
@@ -315,6 +410,7 @@ async fn run_sftp(login: &Login, key: &Path, commands: &str) -> Result<String> {
             "NumberOfPasswordPrompts=1",
         ])
         .arg(format!("{}@{}", login.user, login.ip))
+        .env("LC_ALL", "C")
         .env("SSH_ASKPASS", exe)
         .env("SSH_ASKPASS_REQUIRE", "force")
         .env(ASKPASS_ENV, &login.password)
@@ -338,6 +434,11 @@ async fn run_sftp(login: &Login, key: &Path, commands: &str) -> Result<String> {
         .await
         .map_err(|_| anyhow!("Your phone stopped answering."))??;
     let stdout = String::from_utf8_lossy(&out.stdout).into_owned();
+    let err = String::from_utf8_lossy(&out.stderr);
+    // Photo discovery deliberately probes folders that may not exist.
+    if !commands.starts_with("ls -1t") && !err.trim().is_empty() {
+        bail!("Phone files: {}", err.trim());
+    }
     if !out.status.success() && stdout.trim().is_empty() {
         let err = String::from_utf8_lossy(&out.stderr);
         tracing::warn!("sftp to the phone failed: {}", err.trim());
@@ -416,6 +517,43 @@ fn set_clipboard_image(path: &Path) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn listing_keeps_spaces_and_metadata() {
+        let entry = parse_entry(
+            "-rw-r--r-- 1 1000 1000 123 Nov 16 12:30 my file.txt",
+            "/storage",
+        )
+        .unwrap();
+        assert_eq!(entry["path"], "/storage/my file.txt");
+        assert_eq!(entry["size"], 123);
+        assert!(parse_entry("sftp> ls", "/").is_none());
+    }
+
+    #[test]
+    fn listing_skips_dot_entries_and_reads_folders() {
+        let dir = parse_entry("drwxrwx--x 2 0 0 4096 Nov 12 2025 Camera", "/s/").unwrap();
+        assert_eq!(dir["directory"], true);
+        assert_eq!(dir["path"], "/s/Camera");
+        assert_eq!(dir["date"], "Nov 12 2025");
+        for name in [".", "..", "/s/."] {
+            assert!(
+                parse_entry(&format!("drwxr-xr-x 2 0 0 4096 Nov 12 18:01 {name}"), "/s").is_none()
+            );
+        }
+        // Server paths in the name column (some servers print full paths) shrink to the name.
+        let full = parse_entry("-rw-r--r-- 1 0 0 5 Nov 12 18:01 /s/a.txt", "/s").unwrap();
+        assert_eq!(full["name"], "a.txt");
+        assert!(parse_entry("total 12", "/s").is_none());
+    }
+
+    #[test]
+    fn quoting_refuses_what_sftp_cannot_carry() {
+        assert_eq!(quote("/s/my file").unwrap(), "\"/s/my file\"");
+        for bad in ["a\\b", "a\nb", "a\"b"] {
+            assert!(quote(bad).is_err());
+        }
+    }
 
     #[test]
     fn picks_first_image_and_spots_screenshots() {

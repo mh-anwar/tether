@@ -201,6 +201,21 @@ async fn relaunch(app: tauri::AppHandle, daemon: State<'_, Daemon>) -> Result<()
     Ok(())
 }
 
+#[tauri::command]
+async fn choose_files() -> Result<Vec<String>, String> {
+    tauri::async_runtime::spawn_blocking(|| {
+        rfd::FileDialog::new()
+            .set_title("Upload to phone")
+            .pick_files()
+            .unwrap_or_default()
+            .into_iter()
+            .map(|p| p.to_string_lossy().into_owned())
+            .collect()
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
 /// On X11 the clipboard content lives only as long as its owner, so keep one handle for the
 /// whole app instead of dropping it right after copying.
 #[derive(Default)]
@@ -264,7 +279,12 @@ fn main() {
     tauri::Builder::default()
         .manage(Daemon::default())
         .manage(Clip::default())
-        .invoke_handler(tauri::generate_handler![call, copy_text, relaunch])
+        .invoke_handler(tauri::generate_handler![
+            call,
+            copy_text,
+            relaunch,
+            choose_files
+        ])
         .setup(|app| {
             tauri::async_runtime::spawn(connection_loop(app.handle().clone()));
             Ok(())

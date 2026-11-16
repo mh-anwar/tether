@@ -367,6 +367,12 @@ pub async fn run(device: Option<String>, cmd: Cmd) -> Result<()> {
                 );
             }
         }
+        Cmd::Type { text } => {
+            let d = c.device(&device).await?;
+            c.call("keyboard", json!({"device": d, "key": text}))
+                .await?;
+            println!("Sent to the phone.");
+        }
         Cmd::Clip { text } => {
             let d = c.device(&device).await?;
             c.call("clipboard", json!({"device": d, "content": text}))

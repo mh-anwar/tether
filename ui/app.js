@@ -284,6 +284,7 @@ async function loadDevice() {
     state.notifications = data.notifications || {};
     state.call = data.call;
     state.media = data.media || {};
+    state.keyboardActive = data.keyboard_active;
     state.contacts = contacts;
     mergeMessages(threads);
   } catch (e) {
@@ -305,11 +306,12 @@ function render() {
   }
   if (!state.deviceId) return renderPairPage(app);
   if (!$('.rail', app)) buildLayout(app);
-  app.className = `app ${state.feedOverlay ? 'feed-overlay' : ''} ${state.view === 'apps' ? 'view-apps' : ''} ${state.view === 'photos' ? 'view-photos' : ''} ${state.view === 'settings' ? 'view-settings' : ''}`;
+  app.className = `app ${['files', 'contacts', 'keyboard', 'devices'].includes(state.view) ? 'view-tools' : ''} ${state.feedOverlay ? 'feed-overlay' : ''} ${state.view === 'apps' ? 'view-apps' : ''} ${state.view === 'photos' ? 'view-photos' : ''} ${state.view === 'settings' ? 'view-settings' : ''}`;
   renderRail();
   if (state.view === 'apps') renderApps();
   else if (state.view === 'photos') renderPhotos();
   else if (state.view === 'settings') renderSettings();
+  else if (['files', 'contacts', 'keyboard', 'devices'].includes(state.view)) renderTools();
   else { renderList(); renderThreadPane(false); }
   renderFeed();
 }
@@ -330,9 +332,18 @@ function buildLayout(app) {
     h('main', { class: 'thread' }),
     h('main', { class: 'apps-page', 'aria-label': 'Phone apps' }),
     h('main', { class: 'photos-page', 'aria-label': 'Phone photos' }),
+    h('main', { class: 'tools-page', 'aria-label': 'Phone tools' }),
     h('main', { class: 'settings-page', 'aria-label': 'Settings' }),
     h('aside', { class: 'feed', 'aria-label': 'Notifications' }),
   );
+}
+
+const lowBattery = () => !!state.battery && !state.battery.charging && (state.battery.low || state.battery.charge <= 15);
+// What the phone reports about itself, for the Devices page (only the selected phone's data is loaded).
+function phoneFacts(d) {
+  if (d.id !== state.deviceId || !d.connected) return '';
+  const signal = Object.values(state.signal)[0], b = state.battery;
+  return [b && `Battery ${b.charge}%${b.charging ? ', charging' : ''}${lowBattery() ? ', low' : ''}`, signal && `${signal.network_type} signal`].filter(Boolean).join(' · ');
 }
 
 function renderRail() {
@@ -344,11 +355,11 @@ function renderRail() {
     h('div', { class: 'phone-card' },
       h('div', { class: 'name' }, icon('phone'), h('span', { text: d ? d.name : 'Phone' })),
       d && d.connected ? h('div', { class: 'stats' },
-        state.battery && h('span', { title: 'Battery' }, batteryIcon(state.battery.charge, state.battery.charging), `${state.battery.charge}%`),
+        state.battery && h('span', { title: 'Battery', class: lowBattery() ? 'low' : '' }, batteryIcon(state.battery.charge, state.battery.charging), `${state.battery.charge}%${state.battery.charging ? ' · Charging' : ''}${lowBattery() ? ' · Low battery' : ''}`),
         ...Object.values(state.signal).slice(0, 1).map((s) => h('span', { title: 'Signal' }, signalIcon(s.strength), s.network_type))) : null,
       h('div', { class: 'conn' },
         h('span', { class: `dot ${d && d.connected ? 'on' : 'wait'}` }),
-        d && d.connected ? `Connected${d.address ? ' over Wi-Fi' : ''}` : 'Out of reach. Reconnecting'),
+        d && d.connected ? `Connected${d.address ? ' over network' : ''}` : (d?.last_seen ? `Last seen ${ago(d.last_seen)} · Reconnecting` : 'Out of reach. Reconnecting')),
       h('div', { class: 'card-actions' },
         h('button', { class: 'btn', disabled: !(d && d.connected), onclick: ringPhone, title: 'Ring the phone at full volume' }, icon('ring', 'sm'), 'Ring'),
         h('button', { class: 'btn', disabled: !(d && d.connected), onclick: () => quick('ping', 'Ping sent'), title: 'Send a ping' }, icon('bolt', 'sm'), 'Ping'))),
@@ -356,6 +367,11 @@ function renderRail() {
       icon('call', 'pulse'),
       h('div', {}, h('b', { text: state.call.name || prettyNumber(state.call.number || '') || 'Unknown caller' }), h('span', { text: 'Incoming call' })),
       h('button', { class: 'btn', onclick: () => quick('mute', 'Ringer muted') }, icon('mute', 'sm'), 'Mute')) : null,
+    state.devices.filter((x) => x.pair === 'paired').length > 1 ? h('select', { 'aria-label': 'Phone', onchange: (e) => switchDevice(e.target.value) },
+      state.devices.filter((x) => x.pair === 'paired').map((x) => h('option', { value: x.id, selected: x.id === state.deviceId, text: x.name }))) : null,
+    ...state.devices.filter((x) => x.pair === 'requested_by_peer').map((x) => h('div', { class: 'contact-card' },
+      h('b', { text: `${x.name} wants to pair` }), h('span', { text: `Check this code on your phone: ${x.verification_key || ''}` }),
+      toolButton('Accept', () => pairAction('accept', x.id)), toolButton('Decline', () => pairAction('reject', x.id)))),
     state.computerRinging ? h('div', { class: 'call finding', role: 'status' },
       icon('ring', 'pulse'),
       h('b', { text: 'Your phone is finding this computer' }),
@@ -366,6 +382,8 @@ function renderRail() {
         unread ? h('span', { class: 'count label', text: String(unread), 'aria-label': `${unread} unread` }) : null),
       h('button', { 'aria-current': state.view === 'apps' ? 'page' : null, onclick: () => showView('apps') }, icon('apps'), h('span', { class: 'label', text: 'Apps' })),
       h('button', { 'aria-current': state.view === 'photos' ? 'page' : null, onclick: () => showView('photos') }, icon('image'), h('span', { class: 'label', text: 'Photos' })),
+      ...[['files', 'Files', 'folder'], ['contacts', 'Contacts', 'user'], ['keyboard', 'Keyboard', 'keyboard'], ['devices', 'Devices', 'phone']].map(([view, label, glyph]) =>
+        h('button', { title: label, 'aria-label': label, 'aria-current': state.view === view ? 'page' : null, onclick: () => showView(view) }, icon(glyph), h('span', { class: 'label', text: label }))),
       h('button', { onclick: toggleFeed }, icon('bell'), h('span', { class: 'label', text: 'Notifications' }),
         notes ? h('span', { class: 'count label', text: String(notes) }) : null),
       h('button', { 'aria-current': state.view === 'settings' ? 'page' : null, onclick: () => showView('settings') }, icon('settings'), h('span', { class: 'label', text: 'Settings' }))),
@@ -1085,6 +1103,7 @@ function showView(view) {
   if (view === 'apps') pollApps();
   if (view === 'photos' && photos.status !== 'ready') loadPhotos();
   if (view === 'settings') loadSettings();
+  if (view === 'files') loadFiles(files.device === state.deviceId ? files.path : '');
   render();
   if (view === 'messages') $('#filter')?.focus();
 }
@@ -1430,10 +1449,11 @@ function transferRow(t) {
 }
 
 function receivedPanel() {
+  // Only once something arrived: the notifications column stays about the phone until then.
+  if (!state.transfers.length) return null;
   return h('section', { class: 'received-panel', 'aria-label': 'Received from your phone' },
     h('h3', { text: 'Received from your phone' }),
-    state.transfers.length ? state.transfers.slice(0, 20).map(transferRow)
-      : h('p', { class: 'quiet', text: 'Files you receive appear here. Drop files in this window to send them.' }));
+    state.transfers.slice(0, 20).map(transferRow));
 }
 function transferProgress(u) {
   if (!u.name) {
@@ -1554,7 +1574,8 @@ function pairRow(d) {
     requested_by_peer: [h('span', { class: 'verify', text: d.verification_key || '' }),
       h('button', { class: 'btn primary', onclick: () => pairAction('accept', d.id) }, 'Accept'),
       h('button', { class: 'btn', onclick: () => pairAction('reject', d.id) }, 'Decline')],
-    requested_by_us: [h('span', { class: 'verify', text: d.verification_key || '' }), h('div', { class: 'spinner', title: 'Waiting for the phone' })],
+    requested_by_us: [h('span', { class: 'verify', text: d.verification_key || '' }), h('div', { class: 'spinner', title: 'Waiting for the phone' }),
+      h('button', { class: 'btn', onclick: () => pairAction('reject', d.id) }, 'Cancel')],
   }[d.pair] || [h('button', { class: 'btn primary', onclick: () => pairAction('pair', d.id) }, 'Pair')];
   const sub = { requested_by_peer: 'Wants to pair. Check the phone shows the same code.', requested_by_us: 'Accept on the phone. It shows the same code.' }[d.pair] || 'Ready to pair';
   return h('div', { class: 'device-row' }, icon('phone'), h('div', { class: 'grow' }, h('b', { text: d.name }), h('span', { text: sub })), ...state_);
@@ -1623,6 +1644,8 @@ function commands() {
   ].filter(Boolean);
   cmds.push({ label: 'Show phone apps', icon: 'apps', run: () => showView('apps') });
   cmds.push({ label: 'Show phone photos', icon: 'image', run: () => showView('photos') });
+  for (const [view, label] of [['files', 'Browse phone files'], ['contacts', 'Show contacts'], ['keyboard', 'Keyboard'], ['devices', 'Manage phones']])
+    cmds.push({ label, icon: view === 'keyboard' ? 'key' : 'phone', run: () => showView(view) });
   cmds.push({ label: 'Settings', icon: 'settings', run: () => showView('settings') });
   if (apps.status?.device) {
     cmds.push({ label: 'Show phone screen', icon: 'phone', run: () => openApp(null) });
@@ -1675,14 +1698,15 @@ async function setupDrop() {
     const d = device();
     const t = e.payload.type;
     if (t === 'enter' || t === 'over') {
-      $('#drop-text').textContent = d && d.connected ? `Drop to send to ${d.name}` : 'Your phone is out of reach';
+      $('#drop-text').textContent = !(d && d.connected) ? 'Your phone is out of reach'
+        : state.view === 'files' ? (files.path ? `Drop to upload to ${files.path.split('/').pop() || 'this folder'}` : 'Open a folder to upload into') : `Drop to send to ${d.name}`;
       overlay.hidden = false;
     } else if (t === 'leave') {
       overlay.hidden = true;
     } else if (t === 'drop') {
       overlay.hidden = true;
       if (!(d && d.connected)) return toast('Your phone is out of reach', 'error');
-      sendFiles(e.payload.paths || [], d);
+      if (state.view === 'files') { for (const path of e.payload.paths || []) await uploadFile(path); } else sendFiles(e.payload.paths || [], d);
     }
   });
 }
@@ -1705,17 +1729,20 @@ function onEvent(ev) {
     const becamePaired = ev.pair === 'paired' && (!before || before.pair !== 'paired');
     const cameBack = ev.id === state.deviceId && ev.connected && before && !before.connected;
     const lost = ev.id === state.deviceId && ev.pair !== 'paired';
-    if (lost) { state.deviceId = null; state.threads.clear(); state.notifications = {}; photos.status = 'idle'; photos.folders = []; photos.thumbs.clear(); photos.tiles.clear(); }
+    if (lost) { state.deviceId = state.devices.find((x) => x.pair === 'paired')?.id || null; state.threads.clear(); state.notifications = {}; photos.status = 'idle'; photos.folders = []; photos.thumbs.clear(); photos.tiles.clear(); }
+    if (lost && state.deviceId) loadDevice().then(render);
     if (becamePaired && !state.deviceId) { state.deviceId = ev.id; loadDevice().then(render); }
     else if (cameBack) loadDevice().then(render);
     if (!state.deviceId || !$('.rail')) return render();
-    renderRail(); renderBanners();
+    renderRail(); renderBanners(); if (['devices', 'keyboard'].includes(state.view)) renderTools();
     if (cameBack || !ev.connected) renderThreadPane(true);
     return;
   }
   if (ev.event !== 'update' || ev.device_id !== state.deviceId) return;
   const u = ev.update;
   switch (u.kind) {
+    case 'keyboard_state': state.keyboardActive = u.active; if (state.view === 'keyboard') renderTools(); break;
+    case 'keyboard_echo': if ($('#keyboard-status')) $('#keyboard-status').textContent = 'Received by your phone'; break;
     case 'battery': state.battery = u; renderRail(); break;
     case 'attachment': waitingAttachments.get(u.unique_identifier)?.resolve(u.path); waitingAttachments.delete(u.unique_identifier); break;
     case 'media': state.media = Object.fromEntries(u.players.map((p) => [p.name, p])); renderRail(); break;
@@ -1735,7 +1762,7 @@ function onEvent(ev) {
       invalidate('list', 'rail', 'feed');
       break;
     case 'contacts':
-      api('contacts', { device: state.deviceId }).then((c) => { state.contacts = c; invalidate('list', 'thread'); }).catch(() => {});
+      api('contacts', { device: state.deviceId }).then((c) => { state.contacts = c; invalidate('list', 'thread'); if (state.view === 'contacts') renderTools(); }).catch(() => {});
       break;
     case 'call': state.call = u.state === 'missed' ? null : u; renderRail(); break;
     case 'call_ended': state.call = null; renderRail(); break;
@@ -1783,3 +1810,156 @@ async function start() {
 }
 
 start();
+
+// ---------- Phone tools ----------
+const files = { device: null, path: '', roots: [], entries: [], loading: false, error: '', sort: 'name', reverse: false, generation: 0 };
+let contactsQuery = '';
+function toolButton(text, run, extra = {}) { return h('button', { class: 'btn', onclick: run, ...extra }, text); }
+function toolHead(title, sub, ...actions) {
+  return h('header', { class: 'apps-head' }, h('div', { class: 'row' }, h('div', {}, h('h1', { text: title }), h('p', { class: 'sub', text: sub })), ...actions));
+}
+async function loadFiles(path = '') {
+  const generation = ++files.generation, id = state.deviceId;
+  files.device = id; files.path = path; files.loading = true; files.error = ''; renderTools();
+  try {
+    const result = await api('files_list', { device: id, path });
+    if (generation !== files.generation || state.deviceId !== id) return;
+    files.roots = result.roots; files.entries = result.entries;
+  } catch (e) { if (generation === files.generation) files.error = String(e); }
+  finally { if (generation === files.generation) { files.loading = false; renderTools(); } }
+}
+// Native dialogs contain focus and Escape; return focus to the opener on close.
+function askFile(title, initial, run, destructive = false) {
+  const previous = document.activeElement;
+  const input = destructive ? null : h('input', { value: initial, 'aria-label': title, required: true });
+  const dialog = h('dialog', { class: 'file-dialog', 'aria-label': title },
+    h('form', { onsubmit: async (e) => {
+      e.preventDefault();
+      const value = input?.value.trim();
+      if (input && (!value || value.includes('/') || value === '.' || value === '..')) { input.setCustomValidity('Use a name without slashes.'); input.reportValidity(); return; }
+      dialog.close(); try { await run(value); } catch (err) { toast(String(err), 'error'); }
+    } }, h('h2', { text: title }), input,
+    destructive ? h('p', { text: 'This removes it from your phone. Folders must be empty.' }) : null,
+    h('div', { class: 'row' }, h('button', { type: 'button', class: 'btn', onclick: () => dialog.close() }, 'Cancel'),
+      h('button', { class: destructive ? 'btn danger' : 'btn primary', type: 'submit' }, destructive ? 'Delete' : 'Save'))));
+  dialog.addEventListener('close', () => { dialog.remove(); if (previous?.isConnected) previous.focus(); });
+  input?.addEventListener('input', () => input.setCustomValidity(''));
+  document.body.append(dialog); dialog.showModal(); (input || $('button', dialog)).focus(); input?.select();
+}
+async function fileAction(action, entry, target) {
+  const busy = toast(action === 'save' ? 'Saving to Downloads' : 'Working on your phone', 'progress', 90000);
+  try {
+    const r = await api('file_operation', { device: state.deviceId, action, path: entry.path, directory: entry.directory, target });
+    if (action === 'save') toast(`Saved to ${r.path}`);
+    else if (action !== 'open') await loadFiles(files.path);
+  } catch (e) { toast(String(e), 'error'); } finally { busy.remove(); }
+}
+async function uploadFile(path) {
+  if (!files.path) return toast('Open a folder before uploading', 'error');
+  await fileAction('upload', { path: `${files.path.replace(/\/$/, '')}/${path.split('/').pop()}` }, path);
+}
+async function chooseUpload() {
+  try { for (const path of await T.core.invoke('choose_files')) await uploadFile(path); }
+  catch (e) { toast(String(e), 'error'); }
+}
+function renderTools() {
+  const page = $('.tools-page');
+  if (!page || !['files', 'contacts', 'keyboard', 'devices'].includes(state.view)) return;
+  if (state.view === 'files') return renderFiles(page);
+  if (state.view === 'contacts') {
+    const query = contactsQuery.toLowerCase(), groups = new Map();
+    for (const c of state.contacts) {
+      if (!`${c.name} ${c.number}`.toLowerCase().includes(query)) continue;
+      if (!groups.has(c.name)) groups.set(c.name, []);
+      groups.get(c.name).push(c);
+    }
+    swap(page, () => [toolHead('Contacts', 'Contacts shared by your phone.'),
+      h('div', { class: 'tools-body' },
+        h('label', { class: 'search' }, icon('search', 'sm'), h('input', { type: 'search', 'data-key': 'contacts-search', 'aria-label': 'Search contacts', placeholder: 'Search names or numbers', value: contactsQuery, oninput: (e) => { contactsQuery = e.target.value; renderTools(); } })),
+        !groups.size ? h('div', { class: 'empty' }, icon('user'), h('p', { text: query ? 'No matching contacts.' : 'No contacts shared yet.' }),
+          !query ? h('p', { text: 'On your phone, open KDE Connect → this computer → Plugin settings → Contacts. Turn it on and allow Contacts permission when asked.' }) : null) :
+          [...groups].map(([name, numbers]) => h('article', { class: 'contact-card' }, h('h2', { text: name }), numbers.map((c) =>
+            h('div', { class: 'row' }, h('span', { class: 'grow', text: prettyNumber(c.number) }), toolButton('Text', () => openNew(c)), toolButton('Copy number', () => copy(c.number, 'Number copied'))))))) ]);
+  } else if (state.view === 'keyboard') {
+    swap(page, () => [toolHead('Keyboard', 'Type into the text field selected on your phone.'),
+      h('div', { class: 'tools-body keyboard-body' },
+        h('p', { class: 'banner', text: state.keyboardActive ? 'Your phone is ready. Select a text field on it, then type below.' : 'Pick KDE Connect Remote Keyboard as the keyboard on your phone.' }),
+        !state.keyboardActive ? h('ol', { class: 'steps' }, h('li', { text: 'On the phone, open KDE Connect → this computer → Plugin settings → Remote keyboard and enable it.' }), h('li', { text: 'In Android keyboard settings, enable KDE Connect Remote Keyboard. Open a text field and pick it from the keyboard switcher.' })) : null,
+        h('label', { for: 'keyboard-box', text: 'Type here to send keys' }),
+        h('textarea', { id: 'keyboard-box', 'data-key': 'keyboard-box', placeholder: 'Click here and type', spellcheck: 'false', 'aria-describedby': 'keyboard-status',
+          onkeydown: keyboardKey,
+          oninput: (e) => { if (!e.isComposing && e.target.value) { sendKey({ key: e.target.value }); e.target.value = ''; } },
+          oncompositionend: (e) => { if (e.data) sendKey({ key: e.data }); e.target.value = ''; },
+          onpaste: (e) => { e.preventDefault(); const text = e.clipboardData.getData('text'); if (text) sendKey({ key: text }); } }),
+        h('p', { id: 'keyboard-status', role: 'status', text: device()?.connected ? 'Keys are sent only while this box has focus. Tab leaves the box.' : 'Your phone is offline.' }),
+        h('div', { class: 'row' }, toolButton('Send Tab', () => sendKey({ specialKey: 2 })), toolButton('Send Enter', () => sendKey({ specialKey: 12 })), toolButton('Send Escape', () => sendKey({ specialKey: 14 }))))]);
+  } else {
+    swap(page, () => [toolHead('Devices', 'Pair, switch or forget a phone.', toolButton('Connect by address', connectByAddress)),
+      h('div', { class: 'tools-body' }, state.devices.map((d) => d.pair === 'paired' ? h('article', { class: 'contact-card' },
+        h('h2', { text: d.name }), phoneFacts(d) ? h('p', { text: phoneFacts(d) }) : null, h('p', { text: d.connected ? `Connected${d.address ? ` · ${d.address}` : ''}` : (d.last_seen ? `Last seen ${ago(d.last_seen)} · Reconnecting` : 'Offline · Tether keeps reconnecting') }),
+        h('div', { class: 'row' }, toolButton(d.id === state.deviceId ? 'Selected' : 'Use this phone', () => switchDevice(d.id), { disabled: d.id === state.deviceId }),
+          toolButton('Forget phone', () => askFile(`Forget ${d.name}?`, '', () => pairAction('unpair', d.id), true)))) : pairRow(d)),
+      toolButton('Look for phones', () => quick('refresh', 'Looking for phones', true)))]);
+  }
+}
+function renderFiles(page) {
+  const entries = [...files.entries].sort((a, b) => Number(b.directory) - Number(a.directory) ||
+    (files.reverse ? -1 : 1) * (files.sort === 'size' ? a.size - b.size : files.sort === 'date' ? fileDate(a.date) - fileDate(b.date) : a.name.localeCompare(b.name, undefined, { numeric: true })));
+  const root = files.roots.find((r) => files.path === r || files.path.startsWith(r.replace(/\/$/, '') + '/')) || '';
+  const parts = files.path.slice(root.length).split('/').filter(Boolean);
+  swap(page, () => [toolHead('Files', 'Browse your phone. Drop files here to upload into the open folder.',
+    toolButton('Refresh', () => loadFiles(files.path), { disabled: files.loading })),
+    h('div', { class: 'tools-body' },
+      h('nav', { class: 'breadcrumbs', 'aria-label': 'Folder path' }, toolButton('Storage', () => loadFiles('')),
+        root ? toolButton('Internal storage', () => loadFiles(root)) : null,
+        parts.map((part, i) => toolButton(part, () => loadFiles(root.replace(/\/$/, '') + '/' + parts.slice(0, i + 1).join('/'))))),
+      h('div', { class: 'row file-toolbar' }, toolButton('Upload files', chooseUpload, { disabled: !files.path || files.loading }),
+        toolButton('New folder', () => askFile('New folder', '', (name) => fileAction('mkdir', { path: `${files.path}/${name}` })), { disabled: !files.path || files.loading }),
+        h('label', {}, 'Sort ', h('select', { 'aria-label': 'Sort files', onchange: (e) => { files.sort = e.target.value; renderTools(); } },
+          ['name', 'size', 'date'].map((v) => h('option', { value: v, selected: files.sort === v, text: v[0].toUpperCase() + v.slice(1) })))),
+        toolButton(files.reverse ? 'Descending' : 'Ascending', () => { files.reverse = !files.reverse; renderTools(); })),
+      files.loading ? h('div', { class: 'empty', role: 'status' }, h('div', { class: 'spinner' }), 'Getting files from your phone') :
+      files.error ? h('div', { class: 'empty', role: 'alert' }, icon('alert'), h('p', { text: files.error }), h('p', { text: 'On your phone: KDE Connect → this computer → Plugin settings → Filesystem expose → enable. Open Filesystem expose settings, choose Add storage location, select a folder, and tap Use this folder → Allow.' }), toolButton('Try again', () => loadFiles(files.path))) :
+      !files.path ? h('div', { class: 'storage-roots' }, files.roots.length ? files.roots.map((root, i) => toolButton(files.roots.length === 1 ? 'Internal storage' : `Storage ${i + 1}`, () => loadFiles(root))) : h('p', { text: 'No storage shared. Add a storage location in KDE Connect → Filesystem expose on your phone.' })) :
+      !entries.length ? h('div', { class: 'empty' }, icon('folder'), h('p', { text: 'This folder is empty. Upload a file or create a folder.' })) :
+      h('div', { class: 'file-list' }, entries.map((entry) => h('article', { class: 'file-row' },
+        h('div', { class: 'file-info' }, h('button', { class: 'file-name', onclick: () => entry.directory ? loadFiles(entry.path) : fileAction('open', entry), text: entry.name }),
+          h('small', { text: `${entry.directory ? 'Folder' : formatFileSize(entry.size)} · ${entry.date}` })),
+        h('div', { class: 'file-actions' }, !entry.directory ? toolButton('Save', () => fileAction('save', entry)) : null,
+          toolButton('Rename', () => askFile('Rename', entry.name, (name) => fileAction('rename', entry, `${files.path}/${name}`))),
+          toolButton('Delete', () => askFile(`Delete ${entry.name}?`, '', () => fileAction('delete', entry), true))))))) ]);
+}
+function fileDate(value) {
+  const parts = value.split(' '), now = new Date();
+  const timed = parts[2]?.includes(':');
+  const date = new Date(timed ? value + ' ' + now.getFullYear() : value);
+  if (timed && date > now) date.setFullYear(now.getFullYear() - 1);
+  return date.getTime() || 0;
+}
+function formatFileSize(bytes) {
+  return bytes < 1024 ? `${bytes} B` : bytes < 1048576 ? `${(bytes / 1024).toFixed(1)} KB` : `${(bytes / 1048576).toFixed(1)} MB`;
+}
+let keyboardQueue = Promise.resolve();
+function sendKey(params) {
+  if (!device()?.connected) return toast('Your phone is offline', 'error');
+  if ($('#keyboard-status')) $('#keyboard-status').textContent = 'Sending to your phone…';
+  const id = state.deviceId;
+  keyboardQueue = keyboardQueue.then(() => api('keyboard', { device: id, ...params })).catch((e) => toast(String(e), 'error'));
+}
+function keyboardKey(e) {
+  if (e.isComposing || e.key === 'Tab') return;
+  const special = { Backspace: 1, ArrowLeft: 4, ArrowUp: 5, ArrowRight: 6, ArrowDown: 7, PageUp: 8, PageDown: 9, Home: 10, End: 11, Enter: 12, Delete: 13, Escape: 14 };
+  const specialKey = special[e.key] || (/^F([1-9]|1[0-2])$/.test(e.key) ? 20 + Number(e.key.slice(1)) : null);
+  if (specialKey || ((e.ctrlKey || e.altKey || e.metaKey) && e.key.length === 1)) {
+    e.preventDefault(); e.stopPropagation();
+    sendKey({ key: specialKey ? '' : e.key, specialKey, shift: e.shiftKey, ctrl: e.ctrlKey, alt: e.altKey, super: e.metaKey });
+  }
+}
+async function switchDevice(id) {
+  if (id === state.deviceId) return;
+  state.deviceId = id; state.threads.clear(); state.selected = null; state.pending = [];
+  state.battery = null; state.contacts = []; state.notifications = {}; state.keyboardActive = null;
+  photos.status = 'idle'; photos.folders = []; photos.thumbs.clear(); photos.tiles.clear();
+  files.generation++; files.device = null; files.entries = []; files.path = '';
+  await loadDevice(); render(); if (state.view === 'files') loadFiles();
+}

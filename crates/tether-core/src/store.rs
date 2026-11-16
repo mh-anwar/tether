@@ -14,6 +14,8 @@ pub struct TrustedDevice {
     /// Last address the device was reached at, so we can call it directly after a restart.
     #[serde(default)]
     pub last_address: Option<String>,
+    #[serde(default)]
+    pub last_seen: Option<i64>,
 }
 
 impl TrustedDevice {
