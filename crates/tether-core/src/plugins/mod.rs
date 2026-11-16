@@ -2,6 +2,7 @@
 //! packets we send. Packet schemas: see docs/protocol.md.
 
 pub mod contacts;
+pub mod mousepad;
 pub mod mpris;
 pub mod notification;
 pub mod sftp;
@@ -44,6 +45,8 @@ pub fn incoming_capabilities() -> Vec<String> {
         contacts::RESPONSE_VCARDS,
         mpris::MPRIS,
         sftp::SFTP,
+        mousepad::STATE,
+        mousepad::ECHO,
     ]
     .map(String::from)
     .to_vec()
@@ -69,6 +72,7 @@ pub fn outgoing_capabilities() -> Vec<String> {
         contacts::REQUEST_VCARDS,
         mpris::REQUEST,
         sftp::REQUEST,
+        mousepad::REQUEST,
     ]
     .map(String::from)
     .to_vec()
@@ -92,6 +96,7 @@ pub struct Signal {
 /// and resends it on every connection.
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct DeviceData {
+    pub keyboard_active: Option<bool>,
     pub battery: Option<Battery>,
     pub signal: BTreeMap<String, Signal>,
     pub notifications: BTreeMap<String, Notification>,
@@ -108,6 +113,13 @@ pub struct DeviceData {
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Update {
+    KeyboardState {
+        active: bool,
+    },
+    KeyboardEcho {
+        key: String,
+        special_key: Option<i64>,
+    },
     Battery(Battery),
     Signal {
         signal: BTreeMap<String, Signal>,
@@ -176,6 +188,20 @@ pub struct Outcome {
 pub fn handle(data: &mut DeviceData, p: &Packet) -> Outcome {
     let mut out = Outcome::default();
     match p.kind.as_str() {
+        mousepad::STATE => {
+            if let Some(active) = p.bool("state") {
+                data.keyboard_active = Some(active);
+                out.updates.push(Update::KeyboardState { active });
+            }
+        }
+        mousepad::ECHO => {
+            if p.bool("isAck") == Some(true) {
+                out.updates.push(Update::KeyboardEcho {
+                    key: p.str("key").unwrap_or("").into(),
+                    special_key: p.i64("specialKey"),
+                });
+            }
+        }
         PING => out.updates.push(Update::Ping {
             message: p.str("message").map(String::from),
         }),

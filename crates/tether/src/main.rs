@@ -65,6 +65,8 @@ enum Cmd {
     Share { target: String },
     /// Copy text to the phone's clipboard.
     Clip { text: String },
+    /// Type into the active text field on the phone.
+    Type { text: String },
     /// Control what plays on the phone: play, pause, next, previous, or no argument to show it.
     Media { action: Option<MediaAction> },
     /// Open a phone app in its own window, by name. No name lists the apps; `screen` shows the whole
