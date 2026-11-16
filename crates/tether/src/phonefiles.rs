@@ -337,6 +337,8 @@ pub async fn full_picture(svc: &Service, dev: &str, remote: &str) -> Result<Path
 
 /// Copies a picture the phone sent (a camera photo in Downloads) to where the window can show it.
 pub fn preview_copy(svc: &Service, saved: &Path) -> Result<PathBuf> {
+    // Only pictures: this folder is readable by the window, the rest of Downloads isn't.
+    check_picture(&saved.to_string_lossy())?;
     let dir = files_dir(svc).join("full");
     std::fs::create_dir_all(&dir)?;
     let name = saved
