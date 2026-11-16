@@ -236,6 +236,11 @@ Direction: P->D = phone sends, D->P = desktop (us) sends. Android files under `A
   `kdeconnect.share.request.update`: `numberOfFiles`, `totalPayloadSize` to grow a running batch. Packets without
   `numberOfFiles` or with `open: true` are not batched.
 - **findmyphone** D->P `kdeconnect.findmyphone.request`, empty body; phone rings (`findmyphone/FindMyPhonePlugin.kt`).
+- **photo** D->P `kdeconnect.photo.request`, empty body: the phone opens its camera. P->D `kdeconnect.photo` with the
+  picture as payload (`filename` optional), or `{"cancel": true}` when the user backs out (kdeconnect-kde
+  `plugins/photo/photoplugin.cpp`, v23.08). We accept a `kdeconnect.photo` only against an unanswered request
+  (at most three), like upstream's `requestedFiles`. Current kdeconnect-android has no PhotoPlugin; the window
+  offers the camera only when the phone lists `kdeconnect.photo.request` in its incoming capabilities.
   The phone sends the same type to make the desktop ring (`findremotedevice/FindRemoteDevicePlugin.kt`).
 - **contacts** (`contacts/ContactsPlugin.kt`): D->P `kdeconnect.contacts.request_all_uids_timestamps` (empty) -> P->D
   `kdeconnect.contacts.response_uids_timestamps`: `uids: string[]` plus one key per uid -> `i64` timestamp.
@@ -304,6 +309,7 @@ Direction: P->D = phone sends, D->P = desktop (us) sends. Android files under `A
   | telephony | `kdeconnect.telephony` | `kdeconnect.telephony.request_mute` |
   | share | `kdeconnect.share.request` | `kdeconnect.share.request`, `kdeconnect.share.request.update` |
   | find my phone | `kdeconnect.findmyphone.request` (phone rings us) | `kdeconnect.findmyphone.request` |
+  | photo | `kdeconnect.photo` | `kdeconnect.photo.request` |
   | contacts | `kdeconnect.contacts.response_uids_timestamps`, `.response_vcards` | `kdeconnect.contacts.request_all_uids_timestamps`, `.request_vcards_by_uid` |
   | connectivity | `kdeconnect.connectivity_report` | - |
   | sftp | `kdeconnect.sftp` | `kdeconnect.sftp.request` |

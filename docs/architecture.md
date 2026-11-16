@@ -86,9 +86,13 @@ Request `{"id","method","params"}`, reply `{"id","result"|"error"}`, events push
   `reject`, `unpair`, `ping`, `ring`, `mute`, `sms_send {addresses, body, sub_id?}`,
   `notification_dismiss {id}`, `notification_reply {reply_id, message}`, `notification_action {id, action}`,
   `clipboard {content}`, `share_url {url}`, `share_text {text}`, `share_file {path}` (resolves when done).
+  `photo_take` (phone opens its camera; fails unless the phone lists `kdeconnect.photo.request`). Global:
+  `photo_preview {path}` copies a picture from the downloads folder into `phone-files/full` so the window may
+  show it (its asset scope doesn't include Downloads).
 - Events: `{"event":"device", ...DeviceSummary}` and `{"event":"update","device_id","update":{"kind":...}}`
   with kinds battery, signal, notification, notification_removed, messages, call, call_ended, ping,
-  clipboard, shared_text, shared_url, file_received, transfer_failed, contacts.
+  clipboard, shared_text, shared_url, file_received, transfer_failed, contacts, photo_taken {path} (saved with
+  received files), photo_cancelled.
 
 ## Window (crates/tether-app, ui/)
 - Rust side: keeps one socket connection, forwards `call(method, params)`, emits `tether` (daemon events) and
