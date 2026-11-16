@@ -147,6 +147,8 @@ async fn call(svc: &Service, method: &str, p: &Value) -> Result<Value> {
             // from before an upgrade.
             v["version"] = json!(env!("CARGO_PKG_VERSION"));
             v["discoveryListening"] = json!(svc.discovery_listening());
+            // The window hides what the sandbox can't do (menu entries, sending notifications).
+            v["flatpak"] = json!(crate::flatpak::active());
             v["clipboardSync"] =
                 json!(crate::clipsync::ACTIVE.load(std::sync::atomic::Ordering::Relaxed));
             Ok(v)

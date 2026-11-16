@@ -1,8 +1,47 @@
-# Getting onto Flathub
+# Flatpak and Flathub
 
-Flathub is the curated Flatpak store that GNOME Software, KDE Discover and most distros show. Status: the
-app's store listing is written (`packaging/flatpak/`, passes `appstreamcli validate`); the Flatpak build
-itself is not done yet (queue Q17).
+Flathub is the curated Flatpak store that GNOME Software, KDE Discover and most distros show. Status: Tether
+builds as a Flatpak (`packaging/flatpak/io.github.mh_anwar.Tether.yml`), and every release attaches
+`Tether-x86_64.flatpak` (the `flatpak` job in `.github/workflows/release.yml`). It is not on Flathub yet.
+
+## Building it
+
+```sh
+packaging/flatpak/cargo-sources.sh      # cargo-sources.json from Cargo.lock (needs curl and uv)
+flatpak-builder --user --install --force-clean flatpak-build packaging/flatpak/io.github.mh_anwar.Tether.yml
+flatpak run io.github.mh_anwar.Tether
+```
+
+Needs the GNOME 50 runtime and SDK and the `rust-stable` SDK extension from Flathub. Without a local
+flatpak, the CI image works under (rootless) Docker:
+`docker run --privileged -v "$PWD:/src" -w /src ghcr.io/flathub-infra/flatpak-github-actions:gnome-50 flatpak-builder ...`.
+
+`cargo-sources.json` is generated, not committed: CI makes it from the tagged commit's `Cargo.lock`, so it
+can't go stale. The Flathub repo will need a committed copy, regenerated with each release.
+
+## How the sandbox changes Tether
+
+- Start at login goes through the Background portal (`RequestBackground` with `autostart`, command
+  `tether daemon`); the portal writes the autostart entry on the host. The sandbox can't see that entry,
+  so `~/.var/app/io.github.mh_anwar.Tether/config/tether/autostart-portal` records the answer
+  (`crates/tether/src/flatpak.rs`, `autostart.rs`).
+- The tray icon owns `io.github.mh_anwar.Tether.StatusNotifierItem-<pid>-1` instead of
+  `org.kde.StatusNotifierItem-<pid>-1`: an app may own names under its own id without a wildcard
+  permission, and tray hosts accept any name.
+- Phone apps: scrcpy and adb still download into the app's data folder
+  (`~/.var/app/io.github.mh_anwar.Tether/data/tether/helpers`) over wireless debugging. USB debugging
+  would need `--device=all`, which the manifest doesn't ask for.
+- Updates: a copy from Flathub is updated by the store; the `.flatpak` bundle has no remote, so it checks
+  GitHub and points at the releases page (`update.rs`, `origin` in `/.flatpak-info`).
+- Hidden in the Flatpak, because the sandbox can't deliver them: sending this computer's notifications to
+  the phone (needs `BecomeMonitor` on the session bus, which the D-Bus proxy refuses), pinning phone apps
+  to the app menu (the sandbox's applications folder is private), and the "install updates by themselves"
+  switch.
+- Commands the phone runs execute inside the sandbox, so host programs aren't there; the Settings text
+  says so. Remote mouse and keyboard need `dotool`/`ydotool`/`wtype`, which the sandbox lacks, so the
+  phone's remote input reports itself unavailable unless X11 is in use. Volume control uses the
+  runtime's `pactl`; screen lock uses `org.freedesktop.ScreenSaver` (no `loginctl` in the sandbox).
+- Files from the phone can only be saved inside Downloads (`--filesystem=xdg-download`).
 
 ## Blockers only the owner can clear
 - **The GitHub repo must be public.** Flathub builds from public sources and links to them.
@@ -11,20 +50,14 @@ itself is not done yet (queue Q17).
 - **License**: `GPL-3.0-or-later` (Cargo.toml, LICENSE). Change before going public if a different one is wanted.
 
 ## Work left (ours)
-1. Manifest `io.github.mh_anwar.Tether.yml`: runtime `org.gnome.Platform` (ships WebKitGTK for Tauri),
-   `rust-stable` SDK extension, cargo sources vendored with `flatpak-cargo-generator` (Flathub builds have
-   no network).
-2. Bundle `adb` (android-tools, built from source) and `scrcpy` (meson; SDL3 + FFmpeg) as modules and set
-   `TETHER_ADB` / `TETHER_SCRCPY`, so phone apps need no download inside the Flatpak.
-3. Permissions: `--share=network` (KDE Connect, adb), `--socket=wayland`, `--socket=fallback-x11`,
-   `--device=dri`, `--socket=pulseaudio` (app sound), `--talk-name=org.freedesktop.Notifications`,
-   `--own-name=org.mpris.MediaPlayer2.tether*` (media keys).
-4. Start at login: inside the sandbox our systemd unit can't point at `/app/bin`; use the Background portal
-   (`org.freedesktop.portal.Background.RequestBackground` with autostart) instead.
-5. Pinned phone apps: inside the sandbox `$XDG_DATA_HOME/applications` is private to the app, so menu
-   entries must be exported another way (the Dynamic Launcher portal,
-   `org.freedesktop.portal.DynamicLauncher`), with Exec `flatpak run --command=tether ... apps <package>`.
-6. Clipboard sync with the window closed needs the display socket, which the sandbox has.
-7. Screenshots in the metainfo (hosted in the public repo), then a CI job that builds the Flatpak with
-   `flatpak/flatpak-github-actions` on every release.
-8. Submit: fork `flathub/flathub`, add the manifest on a `new-pr` branch, open the PR, answer review.
+1. Point the manifest's source at a release tag (`type: git`, `tag`, `commit`) instead of `type: dir`, and
+   commit `cargo-sources.json` next to it in the Flathub repo.
+2. Bundle `adb` (android-tools) and `scrcpy` (meson; SDL3 + FFmpeg) as modules and set `TETHER_ADB` /
+   `TETHER_SCRCPY`, so phone apps need no download (Flathub prefers no runtime downloads).
+3. Pinned phone apps through the Dynamic Launcher portal (`org.freedesktop.portal.DynamicLauncher`,
+   `PrepareInstall` then `Install`), with Exec `flatpak run --command=tether io.github.mh_anwar.Tether apps <package>`.
+4. Sending this computer's notifications: needs `--socket=session-bus` (Flathub asks for a reason) or a
+   different source of notifications; until then it stays hidden.
+5. Screenshots in the metainfo (hosted in the public repo).
+6. Run `flatpak-builder-lint manifest` and `flatpak-builder-lint repo` and fix what they report.
+7. Submit: fork `flathub/flathub`, add the manifest on a `new-pr` branch, open the PR, answer review.

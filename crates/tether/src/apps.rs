@@ -1083,6 +1083,11 @@ pub fn set_menu_entry(package: &str, name: &str, icon: Option<&str>, on: bool) -
     if !valid_package(package) {
         bail!("not an app package name");
     }
+    // The sandbox's applications folder is private, and Exec would name a path only the sandbox
+    // can run. The window hides the pin there; this guards the API.
+    if on && crate::flatpak::active() {
+        bail!("The Flatpak version can't add apps to the app menu yet.");
+    }
     let path = menu_file(package).ok_or_else(|| anyhow!("no data folder"))?;
     if on {
         std::fs::create_dir_all(path.parent().ok_or_else(|| anyhow!("no data folder"))?)?;

@@ -63,8 +63,12 @@
   conversations whose newest text is incoming, unread on the phone and newer than what the window has
   shown (`seen_set` from the window, kept in `data/tether/seen.json`). A click sends `show_window` to
   connected windows; if none answers `window_shown` within 0.7 s, the service starts `tether-app`.
-- `autostart`: `tether autostart on|off` writes a systemd user unit (XDG autostart fallback). The window
-  turns it on at first launch and rewrites it each launch while on (follows a moved AppImage).
+- `autostart`: `tether autostart on|off` writes a systemd user unit (XDG autostart fallback); inside a
+  Flatpak it asks the Background portal instead. The window turns it on at first launch and rewrites it
+  each launch while on (follows a moved AppImage).
+- `flatpak`: sandbox detection (`FLATPAK_ID`, `/.flatpak-info` and its `origin`) and the Background
+  portal request. `identity` reports `flatpak`, and the window hides what the sandbox can't do (see
+  docs/flathub.md).
 
 ## Daemon API (crates/tether/src/api.rs)
 Request `{"id","method","params"}`, reply `{"id","result"|"error"}`, events pushed as `{"event":...}`.
