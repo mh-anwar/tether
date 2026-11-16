@@ -139,3 +139,12 @@ is the reconnecting screenshot wrapper. Daemon integration tests share a short-p
 fixture in `crates/tether/tests/support`; `TETHER_PORT` isolates daemon TCP and UDP listeners.
 
 Phone setup: `readiness::phone_readiness` maps phone-direction capabilities to setup instructions. Both `devices` and `device_data` expose `incoming_capabilities`, `outgoing_capabilities`, and `readiness`. The `ready` flag means advertised, not verified permissions; Devices explains that limitation. Identity is retained with the trusted device and refreshed on reconnect. The window marks a feature "Working" only once its data has arrived (texts, notifications, contacts, battery, signal, players, keyboard state), because Android advertises plugins that are switched off too; "Nothing yet" shows the steps on the phone, "Not on this phone" means the phone never advertised it.
+## LAN discovery and input limits
+
+`tether-core::mdns` announces and browses `_kdeconnect._udp.local` alongside UDP identity broadcasts.
+It shares the small DNS name codec with the adb probe, joins each active IPv4 interface, and refreshes
+memberships and browsing every 15 seconds. Port 5353 uses reuse-address/reuse-port and multicast loopback
+so Avahi can coexist. Settings > Finding your phone controls `mdns` (default true; restart applies it).
+Both discovery paths use the same dial filtering and TLS/pinning path; TXT records never establish trust.
+The shared link layer admits eight simultaneous unauthenticated exchanges across both TCP roles, each
+with a ten-second deadline. Local API request lines are limited to 1 MiB before JSON parsing, without unbounded buffering.

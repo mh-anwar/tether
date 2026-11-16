@@ -6,9 +6,11 @@
 pub mod cache;
 pub mod cert;
 pub mod discovery;
+pub mod dns;
 pub mod error;
 pub mod identity;
 pub mod link;
+pub mod mdns;
 pub mod netwatch;
 pub mod packet;
 pub mod payload;

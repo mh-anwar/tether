@@ -47,6 +47,7 @@ const ANNOUNCE_EVERY: Duration = Duration::from_secs(120);
 
 #[derive(Debug, Clone)]
 pub struct Config {
+    pub mdns: bool,
     pub data_dir: PathBuf,
     pub downloads_dir: PathBuf,
     pub device_name: String,
@@ -144,6 +145,7 @@ struct Inner {
     devices: Mutex<HashMap<String, Dev>>,
     events: broadcast::Sender<Event>,
     next_gen: AtomicU64,
+    discovery_recent: Mutex<HashMap<String, Instant>>,
     udp: Arc<UdpSocket>,
     /// False while another app (KDE Connect, Valent) holds UDP 1716; retried every tick.
     listening: AtomicBool,
@@ -223,12 +225,16 @@ impl Service {
             devices: Mutex::new(devices),
             events,
             next_gen: AtomicU64::new(1),
+            discovery_recent: Mutex::new(HashMap::new()),
             udp: udp.clone(),
             listening: AtomicBool::new(udp_listening),
             announce_now: tokio::sync::Notify::new(),
         });
 
         tokio::spawn(accept_loop(inner.clone(), listener));
+        if inner.config.mdns {
+            tokio::spawn(mdns_loop(inner.clone()));
+        }
         if udp_listening {
             tokio::spawn(udp_loop(inner.clone(), udp));
         }
@@ -1454,9 +1460,13 @@ async fn accept_loop(inner: Arc<Inner>, listener: TcpListener) {
                 continue;
             }
         };
+        // Refuse excess sockets before spawning, so silent clients cannot create an unbounded queue.
+        let Ok(slot) = inner.tls.handshake_slot() else {
+            continue;
+        };
         let inner = inner.clone();
         tokio::spawn(async move {
-            match link::accept(tcp, addr, &inner.identity, &inner.tls).await {
+            match link::accept_with_slot(tcp, addr, &inner.identity, &inner.tls, slot).await {
                 Ok(l) => inner.on_link(l),
                 Err(e) => debug!("incoming from {addr} failed: {e}"),
             }
@@ -1466,7 +1476,6 @@ async fn accept_loop(inner: Arc<Inner>, listener: TcpListener) {
 
 async fn udp_loop(inner: Arc<Inner>, udp: Arc<UdpSocket>) {
     let mut buf = vec![0u8; 64 * 1024];
-    let mut recent: HashMap<String, Instant> = HashMap::new();
     loop {
         let (n, from) = match udp.recv_from(&mut buf).await {
             Ok(x) => x,
@@ -1482,34 +1491,62 @@ async fn udp_loop(inner: Arc<Inner>, udp: Arc<UdpSocket>) {
         let Ok(peer) = Identity::from_packet(&p) else {
             continue;
         };
-        if peer.device_id == inner.identity.device_id || peer.protocol_version < PROTOCOL_VERSION {
-            continue;
+        discovered(&inner, peer, from);
+    }
+}
+
+fn discovered(inner: &Arc<Inner>, peer: Identity, from: SocketAddr) {
+    if !identity::is_valid_device_id(&peer.device_id) {
+        return;
+    }
+    if peer.device_id == inner.identity.device_id || peer.protocol_version < PROTOCOL_VERSION {
+        return;
+    }
+    let Some(port) = peer
+        .tcp_port
+        .filter(|p| (MIN_TCP_PORT..=MAX_TCP_PORT).contains(p))
+    else {
+        return;
+    };
+    let connected = inner
+        .lock()
+        .get(&peer.device_id)
+        .is_some_and(|d| d.link.is_some());
+    // Phones announce in bursts; one connection attempt per device every few seconds is plenty.
+    let now = Instant::now();
+    let mut recent = inner
+        .discovery_recent
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    recent.retain(|_, t| now.duration_since(*t) < Duration::from_secs(5));
+    if connected || recent.contains_key(&peer.device_id) {
+        return;
+    }
+    if recent.len() >= 256 {
+        return;
+    }
+    recent.insert(peer.device_id.clone(), now);
+    drop(recent);
+    let addr = SocketAddr::new(from.ip(), port);
+    let inner = inner.clone();
+    tokio::spawn(async move {
+        match link::connect(addr, &inner.identity, &inner.tls).await {
+            Ok(l) => inner.on_link(l),
+            Err(e) => debug!("connect to {addr} failed: {e}"),
         }
-        let Some(port) = peer
-            .tcp_port
-            .filter(|p| (MIN_TCP_PORT..=MAX_TCP_PORT).contains(p))
-        else {
-            continue;
-        };
-        let connected = inner
-            .lock()
-            .get(&peer.device_id)
-            .is_some_and(|d| d.link.is_some());
-        // Phones announce in bursts; one connection attempt per device every few seconds is plenty.
-        let now = Instant::now();
-        recent.retain(|_, t| now.duration_since(*t) < Duration::from_secs(5));
-        if connected || recent.contains_key(&peer.device_id) {
-            continue;
-        }
-        recent.insert(peer.device_id.clone(), now);
-        let addr = SocketAddr::new(from.ip(), port);
-        let inner = inner.clone();
-        tokio::spawn(async move {
-            match link::connect(addr, &inner.identity, &inner.tls).await {
-                Ok(l) => inner.on_link(l),
-                Err(e) => debug!("connect to {addr} failed: {e}"),
+    });
+}
+async fn mdns_loop(inner: Arc<Inner>) {
+    loop {
+        let (tx, mut rx) = mpsc::channel(32);
+        let discovery = crate::mdns::run(inner.identity.clone(), tx);
+        let receive = async {
+            while let Some((peer, addr)) = rx.recv().await {
+                discovered(&inner, peer, addr);
             }
-        });
+        };
+        tokio::select! { result = discovery => { if let Err(e) = result { warn!("mDNS discovery failed: {e}"); } }, _ = receive => {} }
+        tokio::time::sleep(Duration::from_secs(15)).await;
     }
 }
 

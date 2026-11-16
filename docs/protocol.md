@@ -399,3 +399,14 @@ See `testing.md` for scripting, captured payloads and the integration-test fixtu
 
 ### Capability and permission distinction
 Verified against Android commit `1a5692f`, `plugins/PluginFactory.kt` (`incomingCapabilities` / `outgoingCapabilities`), `helpers/DeviceHelper.kt` and `Device.kt` (`addPlugin`, `isPluginEnabled`): identity advertises all installed plugin metadata. Disabled plugins and missing permissions affect loaded plugins separately. Never infer granted permissions from identity; the checklist labels the result Advertised. Missing capability is actionable, presence alone is not proof of readiness. Phone media uses the outgoing `kdeconnect.mpris` from `plugins/mprisreceiver/MprisReceiverPlugin.kt`; keyboard availability uses outgoing `kdeconnect.mousepad.keyboardstate` from `plugins/remotekeyboard/RemoteKeyboardPlugin.kt`.
+## KDE Connect DNS-SD
+
+Reference: KDE `core/backends/lan/mdnshdiscovery.cpp` / `mdnsh_wrapper.cpp` (the current names of
+mdnsdiscovery/mdns_wrapper), Android `backends/lan/MdnsDiscovery.kt`.
+The service is `_kdeconnect._udp.local`; its instance label is the device ID. PTR points to the instance,
+SRV carries the **TCP** listener port and host target, TXT contains `id`, `name`, `type`, `protocol`, and
+A supplies the host's IPv4 address. Tether resolves split PTR/SRV/TXT/A replies, handles compressed DNS
+names, and answers multicast, QU and legacy unicast queries. IPv6 discovery is not implemented (the
+existing TCP listener is IPv4). Advertised IDs/ports/protocol versions pass the UDP discovery filters;
+only the identity inside TLS and the pinned certificate are trusted. Eight in-flight unauthenticated
+connections maximum share the existing ten-second exchange deadline; the ninth is closed immediately.

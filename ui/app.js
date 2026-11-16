@@ -920,6 +920,7 @@ function renderSettings() {
         settingSwitch('allow_ring', 'Ring this computer')),
       commandsEditor(s.commands || []),
       h('section', {}, h('h2', { text: 'Finding your phone' }),
+        settingSwitch('mdns', 'Find phones with mDNS', 'Helps find phones on networks that block broadcast discovery.'),
         h('p', { class: 'sub', text: "Tether finds your phone by itself on the same Wi-Fi. On a network where it can't (a VPN, some office or guest Wi-Fi), add the phone's address. It is in the phone's Wi-Fi settings, under the network's details." }),
         s.addresses.length ? h('ul', { class: 'addr-list' }, s.addresses.map((a) => h('li', {}, h('span', { text: a }),
           h('button', { class: 'btn ghost icon-only', 'aria-label': `Remove ${a}`, title: 'Remove', onclick: () => saveSettings({ addresses: s.addresses.filter((x) => x !== a) }, 'Removed') }, icon('trash', 'sm'))))) : null,
