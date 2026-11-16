@@ -119,6 +119,26 @@ try:
         wait.until(lambda _: f'"auto_update": {str(was).lower()}' in cfg.read_text())
     check("Settings page saves a switch", settings_page)
 
+    def commands_editor():
+        import json
+        button("Settings").click()
+        form = wait.until(EC.visibility_of_element_located((By.CSS_SELECTOR, "[data-key=command-new]")))
+        form.find_element(By.CSS_SELECTOR, "[aria-label='Command name']").send_keys("Test command")
+        form.find_element(By.CSS_SELECTOR, "[aria-label='Shell command']").send_keys("true")
+        button("Add command").click()
+        cfg = Path(os.environ["XDG_CONFIG_HOME"], "tether/config.json")
+        wait.until(lambda _: any(c["name"] == "Test command" for c in json.loads(cfg.read_text()).get("commands", [])))
+        saved = wait.until(EC.visibility_of_element_located((By.XPATH, "//form[.//b[text()='Test command']]")))
+        shell = saved.find_element(By.CSS_SELECTOR, "[aria-label='Shell command']")
+        shell.clear()
+        shell.send_keys("printf test")
+        saved.find_element(By.XPATH, ".//button[text()='Save command']").click()
+        wait.until(lambda _: any(c["command"] == "printf test" for c in json.loads(cfg.read_text()).get("commands", [])))
+        saved = wait.until(EC.visibility_of_element_located((By.XPATH, "//form[.//b[text()='Test command']]")))
+        saved.find_element(By.XPATH, ".//button[text()='Remove command']").click()
+        wait.until(lambda _: not any(c["name"] == "Test command" for c in json.loads(cfg.read_text()).get("commands", [])))
+    check("Commands editor adds, edits and removes", commands_editor)
+
     def rename_computer():
         # A new name restarts the background service; the window must come back by itself.
         name = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "[data-key=set-device_name]")))

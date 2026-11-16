@@ -109,6 +109,18 @@ Request `{"id","method","params"}`, reply `{"id","result"|"error"}`, events push
 - `received` owns shared text's clipboard and handles file notifications and xdg-open with the window
   closed. The window keeps recent transfers in a "Received from your phone" section at the top of its notifications column (progress while receiving or sending); `received_list` recovers the
   daemon's recent completed files when reopening it. `share_files` sends one batch sequentially.
+## Phone controls for this computer
+
+`plugins/{runcommand,mousepad,presenter,lock,systemvolume,battery,findmyphone}.rs` contain wire
+parsers/builders. Paired requests become `Update::Computer` and `computer.rs` performs desktop effects;
+`remoteinput.rs` uses XTest on X11, dotool/ydotool on Wayland (wtype for keyboard-only use).
+`computer.rs` polls lock, volume, command configuration and local battery every three seconds, pushing
+changed state and sending a full snapshot on connect. Settings permissions are checked for every incoming
+request; disabled requests are ignored and logged, including already-connected phones. Commands are
+stored as `commands: [{id,name,command}]`; `commands_get` / `commands_set` and settings_get/settings_set
+share validation. Commands execute as the logged-in user, without shell interpolation of packet fields.
+`computer_status` restores the ring banner or pending commands-settings navigation in a new window;
+`computer_ring_stop` stops ringing. Notification actions and a second phone request also stop it.
 
 ## Protocol simulator
 

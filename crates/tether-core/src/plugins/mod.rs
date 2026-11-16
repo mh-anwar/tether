@@ -1,5 +1,13 @@
-//! Plugin logic: turns packets from a paired device into state + typed updates, and builds the
-//! packets we send. Packet schemas: see docs/protocol.md.
+//! Plugin logic: turns packets from a paired device into typed updates and replies.
+//! Desktop effects are performed by the daemon after the service checks pairing.
+
+pub mod battery;
+pub mod findmyphone;
+pub mod lock;
+pub mod mousepad;
+pub mod presenter;
+pub mod runcommand;
+pub mod systemvolume;
 
 pub mod contacts;
 pub mod mpris;
@@ -30,6 +38,12 @@ pub const CONNECTIVITY: &str = "kdeconnect.connectivity_report";
 /// Packet types we accept. The phone enables a plugin only when our capabilities match its own.
 pub fn incoming_capabilities() -> Vec<String> {
     [
+        runcommand::REQUEST,
+        mousepad::REQUEST,
+        presenter::TYPE,
+        lock::REQUEST,
+        systemvolume::REQUEST,
+        FIND_PHONE,
         PING,
         BATTERY,
         CLIPBOARD,
@@ -55,6 +69,12 @@ pub fn incoming_capabilities() -> Vec<String> {
 /// Packet types we send.
 pub fn outgoing_capabilities() -> Vec<String> {
     [
+        runcommand::TYPE,
+        mousepad::STATE,
+        mousepad::ECHO,
+        lock::TYPE,
+        systemvolume::TYPE,
+        BATTERY,
         PING,
         CLIPBOARD,
         CLIPBOARD_CONNECT,
@@ -118,6 +138,9 @@ pub struct DeviceData {
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Update {
+    Computer {
+        packet: Packet,
+    },
     Battery(Battery),
     Signal {
         signal: BTreeMap<String, Signal>,
@@ -198,6 +221,12 @@ pub struct Outcome {
 pub fn handle(data: &mut DeviceData, p: &Packet) -> Outcome {
     let mut out = Outcome::default();
     match p.kind.as_str() {
+        runcommand::REQUEST
+        | mousepad::REQUEST
+        | presenter::TYPE
+        | lock::REQUEST
+        | systemvolume::REQUEST
+        | FIND_PHONE => out.updates.push(Update::Computer { packet: p.clone() }),
         PING => out.updates.push(Update::Ping {
             message: p.str("message").map(String::from),
         }),

@@ -211,6 +211,21 @@ async fn call(svc: &Service, method: &str, p: &Value) -> Result<Value> {
             );
             ok()
         }
+        "commands_get" => Ok(json!(crate::config::Config::load()?.commands)),
+        "commands_set" => {
+            crate::config::save_settings(
+                &json!({"commands":p.get("commands").context("missing commands")?}),
+            )?;
+            crate::computer::send_state(svc, None).await;
+            ok()
+        }
+        "computer_status" => Ok(
+            json!({"ringing":crate::computer::RINGING.load(std::sync::atomic::Ordering::SeqCst),"commands":crate::computer::OPEN_COMMANDS.swap(false,std::sync::atomic::Ordering::SeqCst)}),
+        ),
+        "computer_ring_stop" => {
+            crate::computer::stop_ring();
+            ok()
+        }
         "settings_get" => crate::config::settings(),
         "settings_set" => {
             let restart = crate::config::save_settings(p)?;
@@ -220,6 +235,10 @@ async fn call(svc: &Service, method: &str, p: &Value) -> Result<Value> {
             if let Some(on) = p.get("auto_update").and_then(Value::as_bool) {
                 crate::update::set_auto(on);
             }
+            if p.get("allow_ring") == Some(&json!(false)) {
+                crate::computer::stop_ring();
+            }
+            crate::computer::send_state(svc, None).await;
             if restart {
                 // The window starts a fresh service, which reads the new settings.
                 exit_soon();
