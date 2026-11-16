@@ -1,3 +1,5 @@
+// Each test file uses a different part of this module.
+#![allow(dead_code)]
 use serde_json::{json, Value};
 use std::{
     path::PathBuf,
@@ -27,6 +29,10 @@ pub async fn start_daemon() -> Result<Daemon> {
     start_daemon_with_mdns(false).await
 }
 pub async fn start_daemon_with_mdns(mdns: bool) -> Result<Daemon> {
+    start_daemon_with(mdns, &[]).await
+}
+/// A daemon with extra environment variables (stand-in helpers for phone apps, for example).
+pub async fn start_daemon_with(mdns: bool, env: &[(&str, &std::ffi::OsStr)]) -> Result<Daemon> {
     let dir = PathBuf::from(format!(
         "/tmp/ts-{}",
         &uuid::Uuid::new_v4().simple().to_string()[..10]
@@ -53,6 +59,7 @@ pub async fn start_daemon_with_mdns(mdns: bool) -> Result<Daemon> {
         .env("XDG_RUNTIME_DIR", dir.join("run"))
         .env("TETHER_PORT", port.to_string())
         .env("TOKIO_WORKER_THREADS", "2")
+        .envs(env.iter().copied())
         .env_remove("DISPLAY")
         .env_remove("WAYLAND_DISPLAY")
         .stdin(Stdio::null())

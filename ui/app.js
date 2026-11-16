@@ -1154,7 +1154,7 @@ async function pollApps() {
   renderApps();
   const busy = st.phase && st.phase !== 'idle';
   clearTimeout(apps.timer);
-  apps.timer = setTimeout(pollApps, busy || !st.device ? 1500 : 10000);
+  apps.timer = setTimeout(pollApps, busy || !st.device ? 1500 : st.windows?.length ? 4000 : 10000);
 }
 
 function wantsSetup() {
@@ -1179,7 +1179,9 @@ async function openApp(app) {
   renderApps();
   toast(app ? `Opening ${app.name}` : 'Opening your phone screen', 'progress', 4000);
   try {
-    await api('apps_open', app ? { package: app.package, title: app.name } : { title: 'Phone screen' });
+    const r = await api('apps_open', app ? { package: app.package, title: app.name } : { title: 'Phone screen' });
+    if (r?.alreadyOpen) toast(app ? `${app.name} is already open in its own window` : 'Your phone screen is already open');
+    else if (r?.sharedScreen) toast(`${app.name} is open in the Phone screen window`);
     if (app) {
       apps.recent = [app.package, ...apps.recent.filter((p) => p !== app.package)].slice(0, 6);
       try { localStorage.setItem('tether.recentApps', JSON.stringify(apps.recent)); } catch { /* private mode */ }
@@ -1188,7 +1190,16 @@ async function openApp(app) {
     toast(String(e), 'error', 5000);
   }
   apps.opening = null;
-  renderApps();
+  pollApps();
+}
+
+async function closeAppWindow(w) {
+  try {
+    await api('apps_close', w.package ? { package: w.package } : {});
+  } catch (e) {
+    toast(String(e), 'error');
+  }
+  pollApps();
 }
 
 function renderApps() {
@@ -1216,15 +1227,20 @@ function appsHelper(st) {
       'Each app opens in its own window. This needs scrcpy, a free open-source helper.'),
     st.scrcpyTooOld ? h('p', { class: 'note', text: 'The scrcpy installed here is too old for app windows. Version 3.0 or newer is needed.' }) : null,
     st.error ? h('p', { class: 'note error', role: 'alert' }, icon('alert', 'sm'), st.error) : null,
+    st.installHint ? h('div', { class: 'install-hint' },
+      h('p', { class: 'note', text: st.canDownload ? 'Or install it from your system\'s packages, in a terminal:' : 'Install it from your system\'s packages, in a terminal:' }),
+      h('div', { class: 'row' },
+        h('code', { 'data-key': 'apps-install-hint', text: st.installHint }),
+        h('button', { class: 'btn', 'data-key': 'apps-install-copy', onclick: () => copy(st.installHint, 'Command copied') }, icon('copy', 'sm'), 'Copy'))) : null,
     st.canDownload
       ? h('div', { class: 'row' },
         h('button', { class: 'btn primary', 'data-key': 'apps-download', disabled: downloading, onclick: () => api('apps_download').then(pollApps).catch((e) => toast(String(e), 'error')) },
           downloading ? h('span', { class: 'spinner sm', 'aria-hidden': 'true' }) : icon('download', 'sm'),
           downloading ? 'Downloading (18 MB)' : 'Download helper (18 MB)'),
-        h('span', { class: 'hint', text: 'Or install scrcpy 3.0 or newer yourself.' }))
+        st.installHint ? null : h('span', { class: 'hint', text: 'Or install scrcpy 3.0 or newer yourself.' }))
       : h('div', { class: 'row' },
         h('button', { class: 'btn', 'data-key': 'apps-check', onclick: pollApps }, icon('refresh', 'sm'), 'Check again'),
-        h('span', { class: 'hint', text: 'Install scrcpy 3.0 or newer and adb first.' })));
+        h('span', { class: 'hint', text: st.installHint ? 'Then check again.' : 'Install scrcpy 3.0 or newer and adb first.' })));
 }
 
 function appsSetup(st) {
@@ -1349,10 +1365,12 @@ function appIcon(a) {
 function appTile(a) {
   const opening = apps.opening === a.package;
   const inMenu = apps.menu.has(a.package);
+  const isOpen = (apps.status?.windows || []).some((w) => w.package === a.package);
   return h('div', { class: 'app-tile-wrap' },
     h('button', { class: 'app-tile', 'data-key': `app-${a.package}`, title: a.package, disabled: !!apps.opening && !opening, onclick: () => openApp(a) },
       opening ? h('div', { class: 'avatar' }, h('span', { class: 'spinner sm', 'aria-hidden': 'true' })) : appIcon(a),
-      h('span', { class: 'name', text: opening ? 'Opening' : a.name })),
+      h('span', { class: 'name', text: opening ? 'Opening' : a.name }),
+      isOpen && !opening ? h('span', { class: 'open-mark', text: 'Open' }) : null),
     h('button', { class: `pin ${inMenu ? 'on' : ''}`, 'data-key': `pin-${a.package}`,
       title: inMenu ? `Remove ${a.name} from this computer's app menu` : `Add ${a.name} to this computer's app menu`,
       'aria-label': inMenu ? `Remove ${a.name} from the app menu` : `Add ${a.name} to the app menu`,
@@ -1395,9 +1413,21 @@ function appsGrid(st) {
       h('label', { class: 'search' }, icon('search', 'sm'),
         h('input', { type: 'search', 'data-key': 'apps-filter', placeholder: 'Search apps', 'aria-label': 'Search apps', value: apps.filter,
           oninput: (e) => { apps.filter = e.target.value; renderApps(); },
-          onkeydown: (e) => { if (e.key === 'Enter' && shown[0]) openApp(shown[0]); } }))),
+          onkeydown: (e) => { if (e.key === 'Enter' && shown[0]) openApp(shown[0]); } })),
+      st.ownWindows === false ? h('p', { class: 'note', 'data-key': 'apps-shared-note' }, icon('alert', 'sm'),
+        `Your phone runs Android ${st.device.android || '9 or older'}, so apps open on its own screen, shown in the Phone screen window. With Android 10 or newer each app gets a window of its own.`) : null,
+      openWindows(st)),
     body,
   ];
+}
+
+function openWindows(st) {
+  const list = st.windows || [];
+  if (!list.length) return null;
+  return h('div', { class: 'open-windows', 'data-key': 'apps-open-windows' },
+    h('span', { class: 'label', text: 'Open now' }),
+    list.map((w) => h('span', { class: 'chip' }, w.title,
+      h('button', { class: 'btn ghost icon-only small', 'data-key': `close-${w.package || 'screen'}`, 'aria-label': `Close ${w.title}`, title: `Close ${w.title}`, onclick: () => closeAppWindow(w) }, icon('x', 'sm')))));
 }
 
 // ---------- notifications ----------

@@ -28,6 +28,16 @@ pub async fn run(prog: &Path, args: &[&str], timeout: Duration) -> Result<(bool,
     run_input(prog, args, None, timeout).await
 }
 
+/// `run` with extra environment variables (scrcpy is told which adb to use this way).
+pub async fn run_env(
+    prog: &Path,
+    args: &[&str],
+    env: &[(&str, &std::ffi::OsStr)],
+    timeout: Duration,
+) -> Result<(bool, String)> {
+    run_full(prog, args, env, None, timeout).await
+}
+
 /// `input` goes to the helper's stdin: secrets go there, never into arguments (visible in /proc).
 pub async fn run_input(
     prog: &Path,
@@ -35,9 +45,20 @@ pub async fn run_input(
     input: Option<&str>,
     timeout: Duration,
 ) -> Result<(bool, String)> {
+    run_full(prog, args, &[], input, timeout).await
+}
+
+async fn run_full(
+    prog: &Path,
+    args: &[&str],
+    env: &[(&str, &std::ffi::OsStr)],
+    input: Option<&str>,
+    timeout: Duration,
+) -> Result<(bool, String)> {
     use tokio::io::AsyncWriteExt;
     let mut child = Command::new(prog)
         .args(args)
+        .envs(env.iter().copied())
         .stdin(if input.is_some() {
             Stdio::piped()
         } else {

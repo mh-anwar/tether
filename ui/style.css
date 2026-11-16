@@ -466,6 +466,13 @@ h2 { font-size: 14px; }
 .app-tile:disabled { opacity: .55; cursor: default; }
 .app-tile .avatar { border-radius: 12px; width: 44px; height: 44px; font-size: 15px; display: grid; place-items: center; background: var(--bg-hover); }
 .app-tile .app-icon { object-fit: contain; background: transparent; }
+.app-tile .open-mark { font-size: 11px; color: var(--accent); margin-top: -4px; }
+.open-windows { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.open-windows .label { font-size: 12px; color: var(--text-3); margin-right: 2px; }
+.open-windows .chip { padding: 2px 2px 2px 9px; }
+.open-windows .chip .btn { padding: 3px; }
+.install-hint { display: grid; gap: 8px; }
+.install-hint code { font-size: 12px; padding: 6px 8px; border-radius: var(--radius-sm); background: var(--bg); border: 1px solid var(--border); overflow-wrap: anywhere; user-select: all; }
 .app-tile .name { font-size: 12.5px; line-height: 1.3; max-width: 100%; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; text-align: center; }
 @media (max-width: 1000px) {
   .setup-cols { grid-template-columns: 1fr; }

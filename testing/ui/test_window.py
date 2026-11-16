@@ -248,6 +248,34 @@ try:
         wait.until(EC.visibility_of_element_located((By.CSS_SELECTOR, ".app-tile")))
     check("paired phone reconnects without mDNS announcements", reconnect_without_announcements)
 
+    def app_window_open_and_close():
+        fake = Path(os.environ["FAKE_APPS_DIR"])
+        calc = "com.sec.android.app.popupcalculator"
+        wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, f"[data-key='app-{calc}']"))).click()
+        wait.until(EC.visibility_of_element_located((By.CSS_SELECTOR, f"[data-key='close-{calc}']")))
+        text_shown("Open now")
+        # A second click doesn't start a second window.
+        wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, f"[data-key='app-{calc}']"))).click()
+        text_shown("already open")
+        assert (fake / "calls.log").read_text().count(f"--start-app={calc}") == 1
+        click_key = lambda _: d.find_element(By.CSS_SELECTOR, f"[data-key='close-{calc}']").click() or True
+        wait.until(click_key)
+        wait.until(lambda _: not d.find_elements(By.CSS_SELECTOR, "[data-key=apps-open-windows]"))
+    check("an app opens once in its own window and closes from the Apps page", app_window_open_and_close)
+
+    def old_android_note():
+        fake = Path(os.environ["FAKE_APPS_DIR"])
+        (fake / "sdk").write_text("28")
+        (fake / "connected").unlink()
+        d.execute_script("pollApps()")
+        wait.until(lambda _: d.execute_script("return !apps.status?.device"))
+        wait.until(lambda _: (fake / "connected").exists())
+        d.execute_script("pollApps()")
+        wait.until(EC.visibility_of_element_located((By.CSS_SELECTOR, "[data-key=apps-shared-note]")))
+        text_shown("Android 9")
+        (fake / "sdk").unlink()
+    check("Android 9 phones get a plain note, not app windows", old_android_note)
+
     def palette():
         d.find_element(By.TAG_NAME, "body").send_keys(Keys.CONTROL, "k")
         wait.until(EC.visibility_of_element_located((By.XPATH, "//*[contains(@class, 'palette')]//*[normalize-space(.)='Check for updates']")))

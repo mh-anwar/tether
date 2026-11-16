@@ -31,7 +31,11 @@
   `WAYLAND_DISPLAY` when started by systemd without them. `"clipboard_sync": false` turns it off.
 - `apps`: phone apps in their own windows. Pairs Android wireless debugging (QR: `WIFI:T:ADB;S:name;P:pw;;`,
   then `adb mdns services` until the phone advertises that name, `adb pair`, `adb connect`), lists apps with
-  `scrcpy --list-apps`, opens one with `scrcpy --new-display --start-app=<pkg>`. Pairing state is in memory;
+  `scrcpy --list-apps`, opens one with `scrcpy --new-display --start-app=<pkg>` and keeps one window per
+  app (a second open returns `alreadyOpen`; Close on the Apps page kills that scrcpy). scrcpy gets `ADB`
+  set to the adb Tether found. The phone's API level comes from `getprop ro.build.version.sdk` once per
+  connection; below 29 (Android 9) apps start on the phone's own screen in the one "Phone screen" window,
+  and later apps are brought to the front there with `adb shell monkey -p <pkg> -c ...LAUNCHER 1`. Pairing state is in memory;
   `$XDG_DATA_HOME/tether/apps-paired` marks that the phone was paired once (then it reconnects by itself).
   Discovery also asks the phone directly (`mdns_probe.rs`: a unicast DNS-SD query to `<KDE Connect phone
   IP>:5353`, answered per RFC 6762 6.7), so a firewall that drops multicast doesn't hide the phone. Code
@@ -88,7 +92,10 @@ Request `{"id","method","params"}`, reply `{"id","result"|"error"}`, events push
   `clipboardSync`: the daemon owns clipboard sync), `devices`, `refresh`, `connect {address}`.
 - Phone apps (no device param): `apps_status` (helpers found, phase idle/waiting/pairing/connecting/
   downloading, error, QR as SVG while waiting, connected adb device, `phoneIp` from KDE Connect,
-  `pairingAddr` once spotted), `apps_pair_qr`, `apps_pair_code {address, code}`, `apps_find_port` (code
+  `pairingAddr` once spotted, `device.android` as "9"/"15", `ownWindows` false on Android 9 and older,
+  `windows` open now, `installHint` a package command where the distro's scrcpy is new enough),
+  `apps_windows` (`[{package, title}]`, package null for the phone screen), `apps_close {package?}`
+  (no package: the phone screen window), `apps_pair_qr`, `apps_pair_code {address, code}`, `apps_find_port` (code
   pairing: look for the phone's pairing port), `apps_doctor` (text report for `tether apps doctor`), `apps_cancel`, `update_status`, `update_check`,
   `update_install` (all return the update status: current, latest, kind, phase idle/checking/downloading/
   ready/installer, error, noReleases, installer path and command), `shutdown` (the window's restart after an
