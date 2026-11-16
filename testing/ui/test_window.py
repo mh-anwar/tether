@@ -43,6 +43,13 @@ def text_shown(text):
 
 
 try:
+    # Fresh isolated runs start with the incoming pairing request.
+    import subprocess
+    if not Path(os.environ["XDG_DATA_HOME"], "../phone/paired").resolve().exists():
+        try:
+            button("Accept").click()
+        except Exception:
+            pass
     check("window connects to the phone", lambda: text_shown("Connected"))
     check("conversations load", lambda: wait.until(lambda _: d.find_elements(By.CSS_SELECTOR, ".threads > *")))
 
@@ -66,6 +73,81 @@ try:
         text_shown("Saved to")
         d.find_element(By.CSS_SELECTOR, ".viewer button[aria-label='Close']").click()
     check("Photos page shows the phone's pictures and saves one", photos_page)
+
+    def files_page():
+        button("Files").click()
+        wait.until(lambda _: not d.execute_script("return files.loading"))
+        wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, ".storage-roots button"))).click()
+        wait.until(EC.element_to_be_clickable((By.XPATH, "//button[@class='file-name' and text()='DCIM']"))).click()
+        wait.until(EC.element_to_be_clickable((By.XPATH, "//button[@class='file-name' and text()='Camera']"))).click()
+        wait.until(lambda _: len(d.find_elements(By.CSS_SELECTOR, ".file-row")) == 6)
+        button("New folder").click()
+        d.switch_to.active_element.send_keys("Window test", Keys.ENTER)
+        wait.until(EC.element_to_be_clickable((By.XPATH, "//button[@class='file-name' and text()='Window test']")))
+        row = d.find_element(By.XPATH, "//article[contains(@class,'file-row')][.//button[text()='Window test']]")
+        row.find_element(By.XPATH, ".//button[text()='Rename']").click()
+        field = d.switch_to.active_element
+        field.send_keys(Keys.CONTROL, "a")
+        field.send_keys("Renamed folder", Keys.ENTER)
+        wait.until(EC.element_to_be_clickable((By.XPATH, "//button[@class='file-name' and text()='Renamed folder']")))
+        row = d.find_element(By.XPATH, "//article[contains(@class,'file-row')][.//button[text()='Renamed folder']]")
+        row.find_element(By.XPATH, ".//button[text()='Delete']").click()
+        d.find_element(By.CSS_SELECTOR, "dialog .danger").click()
+        wait.until(lambda _: not d.find_elements(By.XPATH, "//button[text()='Renamed folder']"))
+        upload = Path(os.environ["XDG_DATA_HOME"], "upload test.txt")
+        upload.write_text("Uploaded from the computer")
+        d.execute_script("uploadFile(arguments[0])", str(upload))
+        item = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[@class='file-name' and text()='upload test.txt']")))
+        row = item.find_element(By.XPATH, "ancestor::article")
+        row.find_element(By.XPATH, ".//button[text()='Save']").click()
+        wait.until(lambda _: Path(os.environ["XDG_DATA_HOME"], "../dl/upload test.txt").resolve().exists())
+        row.find_element(By.XPATH, ".//button[text()='Delete']").click()
+        d.find_element(By.CSS_SELECTOR, "dialog .danger").click()
+        wait.until(lambda _: not d.find_elements(By.XPATH, "//button[text()='upload test.txt']"))
+    check("Files browse, create, rename, upload, save, delete", files_page)
+
+    def contacts_page():
+        button("Contacts").click()
+        wait.until(EC.visibility_of_element_located((By.CSS_SELECTOR, ".contact-card")))
+        name = d.find_element(By.CSS_SELECTOR, ".contact-card h2").text
+        d.find_element(By.CSS_SELECTOR, "[aria-label='Search contacts']").send_keys(name)
+        button("Text").click()
+        wait.until(EC.visibility_of_element_located((By.CSS_SELECTOR, ".composer textarea")))
+        assert d.execute_script("return state.newTo.length") == 1
+    check("Contacts search and Text starts a conversation", contacts_page)
+
+    def keyboard_page():
+        button("Keyboard").click()
+        text_shown("Pick KDE Connect Remote Keyboard")
+        box = d.find_element(By.ID, "keyboard-box")
+        box.send_keys("Hello", Keys.ARROW_LEFT, Keys.BACKSPACE, Keys.ENTER)
+        text_shown("Received by your phone")
+        log = Path(os.environ["FAKE_MOUSEPAD_LOG"])
+        import json
+        wait.until(lambda _: log.exists() and len(log.read_text().splitlines()) >= 8)
+        packets = [json.loads(line) for line in log.read_text().splitlines()]
+        assert any(p.get("key") == "H" for p in packets)
+        assert any(p.get("specialKey") == 4 for p in packets)
+        assert any(p.get("specialKey") == 12 for p in packets)
+    check("Keyboard streams text and special keys with acknowledgements", keyboard_page)
+
+    def screenshots():
+        import subprocess
+        output = Path("/home/pippin/tether-wt/shots")
+        output.mkdir(exist_ok=True)
+        for theme in ["light", "dark"]:
+            d.execute_script("document.documentElement.dataset.theme = arguments[0]", theme)
+            for view, name in [("files", "files-page"), ("contacts", "contacts-page"), ("keyboard", "keyboard"), ("devices", "device-card")]:
+                d.execute_script("showView(arguments[0])", view)
+                wait.until(lambda _: d.execute_script("return state.view !== 'files' || !files.loading"))
+                subprocess.run(["uv", "run", "-q", "--no-project", "--with", "pillow", "python", "testing/ui/shot.py", os.environ["DISPLAY"], str(output / f"{name}{'-dark' if theme == 'dark' else ''}.png")], check=True)
+        for width in [720, 1000]:
+            d.set_window_size(width, 780)
+            d.execute_script("showView('messages')")
+            assert d.execute_script("return document.documentElement.scrollWidth <= innerWidth")
+            subprocess.run(["uv", "run", "-q", "--no-project", "--with", "pillow", "python", "testing/ui/shot.py", os.environ["DISPLAY"], str(output / f"narrow-{width}.png")], check=True)
+        d.set_window_size(1200, 780)
+    check("new pages and narrow layouts screenshots", screenshots)
 
     def apps_page():
         button("Apps").click()

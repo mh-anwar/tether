@@ -66,6 +66,7 @@ pub enum PairState {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct DeviceSummary {
+    pub last_seen: Option<i64>,
     pub id: String,
     pub name: String,
     pub kind: String,
@@ -115,6 +116,7 @@ struct Dev {
     pair: Pair,
     data: DeviceData,
     last_dial: Option<Instant>,
+    last_seen: Option<i64>,
     /// Texts or contacts changed since the last write of the on-disk cache.
     cache_dirty: bool,
     /// Callers waiting for the phone's file server to answer `sftp::request`.
@@ -192,6 +194,7 @@ impl Service {
                     pair: Pair::Paired,
                     data,
                     last_dial: None,
+                    last_seen: t.last_seen,
                     cache_dirty: false,
                     sftp_waiters: Vec::new(),
                 },
@@ -501,6 +504,7 @@ impl Inner {
             cert::verification_key(&self.cert.cert_der, &cert, ts)
         });
         DeviceSummary {
+            last_seen: d.last_seen,
             id: d.identity.device_id.clone(),
             name: d.identity.device_name.clone(),
             kind: d.identity.device_type.clone(),
@@ -541,6 +545,7 @@ impl Inner {
             identity: d.identity.clone(),
             certificate: hex::encode(cert),
             last_address: d.last_address.map(|a| a.to_string()),
+            last_seen: d.last_seen,
         };
         if let Err(e) = self.store.save(&t) {
             warn!("could not save device: {e}");
@@ -647,10 +652,12 @@ impl Inner {
             pair: Pair::None,
             data: DeviceData::default(),
             last_dial: None,
+            last_seen: None,
             cache_dirty: false,
             sftp_waiters: Vec::new(),
         });
         d.identity = peer;
+        d.last_seen = Some(crate::packet::now_millis());
         if tcp_addr.is_some() {
             d.last_address = tcp_addr;
         }
@@ -677,7 +684,10 @@ impl Inner {
         if d.link.as_ref().map(|l| l.gen) != Some(gen) {
             return; // an older link; a newer one already replaced it
         }
+        d.last_seen = Some(crate::packet::now_millis());
+        d.data.keyboard_active = None;
         d.link = None;
+        self.persist(d);
         // Redial on the next tick rather than waiting out the redial interval.
         d.last_dial = None;
         if !matches!(d.pair, Pair::Paired) {

@@ -225,6 +225,13 @@ async fn call(svc: &Service, method: &str, p: &Value) -> Result<Value> {
         _ => {
             let dev = s(p, "device")?;
             match method {
+                "keyboard" => {
+                    let key: plugins::mousepad::Key = serde_json::from_value(p.clone())?;
+                    let packet =
+                        plugins::mousepad::request(&key).context("Invalid or empty key")?;
+                    svc.send(dev, packet)?;
+                    ok()
+                }
                 "device_data" => Ok(serde_json::to_value(svc.device_data(dev)?)?),
                 "threads" => Ok(serde_json::to_value(svc.threads(dev)?)?),
                 "thread" => Ok(serde_json::to_value(svc.thread(dev, i(p, "thread_id")?)?)?),
@@ -312,6 +319,21 @@ async fn call(svc: &Service, method: &str, p: &Value) -> Result<Value> {
                         plugins::mpris::set_position(s(p, "player")?, i(p, "position_ms")?),
                     )
                     .map(|_| json!(true))?),
+                "files_list" => {
+                    crate::phonefiles::list_files(svc, dev, p.get("path").and_then(Value::as_str))
+                        .await
+                }
+                "file_operation" => {
+                    crate::phonefiles::file_operation(
+                        svc,
+                        dev,
+                        s(p, "action")?,
+                        s(p, "path")?,
+                        p.get("target").and_then(Value::as_str),
+                        p.get("directory").and_then(Value::as_bool).unwrap_or(false),
+                    )
+                    .await
+                }
                 "photos_list" => crate::phonefiles::list_photos(svc, dev).await,
                 "photos_thumbs" => {
                     let paths: Vec<String> =
