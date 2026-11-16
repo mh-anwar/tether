@@ -99,6 +99,9 @@ Traps that already cost time. Add new ones here with the symptom first.
 - **Photos previews are slow on the first visit**: the phone has no small versions to hand out, so each
   preview downloads the whole photo once (several MB). They are kept afterwards. HEIC photos and videos
   are not listed (no decoder).
+- **No "Take a photo" in Ctrl+K or on the Photos page**: current KDE Connect Android releases dropped their
+  photo plugin, so the phone doesn't list `kdeconnect.photo.request` and Tether hides the command. Older
+  releases (and forks that kept it) show it.
 - **Screenshot buttons only in English**: notifications are matched on the word "screenshot" in the app
   name, title or text; other languages miss them.
 
