@@ -459,9 +459,11 @@ function renderList() {
   swap(list, () => {
     if (!state.threads.size) {
       const d = device();
+      // Texts take a few seconds to arrive after connecting, so the setup steps sit under the spinner.
+      const missing = d?.readiness?.some((f) => f.id === 'texts' && !f.ready);
       return h('div', { class: 'empty' },
-        d && d.connected && !readinessHint('texts') ? h('div', { class: 'spinner' }) : icon('message'),
-        h('p', { text: d && d.connected ? (readinessHint('texts') ? 'Texts are not available yet.' : 'Loading conversations') : 'Conversations appear when your phone is in reach.' }), readinessHint('texts'));
+        d && d.connected && !missing ? h('div', { class: 'spinner' }) : icon('message'),
+        h('p', { text: d && d.connected ? (missing ? 'Texts are not available on this phone.' : 'Loading conversations') : 'Conversations appear when your phone is in reach.' }), readinessHint('texts'));
     }
     if (!items.length) return h('div', { class: 'empty' }, h('p', { text: `Nothing matches "${state.filter}".` }));
     // The selected conversation is always drawn, however far down it is.
@@ -1026,7 +1028,7 @@ function renderPhotos() {
           onclick: () => { photos.tab = i; renderPhotos(); pumpThumbs(); } }, f.name, h('span', { class: 'count', text: String(f.items.length) })))) : null);
     if (device()?.readiness?.some((f) => f.id === 'sftp' && !f.ready)) return [head, h('div', { class: 'empty' }, icon('folder'), readinessHint('sftp'))];
     if (photos.status === 'loading' || photos.status === 'idle') return [head, h('div', { class: 'empty' }, h('div', { class: 'spinner' }), h('p', { text: 'Getting your pictures from the phone' }))];
-    if (photos.status === 'error') return [head, h('div', { class: 'empty' }, icon('alert'), h('p', { text: photos.error }),
+    if (photos.status === 'error') return [head, h('div', { class: 'empty' }, icon('alert'), h('p', { text: photos.error }), h('p', { text: phoneSetup('sftp') }),
       h('button', { class: 'btn', 'data-key': 'photos-retry', onclick: loadPhotos }, icon('refresh', 'sm'), 'Try again'))];
     const folder = photos.folders[photos.tab];
     if (!folder || !folder.items.length) return [head, h('div', { class: 'empty' }, icon('image'), h('p', { text: 'No pictures here yet.' }))];
@@ -1867,19 +1869,44 @@ function phoneSetup(feature, d = device()) {
   const item = d?.readiness?.find((f) => f.id === feature);
   return item ? `KDE Connect > ${state.me?.deviceName || 'this computer'} > Plugin settings > ${item.instruction}` : '';
 }
+// What the phone has actually sent so far. Android lists every plugin it has whether it is on or
+// not (PluginFactory.kt), so only data that arrived proves a feature works.
+const SEEN = {
+  texts: () => state.threads.size > 0,
+  notifications: () => Object.keys(state.notifications || {}).length > 0,
+  contacts: () => state.contacts.length > 0,
+  battery: () => !!state.battery,
+  connectivity: () => Object.keys(state.signal || {}).length > 0,
+  mpris: () => Object.keys(state.media || {}).length > 0,
+  keyboard: () => state.keyboardActive === true,
+};
+function featureStatus(f, d = device()) {
+  if (!f.ready) return 'missing';
+  const seen = SEEN[f.id];
+  // The window only holds data for the phone that is open; for another phone there's no proof either way.
+  if (!seen || !d || d.id !== state.deviceId) return 'unknown';
+  return seen() ? 'working' : 'waiting';
+}
+const STATUS_TEXT = { working: 'Working', waiting: 'Nothing yet', missing: 'Not on this phone', unknown: '' };
 function readinessHint(feature) {
-  const item = device()?.readiness?.find((f) => f.id === feature);
-  return item && !item.ready ? h('p', { class: 'readiness-hint', text: `Not advertised by your phone. ${phoneSetup(feature)}` }) : null;
+  const d = device();
+  const item = d?.readiness?.find((f) => f.id === feature);
+  if (!item || !d.connected) return null;
+  const status = featureStatus(item, d);
+  if (status === 'missing') return h('p', { class: 'readiness-hint', text: 'Your version of KDE Connect on the phone does not have this. Updating the app may add it.' });
+  return status === 'waiting' ? h('p', { class: 'readiness-hint', text: `If nothing comes, check this on the phone: ${phoneSetup(feature, d)}` }) : null;
 }
 function phoneChecklist(d) {
+  const items = (d.readiness || []).map((f) => ({ ...f, status: featureStatus(f, d) }));
   return h('section', { class: 'phone-readiness', 'aria-label': 'On your phone' },
     h('h2', { text: 'On your phone' }),
-    h('p', { class: 'sub', text: 'These are the features your phone advertises. KDE Connect does not report whether their switches and permissions are on. Check the steps below if a feature does not work.' }),
-    !d.connected ? h('p', { text: 'Phone offline. Showing its last advertised features.' }) : null,
-    h('ul', { class: 'readiness-list' }, (d.readiness || []).map((f) => h('li', { 'data-feature': f.id, 'data-ready': String(f.ready) },
-      h('div', { class: 'row' }, icon(f.ready ? 'check' : 'alert', 'sm'), h('b', { text: f.label }), h('span', { class: 'readiness-status', text: f.ready ? 'Advertised' : 'Not advertised' })),
-      h('p', { text: phoneSetup(f.id, d) })))),
-    h('p', { class: 'sub', text: 'On Samsung phones: Settings > Apps > KDE Connect > Battery > Unrestricted. This helps keep the connection alive.' }));
+    h('p', { class: 'sub', text: 'Each feature needs its switch on in the KDE Connect app, and some need a permission. If one does not work, follow its steps on the phone.' }),
+    !d.connected ? h('p', { text: 'Your phone is offline, so this shows what it had last time.' }) : null,
+    h('ul', { class: 'readiness-list' }, items.map((f) => h('li', { 'data-feature': f.id, 'data-status': f.status, 'data-ready': String(f.status === 'working') },
+      h('div', { class: 'row' }, icon(f.status === 'working' ? 'check' : f.status === 'unknown' ? 'dot' : 'alert', 'sm'), h('b', { text: f.label }),
+        STATUS_TEXT[f.status] ? h('span', { class: 'readiness-status', text: STATUS_TEXT[f.status] }) : null),
+      f.status === 'working' ? null : h('p', { text: f.status === 'missing' ? 'Not in this version of KDE Connect on the phone.' : phoneSetup(f.id, d) })))),
+    h('p', { class: 'sub', text: 'On Samsung phones, also set Settings > Apps > KDE Connect > Battery > Unrestricted, so the phone keeps the connection while it sleeps.' }));
 }
 
 function renderTools() {

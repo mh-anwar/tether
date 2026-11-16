@@ -260,6 +260,9 @@ fn sync_autostart() {
     }
 }
 
+// Ties this crate's build to the embedded ui/ files (see build.rs).
+const _UI_HASH: &str = env!("TETHER_UI_HASH");
+
 fn main() {
     // The login entry of an AppImage can only name the AppImage itself, which runs this binary.
     if std::env::args().nth(1).as_deref() == Some("--daemon") {

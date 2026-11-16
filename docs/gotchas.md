@@ -105,6 +105,7 @@ Traps that already cost time. Add new ones here with the symptom first.
   cooldown and three-second adb connection attempts; verified online addresses are saved separately as
   `apps-connect-address` for reconnects when announcements are hidden. This addresses a code gap;
   the owner's Samsung still needs to confirm the fix.
-- **The window shows old UI after editing `ui/` (a merge, a checkout)**: the files are embedded into
-  `tether-app` at compile time and Cargo only watched the `ui` folder's own mtime. `crates/tether-app/build.rs`
-  now lists every file in `ui/`; if a build still looks stale, `touch crates/tether-app/build.rs`.
+- **The window shows old UI after editing `ui/` (a merge, a checkout)**: the files are embedded when
+  `tether-app` compiles, Cargo only watched the `ui` folder's own mtime, and a rerun build script alone
+  doesn't recompile the crate. `crates/tether-app/build.rs` now watches each file and passes a hash of
+  their contents as `TETHER_UI_HASH`, which `main.rs` reads with `env!`, so any edit recompiles the window.
