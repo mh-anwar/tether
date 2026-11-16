@@ -353,9 +353,10 @@ function renderRail() {
       icon('call', 'pulse'),
       h('div', {}, h('b', { text: state.call.name || prettyNumber(state.call.number || '') || 'Unknown caller' }), h('span', { text: 'Incoming call' })),
       h('button', { class: 'btn', onclick: () => quick('mute', 'Ringer muted') }, icon('mute', 'sm'), 'Mute')) : null,
-    state.computerRinging ? h('div', { class: 'phone-card', role: 'status' },
-      h('b', { text: 'Your phone is ringing this computer' }),
-      h('button', { class: 'btn', onclick: () => api('computer_ring_stop').catch((e) => toast(String(e), 'error')) }, 'Stop')) : null,
+    state.computerRinging ? h('div', { class: 'call finding', role: 'status' },
+      icon('ring', 'pulse'),
+      h('b', { text: 'Your phone is finding this computer' }),
+      h('button', { class: 'btn primary small', onclick: () => api('computer_ring_stop').catch((e) => toast(String(e), 'error')) }, 'Stop')) : null,
     mediaCard(),
     h('nav', { class: 'nav' },
       h('button', { 'aria-current': state.view === 'messages' ? 'page' : null, onclick: () => showView('messages') }, icon('message'), h('span', { class: 'label', text: 'Messages' }),
@@ -845,7 +846,7 @@ function commandsEditor(commands) {
       if (!entry.name || !entry.command) return;
       const next = [...commands]; if (index < 0) next.push(entry); else next[index] = entry;
       saveSettings({ commands: next });
-    } }, h('label', {}, h('b', { text: index < 0 ? 'New command' : command.name }), name),
+    } }, h('label', {}, h('b', { text: index < 0 ? 'New command' : command.name }), h('small', { text: 'Name' }), name),
       h('label', {}, h('small', { text: 'Shell command' }), shell),
       h('div', { class: 'field-row' }, h('button', { class: 'btn', type: 'submit' }, index < 0 ? 'Add command' : 'Save command'),
         index >= 0 ? h('button', { class: 'btn', type: 'button', onclick: () => saveSettings({ commands: commands.filter((_, i) => i !== index) }) }, 'Remove command') : null));

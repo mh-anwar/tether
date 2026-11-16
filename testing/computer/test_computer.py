@@ -12,6 +12,7 @@ env.pop('WAYLAND_DISPLAY',None)
 for p in [W/'cfg/tether',W/'run']: p.mkdir(parents=True,exist_ok=True)
 (W/'run').chmod(0o700)
 (W/'cfg/tether/config.json').write_text(json.dumps({'device_name':'Computer test','clipboard_sync':False,'mirror_notifications':False,'auto_update':False,'commands':[{'id':'touch','name':'Touch test','command':f'touch {W}/touched'}]}))
+(W/'run/tether/tether.sock').unlink(missing_ok=True)  # a stale socket from an earlier run would end the wait below too early
 for name in ['send.jsonl','received.jsonl','touched','calls.log','volume.json']:
  (W/name).unlink(missing_ok=True)
 procs=[]

@@ -121,3 +121,8 @@ TETHER_UI_DIR=/tmp/tw-computer/protocol TETHER_SKIP_PHONE=1 WD_DISPLAY=:71 WD_PO
 
 `TETHER_SKIP_PHONE=1` avoids connecting the UI stand-in to another daemon on shared port 1716;
 `TETHER_PHONE_ADDRESS` can select an isolated daemon for broader window tests.
+
+Looks: with the window running under Xvfb and the stand-in phone paired to that daemon, append
+`{"id":1,"type":"kdeconnect.findmyphone.request","body":{}}` to `$FAKE_COMPUTER_DIR/send.jsonl` to show the
+"finding this computer" card (Stop ends it), then `testing/ui/shot.py` as usual. Check Settings > "What your
+phone can do on this computer" and "Commands your phone can run" the same way.
