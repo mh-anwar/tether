@@ -114,7 +114,7 @@ pub fn start(service: Service) {
 }
 
 /// Brings the window forward, or starts it when none is open.
-async fn open_window() {
+pub(crate) async fn open_window() {
     crate::api::ui_event(json!({"event": "show_window"}));
     if tokio::time::timeout(Duration::from_millis(700), WINDOW_SHOWN.notified())
         .await

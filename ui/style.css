@@ -394,8 +394,8 @@ h2 { font-size: 14px; }
 .setting.check { grid-template-columns: auto 1fr; gap: 10px; align-items: start; cursor: pointer; }
 .setting.check input { width: 16px; height: 16px; margin: 3px 0 0; accent-color: var(--accent); }
 .field-row { display: flex; gap: 8px; width: 100%; flex-wrap: wrap; }
-.field-row input { flex: 1; min-width: 180px; border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 6px 9px; background: var(--bg-raised); color: var(--text); font: inherit; }
-.field-row input:focus-visible { outline: none; border-color: var(--accent); box-shadow: var(--focus); }
+.field-row input, .command-editor input { flex: 1; min-width: 180px; border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 6px 9px; background: var(--bg-raised); color: var(--text); font: inherit; }
+.field-row input:focus-visible, .command-editor input:focus-visible { outline: none; border-color: var(--accent); box-shadow: var(--focus); }
 .addr-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
 .addr-list li { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 2px 4px 2px 9px; border: 1px solid var(--border); border-radius: var(--radius-sm); font-variant-numeric: tabular-nums; }
 .btn.danger { background: var(--danger); border-color: var(--danger); color: #fff; }
@@ -474,3 +474,6 @@ h2 { font-size: 14px; }
   border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-raised); color: var(--text-2);
   font: 12px/1.45 ui-monospace, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
 .apps-details pre:focus-visible { outline: none; border-color: var(--accent); box-shadow: var(--focus); }
+
+#run-commands { scroll-margin-top: 90px; }
+.command-editor, .command-editor label, .command-editor input { width: 100%; }

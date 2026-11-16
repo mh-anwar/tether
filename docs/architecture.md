@@ -97,3 +97,16 @@ Request `{"id","method","params"}`, reply `{"id","result"|"error"}`, events push
 - Page: `ui/app.js` holds all state in `state`, renders regions with `swap()` (keeps focus and typed text).
   Phone text is only set via `textContent`. Icons are inline SVG in `ui/icons.js`.
 - Messages are cached in memory per thread; the phone is the source of truth and resends on connect.
+
+## Phone controls for this computer
+
+`plugins/{runcommand,mousepad,presenter,lock,systemvolume,battery,findmyphone}.rs` contain wire
+parsers/builders. Paired requests become `Update::Computer` and `computer.rs` performs desktop effects;
+`remoteinput.rs` uses XTest on X11, dotool/ydotool on Wayland (wtype for keyboard-only use).
+`computer.rs` polls lock, volume, command configuration and local battery every three seconds, pushing
+changed state and sending a full snapshot on connect. Settings permissions are checked for every incoming
+request; disabled requests are ignored and logged, including already-connected phones. Commands are
+stored as `commands: [{id,name,command}]`; `commands_get` / `commands_set` and settings_get/settings_set
+share validation. Commands execute as the logged-in user, without shell interpolation of packet fields.
+`computer_status` restores the ring banner or pending commands-settings navigation in a new window;
+`computer_ring_stop` stops ringing. Notification actions and a second phone request also stop it.

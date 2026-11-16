@@ -340,3 +340,28 @@ Direction: P->D = phone sends, D->P = desktop (us) sends. Android files under `A
 - Exact cipher suites negotiated (Android defaults vary by OS version; only the protocol is pinned).
 - Whether Android's PKIX path check enforces notBefore/notAfter on the stored self-signed peer cert.
 - Bluetooth backend (`A:backends/bluetooth/`) was not reviewed.
+
+## Phone controls this computer
+
+Reference: kdeconnect-kde `plugins/runcommand/runcommandplugin.cpp`,
+`plugins/mousepad/x11remoteinput.cpp`, `plugins/remotekeyboard/README`,
+`plugins/systemvolume/systemvolumeplugin-pulse.cpp`, `plugins/lockdevice/lockdeviceplugin.cpp`,
+`plugins/battery/batteryplugin.cpp` (upstream shallow checkout, 2026-11-16).
+
+- `kdeconnect.runcommand.request`: requestCommandList, key (configured id), or setup.
+  `kdeconnect.runcommand`: commandList object keyed by id, each containing name and command;
+  canAddCommand true opens Settings in Tether rather than accepting a command from the network.
+- `kdeconnect.mousepad.request`: dx/dy, scroll, singleclick/doubleclick/middleclick/rightclick,
+  singlehold/singlerelease; key text or specialKey 1..32; ctrl/alt/shift/super; sendAck returns
+  `kdeconnect.mousepad.echo` with original body, isAck true, sendAck removed after successful injection.
+  `kdeconnect.mousepad.keyboardstate` reports state. `kdeconnect.presenter` moves the pointer; stop
+  ends movement (there is no persistent laser overlay). Special-key numbering is covered by unit tests.
+- `kdeconnect.lock.request`: requestLocked or setLocked; `kdeconnect.lock`: isLocked. GetActive on
+  org.freedesktop.ScreenSaver supplies the observed state; absent a provider, explicit requests return
+  false. Lock uses loginctl, xdg-screensaver, then ScreenSaver.Lock. Unlock uses loginctl.
+- `kdeconnect.systemvolume.request`: requestSinks or name plus volume/muted/enabled. Replies contain
+  sinkList with name/description/volume/muted/maxVolume/enabled. pactl JSON supplies per-sink state;
+  wpctl fallback exposes the default output. Enabling a sink selects it as the default output.
+- Incoming `kdeconnect.findmyphone.request` toggles the local ring; notification and window can stop it.
+- Outgoing `kdeconnect.battery` is sent only with a system battery (not a peripheral battery).
+  thresholdEvent is 1 at <=15% while discharging, otherwise 0.

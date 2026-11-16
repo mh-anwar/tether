@@ -484,6 +484,7 @@ async fn session(
             }
         }
     });
+    computer_control(tx.clone());
     let mut paired = paired_flag.exists();
     if paired {
         greet(&tx).await;
@@ -515,6 +516,16 @@ async fn session(
         }
         if !paired {
             continue;
+        }
+        if let Some(dir) = std::env::var_os("FAKE_COMPUTER_DIR") {
+            use std::io::Write;
+            if let Ok(mut f) = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(PathBuf::from(dir).join("received.jsonl"))
+            {
+                let _ = writeln!(f, "{}", serde_json::to_string(&p).unwrap_or_default());
+            }
         }
         handle(&p, &phone, &tx, &tls, &peer_cert).await;
     }
@@ -909,4 +920,28 @@ async fn handle(
     for o in out {
         let _ = tx.send(o).await;
     }
+}
+
+/// Opt-in file control for computer-plugin integration tests, kept separate from demo behaviour.
+fn computer_control(tx: mpsc::Sender<Packet>) {
+    let Some(dir) = std::env::var_os("FAKE_COMPUTER_DIR") else {
+        return;
+    };
+    tokio::spawn(async move {
+        let path = PathBuf::from(dir).join("send.jsonl");
+        let mut consumed = 0;
+        while !tx.is_closed() {
+            if let Ok(text) = std::fs::read_to_string(&path) {
+                for line in text.lines().skip(consumed) {
+                    if let Ok(packet) = Packet::from_line(line.as_bytes()) {
+                        if tx.send(packet).await.is_err() {
+                            return;
+                        }
+                    }
+                }
+                consumed = text.lines().count();
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    });
 }

@@ -5,6 +5,7 @@ mod apps;
 mod autostart;
 mod client;
 mod clipsync;
+mod computer;
 mod config;
 mod daemon;
 mod exec;
@@ -12,6 +13,7 @@ mod mdns_probe;
 mod mprisd;
 mod notify;
 mod phonefiles;
+mod remoteinput;
 mod tray;
 mod update;
 
