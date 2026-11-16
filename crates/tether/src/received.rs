@@ -71,6 +71,11 @@ pub async fn run(s: Service) {
                     }
                 });
             }
+            // The window that asked shows the picture; it still belongs in the received list.
+            Ok(Event::Update {
+                update: Update::PhotoTaken { path },
+                ..
+            }) => remember(&path),
             Ok(Event::Update {
                 update: Update::SharedText { text },
                 ..

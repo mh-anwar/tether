@@ -298,6 +298,7 @@ async fn call(svc: &Service, method: &str, p: &Value) -> Result<Value> {
                 "unpair" => Ok(svc.unpair(dev).map(|_| json!(true))?),
                 "ping" => Ok(svc.send(dev, plugins::ping()).map(|_| json!(true))?),
                 "ring" => Ok(svc.send(dev, plugins::ring_phone()).map(|_| json!(true))?),
+                "photo_take" => Ok(svc.take_photo(dev).map(|_| json!(true))?),
                 "mute" => Ok(svc
                     .send(dev, telephony::mute_ringer())
                     .map(|_| json!(true))?),

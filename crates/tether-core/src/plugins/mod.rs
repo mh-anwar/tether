@@ -12,6 +12,7 @@ pub mod systemvolume;
 pub mod contacts;
 pub mod mpris;
 pub mod notification;
+pub mod photo;
 pub mod sftp;
 pub mod sms;
 pub mod telephony;
@@ -63,6 +64,7 @@ pub fn incoming_capabilities() -> Vec<String> {
         sftp::SFTP,
         mousepad::STATE,
         mousepad::ECHO,
+        photo::PHOTO,
     ]
     .map(String::from)
     .to_vec()
@@ -98,6 +100,7 @@ pub fn outgoing_capabilities() -> Vec<String> {
         notification::NOTIFICATION,
         sftp::REQUEST,
         mousepad::REQUEST,
+        photo::REQUEST,
     ]
     .map(String::from)
     .to_vec()
@@ -185,6 +188,12 @@ pub enum Update {
         path: String,
         open: bool,
     },
+    /// The picture asked for with `photo::request` arrived (saved with received files).
+    PhotoTaken {
+        path: String,
+    },
+    /// The phone closed its camera without a picture.
+    PhotoCancelled,
     TransferProgress {
         name: String,
         sending: bool,
