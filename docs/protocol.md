@@ -363,7 +363,7 @@ Reference: kdeconnect-kde `plugins/runcommand/runcommandplugin.cpp`,
 `plugins/battery/batteryplugin.cpp` (upstream shallow checkout, 2026-11-16).
 
 - `kdeconnect.runcommand.request`: requestCommandList, key (configured id), or setup.
-  `kdeconnect.runcommand`: commandList object keyed by id, each containing name and command;
+  `kdeconnect.runcommand`: commandList JSON string encoding an object keyed by id, each containing name and command;
   canAddCommand true opens Settings in Tether rather than accepting a command from the network.
 - `kdeconnect.mousepad.request`: dx/dy, scroll, singleclick/doubleclick/middleclick/rightclick,
   singlehold/singlerelease; key text or specialKey 1..32; ctrl/alt/shift/super; sendAck returns

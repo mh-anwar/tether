@@ -55,7 +55,7 @@ try:
  wait(lambda:any(d['pair']=='paired' and d['connected'] for d in api('devices')))
  wait(lambda:packets('runcommand'))
  send('runcommand.request',{'requestCommandList':True})
- wait(lambda:packets('runcommand')[-1]['body']['commandList'].get('touch'))
+ wait(lambda:json.loads(packets('runcommand')[-1]['body']['commandList']).get('touch'))
  send('runcommand.request',{'key':'touch'});wait(lambda:(W/'touched').exists())
  print('ok command list and detached execution')
  x=display.Display(':71');root=x.screen().root;root.warp_pointer(300,300);x.sync()

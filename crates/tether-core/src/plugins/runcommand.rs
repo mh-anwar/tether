@@ -1,4 +1,4 @@
-//! kdeconnect-kde plugins/runcommand/runcommandplugin.cpp: commandList is an object keyed by id.
+//! kdeconnect-kde plugins/runcommand/runcommandplugin.cpp: commandList is a JSON string containing an object keyed by id.
 use crate::Packet;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -35,13 +35,16 @@ pub fn list(commands: &[Command]) -> Packet {
         .iter()
         .map(|c| (c.id.clone(), json!({"name":c.name,"command":c.command})))
         .collect();
-    Packet::new(TYPE, json!({"commandList":list,"canAddCommand":true}))
+    Packet::new(
+        TYPE,
+        json!({"commandList":json!(list).to_string(),"canAddCommand":true}),
+    )
 }
 #[cfg(test)]
 mod tests {
     use super::*;
     #[test]
-    fn packets() {
+    fn packets() -> serde_json::Result<()> {
         assert_eq!(
             parse(&Packet::new(REQUEST, json!({"key":"a"}))),
             Some(Request::Run("a".into()))
@@ -55,14 +58,15 @@ mod tests {
             Some(Request::Setup)
         );
         assert_eq!(parse(&Packet::new(REQUEST, json!({"key":3}))), None);
-        assert_eq!(
-            list(&[Command {
-                id: "a".into(),
-                name: "Test".into(),
-                command: "true".into()
-            }])
-            .body["commandList"]["a"]["name"],
-            "Test"
-        );
+        let packet = list(&[Command {
+            id: "a".into(),
+            name: "Test".into(),
+            command: "true".into(),
+        }]);
+        assert!(packet.body["commandList"].is_string());
+        let decoded: serde_json::Value =
+            serde_json::from_str(packet.str("commandList").unwrap_or(""))?;
+        assert_eq!(decoded["a"]["name"], "Test");
+        Ok(())
     }
 }
