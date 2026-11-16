@@ -260,6 +260,8 @@ async fn call(svc: &Service, method: &str, p: &Value) -> Result<Value> {
             let title = p.get("title").and_then(Value::as_str).unwrap_or("Phone");
             crate::apps::open(svc, package, title).await
         }
+        "apps_windows" => Ok(crate::apps::windows()),
+        "apps_close" => Ok(crate::apps::close(p.get("package").and_then(Value::as_str))),
         _ => {
             let dev = s(p, "device")?;
             match method {

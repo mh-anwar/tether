@@ -2,9 +2,11 @@
 # Stand-in for scrcpy (see testing/apps/adb). Opening an app just records the arguments and stays
 # running like a real window would, until killed.
 D=${FAKE_APPS_DIR:?set FAKE_APPS_DIR}
+# `version` overrides the reported version (an old distro scrcpy). $ADB is the adb scrcpy would use.
 echo "scrcpy $*" >> "$D/calls.log"
+[ -n "$ADB" ] && echo "scrcpy-adb $ADB" >> "$D/calls.log"
 case " $* " in
-  *" --version "*) echo "scrcpy 5.0.1 <https://github.com/Genymobile/scrcpy>" ;;
+  *" --version "*) echo "scrcpy $(cat "$D/version" 2>/dev/null || echo 5.0.1) <https://github.com/Genymobile/scrcpy>" ;;
   *" --list-apps "*)
     sleep 1
     cat <<'LIST'

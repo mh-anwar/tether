@@ -85,6 +85,10 @@ update, so copy them to a folder that mimics an install and point the UI script 
 Then Ctrl+K, "Check for updates", Update, Restart Tether; `tail -c 40 /tmp/x/debug/tether` shows the marker.
 
 ## Phone apps (no phone needed)
+`box heavy -- cargo test -p tether --test apps_e2e` runs the real daemon with the stand-ins below: code
+pairing, the app list, one window per app, closing it, the error from a phone without virtual displays,
+an Android 9 phone sharing the phone screen window, and missing or too-old helpers.
+
 `testing/apps/adb` and `testing/apps/scrcpy` stand in for the real helpers; their state is files in
 `$FAKE_APPS_DIR` and every call is logged to `calls.log`. Export before `run.sh start` (the window starts the
 daemon, which inherits them):
@@ -93,7 +97,8 @@ export FAKE_APPS_DIR=/tmp/tether-ui-$USER/apps TETHER_ADB=$PWD/testing/apps/adb 
 ```
 Act as the phone scanning the QR: decode it from a screenshot (`uv run --no-project --with zxing-cpp --with
 pillow`), write `"<name> <password>" > $FAKE_APPS_DIR/scanned`. Pair-by-code accepts `123456`. The package
-`com.example.broken` fails like an old phone. `touch $FAKE_APPS_DIR/codeopen` acts as the phone showing its
+`com.example.broken` fails like an old phone. `echo 28 > $FAKE_APPS_DIR/sdk` makes the phone Android 9;
+`echo 2.4 > $FAKE_APPS_DIR/version` makes scrcpy too old for app windows. `touch $FAKE_APPS_DIR/codeopen` acts as the phone showing its
 pairing-code screen (the form then fills in the address). `TETHER_SCRCPY=` (empty) shows the helper-download screen.
 Use the stand-ins here rather than the real adb: its server listens on localhost:5037, shared with everyone on the box.
 

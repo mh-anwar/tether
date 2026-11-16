@@ -30,6 +30,10 @@ check on a real Android phone with the stock KDE Connect app (the owner's Samsun
 - [~] Q25/Q26b/Q34 **Phone-apps pairing on the real phone** (QR, 6-digit code, reconnect without mDNS):
   released in 0.3.1-0.3.2, checked with stand-ins. Done when: an app from the owner's Samsung opens in a
   window on the laptop.
+- [~] Q38 **App windows on a real phone** (2026-11-16): one window per app (a second click says it's open),
+  Close on the Apps page, an Android 9 phone sharing the "Phone screen" window, the package command shown
+  on Arch/Fedora/openSUSE when scrcpy is missing. Checked with the stand-ins (`apps_e2e`, WebDriver).
+  Done when: two apps from the owner's Samsung are open side by side and close from the Apps page.
 - [~] Q31 **New window replaces an outdated service** (0.3.1). Done when: installing over a running older
   version shows the new behaviour without a reboot.
 - [~] Q32/Q33 **Screenshot Copy/Save, Photos page**: checked with a stand-in sftp server. Done when: they
