@@ -43,10 +43,12 @@ can't go stale. The Flathub repo will need a committed copy, regenerated with ea
 - Commands the phone runs execute inside the sandbox, so host programs aren't there; the Settings text
   says so. Remote mouse and keyboard need `dotool`/`ydotool`/`wtype`, which the sandbox lacks, so the
   phone's remote input reports itself unavailable unless X11 is in use. Screen lock falls back to
-  `org.freedesktop.ScreenSaver` when `loginctl` is missing. Volume (`pactl`), ringing (`canberra-gtk-play`,
-  `paplay`, `pw-play`) and browsing the phone's files (`sftp`) work only if the GNOME runtime has those
-  programs; the release workflow's "Programs in the runtime" step lists what is missing. Read it after the
-  first Flatpak build and bundle or hide what isn't there.
+  `org.freedesktop.ScreenSaver` when `loginctl` is missing. The release workflow's "Programs in the
+  runtime" step lists what GNOME 50 has. First build (2026-11-16): `pactl`, `paplay`, `pw-play`, `sftp` and
+  `xdg-open` are there, so volume, ringing (through `paplay`) and the phone's files work;
+  `canberra-gtk-play`, `loginctl` and `dotool` are missing, which the fallbacks above cover. Not yet
+  checked: whether the runtime has the freedesktop sound files `paplay` plays, and whether the dock's unread
+  count (`com.canonical.Unity.LauncherEntry` signal) gets through the D-Bus proxy.
 - Files from the phone can only be saved inside Downloads (`--filesystem=xdg-download`).
 
 ## Blockers only the owner can clear

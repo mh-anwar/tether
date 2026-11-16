@@ -67,17 +67,18 @@ check on a real Android phone with the stock KDE Connect app (the owner's Samsun
 
 ## Done
 
-- 2026-11-16 Q36 take a photo with the phone's camera (`kdeconnect.photo.request`; Ctrl+K and the Photos page,
-  shown only for phones that still offer it; saved to Downloads and shown). Q14 notification app icons in the
-  column with a letter when the icon is missing or broken (checked with the stand-in phone, not the real one).
-- 2026-11-16 Tray polish: right-click menu (Open Tether, Ring my phone, Send files, Pause notification
-  pop-ups, Quit Tether) over dbusmenu and as our own menu on XEmbed bars; tooltip with phone, battery and
-  unread count; NeedsAttention with unread; one-colour icon on GNOME/KDE panels; no X11 on Wayland; unread
-  count on the dock icon; Settings note when GNOME has no tray (`testing/ui/tray_e2e.sh`, `tray_xembed.sh`).
-- 2026-11-16 Flatpak: manifest `packaging/flatpak/io.github.mh_anwar.Tether.yml`, a `flatpak` job in the
-  release workflow that attaches `Tether-x86_64.flatpak` (in SHA256SUMS), start at login through the
-  Background portal, tray name under the app id, the bundle points at the releases page for updates, and
-  options the sandbox can't deliver are hidden (docs/flathub.md).
+- 2026-11-16 v1.1.0: phone apps open once each in their own window and close from the Apps page, Android 9
+  phones share one "Phone screen" window (#8). Tray polish: right-click menu (Open Tether, Ring my phone,
+  Send files, Pause notification pop-ups, Quit Tether) over dbusmenu and as our own menu on XEmbed bars;
+  tooltip with phone, battery and unread count; NeedsAttention with unread; one-colour icon on GNOME/KDE
+  panels; no X11 on Wayland; unread count on the dock icon; Settings note when GNOME has no tray (#9,
+  `testing/ui/tray_e2e.sh`, `tray_xembed.sh`). Q36 take a photo with the phone's camera
+  (`kdeconnect.photo.request`, shown only for phones that still offer it; saved to Downloads and shown) and
+  Q14 notification app icons with a letter when the icon is missing (#10, stand-in phone only). Flatpak:
+  manifest `packaging/flatpak/io.github.mh_anwar.Tether.yml`, a `flatpak` release job that attaches
+  `Tether-x86_64.flatpak` (in SHA256SUMS), start at login through the Background portal, tray name under the
+  app id, the bundle points at the releases page for updates, and options the sandbox can't deliver are
+  hidden (#11, docs/flathub.md).
 - 2026-11-16 v1.0.0: every KDE Connect feature people expect, both directions. Phone controls the computer
   (run commands, touchpad and keyboard, presenter, lock, volume, ring this computer, battery to the phone,
   #2); desktop players on the phone, pause on calls, this computer's notifications on the phone, complete

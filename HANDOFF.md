@@ -1,7 +1,7 @@
-# Handoff (2026-11-16, v1.0.0)
+# Handoff (2026-11-16, v1.1.0)
 
 Read first: `AGENTS.md` (house rules), `QUEUE.md` (work queue), `docs/README.md` (knowledge base index).
-`main` = what shipped in v1.0.0. Work goes through PRs now (branch, PR, green CI, squash-merge).
+`main` = what shipped in v1.1.0. Work goes through PRs now (branch, PR, green CI, squash-merge).
 
 ## State
 
@@ -10,6 +10,10 @@ Read first: `AGENTS.md` (house rules), `QUEUE.md` (work queue), `docs/README.md`
   `testing/media`) and the WebDriver window tests (`testing/ui/wd.sh`). docs/testing.md has the commands.
 - Earlier, the protocol core, pairing, texts and notifications were verified against real KDE Connect
   26.08.2 (`testing/kdeconnect-peer`) and the owner's Samsung.
+- 1.1.0 added one window per phone app with Close (#8), the tray menu, tooltip and unread marks (#9),
+  notification icons and the phone camera where the phone still offers it (#10), and a Flatpak bundle built
+  by the release workflow (#11). The Flatpak's portal dialogs and tray were checked only by code and CI,
+  not in a real sandboxed session.
 - Not verified on a real phone: everything listed in QUEUE "Needs a real phone". That is the next step,
   and the only one that needs the owner.
 
