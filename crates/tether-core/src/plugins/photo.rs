@@ -39,7 +39,10 @@ mod tests {
         assert!(r.body.is_empty());
         assert!(is_cancel(&Packet::new(PHOTO, json!({"cancel": true}))));
         assert!(!is_cancel(&Packet::new(PHOTO, json!({}))));
-        assert!(!is_cancel(&Packet::new("kdeconnect.ping", json!({"cancel": true}))));
+        assert!(!is_cancel(&Packet::new(
+            "kdeconnect.ping",
+            json!({"cancel": true})
+        )));
         assert_eq!(
             file_name(&Packet::new(PHOTO, json!({}))),
             "Photo from your phone.jpg"

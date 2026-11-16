@@ -335,6 +335,20 @@ pub async fn full_picture(svc: &Service, dev: &str, remote: &str) -> Result<Path
     Ok(local)
 }
 
+/// Copies a picture the phone sent (a camera photo in Downloads) to where the window can show it.
+pub fn preview_copy(svc: &Service, saved: &Path) -> Result<PathBuf> {
+    let dir = files_dir(svc).join("full");
+    std::fs::create_dir_all(&dir)?;
+    let name = saved
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "photo.jpg".into());
+    let local = dir.join(format!("camera-{name}"));
+    std::fs::copy(saved, &local)?;
+    prune(&dir, FULL_KEEP);
+    Ok(local)
+}
+
 /// Keeps the `keep` newest files of a folder.
 fn prune(dir: &Path, keep: usize) {
     let Ok(entries) = std::fs::read_dir(dir) else {
