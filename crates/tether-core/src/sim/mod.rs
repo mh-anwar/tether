@@ -146,11 +146,16 @@ impl Simulator {
         Ok(())
     }
     async fn attach(&self, l: link::Link) {
-        self.0
-            .state
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .peer_cert = l.peer_cert.clone();
+        {
+            let mut state = self.0.state.lock().unwrap_or_else(|e| e.into_inner());
+            state.peer_cert = l.peer_cert.clone();
+            state.received.push(Received {
+                packet: l.peer.to_packet(),
+                payload: vec![],
+                payload_error: None,
+            });
+        }
+        self.0.changed.notify_waiters();
         let (rd, mut wr) = tokio::io::split(l.stream);
         let mut lines = BufReader::new(rd).lines();
         let (tx, mut rx) = mpsc::channel::<Packet>(128);
