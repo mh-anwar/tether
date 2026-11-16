@@ -340,3 +340,10 @@ Direction: P->D = phone sends, D->P = desktop (us) sends. Android files under `A
 - Exact cipher suites negotiated (Android defaults vary by OS version; only the protocol is pinned).
 - Whether Android's PKIX path check enforces notBefore/notAfter on the stored self-signed peer cert.
 - Bluetooth backend (`A:backends/bluetooth/`) was not reviewed.
+
+## Local protocol tests
+
+`tether_core::sim` exercises both TLS roles with the same link and payload code used by the daemon.
+The daemon's optional `TETHER_PORT` overrides its local TCP/UDP listeners and broadcast destination;
+it does not relax the standard advertised TCP port validation on incoming discovery identities.
+See `testing.md` for scripting, captured payloads and the integration-test fixture.
