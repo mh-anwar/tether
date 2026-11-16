@@ -110,3 +110,10 @@ stored as `commands: [{id,name,command}]`; `commands_get` / `commands_set` and s
 share validation. Commands execute as the logged-in user, without shell interpolation of packet fields.
 `computer_status` restores the ring banner or pending commands-settings navigation in a new window;
 `computer_ring_stop` stops ringing. Notification actions and a second phone request also stop it.
+
+## Protocol simulator
+
+`tether_core::sim::Simulator` owns a real TLS phone link, packet/payload history and a Unix JSON-lines
+control socket. `sim/scenario.rs` holds the seeded Android-style request responses; `examples/fake_phone`
+is the reconnecting screenshot wrapper. Daemon integration tests share a short-path XDG/process/API
+fixture in `crates/tether/tests/support`; `TETHER_PORT` isolates daemon TCP and UDP listeners.

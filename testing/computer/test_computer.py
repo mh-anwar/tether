@@ -80,7 +80,7 @@ try:
  (W/'touched').unlink();before=calls();root.warp_pointer(300,300);x.sync()
  for kind,body in [('runcommand.request',{'key':'touch'}),('mousepad.request',{'dx':50}),('lock.request',{'setLocked':True}),('systemvolume.request',{'name':'test-sink','volume':20}),('findmyphone.request',{})]:send(kind,body)
  time.sleep(1)
- assert not (W/'touched').exists();assert root.query_pointer().root_x==300;assert calls()==before;assert not api('computer_status')['ringing']
+ assert not (W/'touched').exists();px=root.query_pointer().root_x;assert px==300,px;assert calls()==before;assert not api('computer_status')['ringing']
  print('ok all permission switches block side effects')
  x.close()
 finally:

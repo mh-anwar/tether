@@ -365,3 +365,10 @@ Reference: kdeconnect-kde `plugins/runcommand/runcommandplugin.cpp`,
 - Incoming `kdeconnect.findmyphone.request` toggles the local ring; notification and window can stop it.
 - Outgoing `kdeconnect.battery` is sent only with a system battery (not a peripheral battery).
   thresholdEvent is 1 at <=15% while discharging, otherwise 0.
+
+## Local protocol tests
+
+`tether_core::sim` exercises both TLS roles with the same link and payload code used by the daemon.
+The daemon's optional `TETHER_PORT` overrides its local TCP/UDP listeners and broadcast destination;
+it does not relax the standard advertised TCP port validation on incoming discovery identities.
+See `testing.md` for scripting, captured payloads and the integration-test fixture.
