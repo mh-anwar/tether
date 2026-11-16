@@ -1,7 +1,9 @@
 //! A stand-in Android phone for development and screenshots. It speaks the real protocol (TLS,
 //! v8 identity, pairing) and serves made-up texts, contacts and notifications.
 //!
-//!     cargo run -p tether-core --example fake_phone -- 127.0.0.1:1716 /tmp/fake-phone
+//! ```text
+//! cargo run -p tether-core --example fake_phone -- 127.0.0.1:1716 /tmp/fake-phone
+//! ```
 //!
 //! It dials the daemon, asks to pair (accept with `tether accept`), then answers requests the way
 //! kdeconnect-android does. Sent texts are echoed back as sent, and the contact replies shortly.
