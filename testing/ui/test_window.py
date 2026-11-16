@@ -273,6 +273,7 @@ try:
     def take_photo():
         import json
         d.find_element(By.TAG_NAME, "body").send_keys(Keys.CONTROL, "k")
+        d.switch_to.active_element.send_keys("photo")
         wait.until(EC.element_to_be_clickable(
             (By.XPATH, "//*[contains(@class, 'palette')]//*[normalize-space(.)='Take a photo']"))).click()
         text_shown("Take the photo on")
@@ -281,6 +282,9 @@ try:
         button("Show in folder")
         cfg = json.loads(Path(os.environ["XDG_CONFIG_HOME"], "tether/config.json").read_text())
         assert list(Path(cfg["downloads_dir"]).glob("IMG_20261116_101500*.jpg")), "photo not in Downloads"
+        # Its download row in the notifications column finishes too.
+        wait.until(lambda _: d.execute_script(
+            "return state.transfers.some((t) => t.name.startsWith('IMG_20261116_101500') && t.path)"))
         d.switch_to.active_element.send_keys(Keys.ESCAPE)
         wait.until(lambda _: not d.find_elements(By.CSS_SELECTOR, ".viewer"))
         d.execute_script("showView('photos')")

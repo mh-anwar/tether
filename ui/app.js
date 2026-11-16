@@ -1671,7 +1671,6 @@ function commands() {
     { label: 'New message', sub: 'Ctrl+N', icon: 'plus', run: () => openNew() },
     live && { label: 'Send text or link', icon: 'send', run: sendTextOrLink },
     live && { label: 'Ring my phone', icon: 'ring', run: ringPhone },
-    canTakePhoto(d) && { label: 'Take a photo', sub: 'With the phone\'s camera', icon: 'camera', run: takePhoto },
     live && { label: 'Ping my phone', icon: 'bolt', run: () => quick('ping', 'Ping sent') },
     live && player && { label: player.is_playing ? `Pause ${player.title}` : `Play ${player.title}`, sub: player.name, icon: player.is_playing ? 'pause' : 'play', run: () => mediaAction(player, 'PlayPause') },
     live && player && player.can_go_next && { label: 'Next song', sub: player.name, icon: 'next', run: () => mediaAction(player, 'Next') },
@@ -1683,6 +1682,8 @@ function commands() {
   ].filter(Boolean);
   cmds.push({ label: 'Show phone apps', icon: 'apps', run: () => showView('apps') });
   cmds.push({ label: 'Show phone photos', icon: 'image', run: () => showView('photos') });
+  // After the everyday commands: the palette shows nine before anything is typed.
+  if (canTakePhoto(d)) cmds.push({ label: 'Take a photo', sub: 'With the phone\'s camera', icon: 'camera', run: takePhoto });
   for (const [view, label] of [['files', 'Browse phone files'], ['contacts', 'Show contacts'], ['keyboard', 'Keyboard'], ['devices', 'Manage phones']])
     cmds.push({ label, icon: view === 'keyboard' ? 'key' : 'phone', run: () => showView(view) });
   cmds.push({ label: 'Settings', icon: 'settings', run: () => showView('settings') });
@@ -1756,6 +1757,14 @@ async function sendFiles(paths, d) {
   catch (e) { toast(`Files didn't send: ${e}`, 'error'); }
 }
 
+// A finished download from the phone (a shared file or a camera photo) completes its progress row.
+function receivedFile(path) {
+  const name = path.split('/').pop();
+  const t = state.transfers.find((t) => !t.sending && !t.path && !t.error && (t.name === name || name.startsWith(t.name.replace(/(\.[^.]+)?$/, ' ('))));
+  if (t) t.path = path; else state.transfers.unshift({ name, path });
+  invalidate('feed');
+}
+
 // ---------- events ----------
 function onEvent(ev) {
   if (ev.event === 'computer_settings') { openCommandsSettings(); return; }
@@ -1811,6 +1820,7 @@ function onEvent(ev) {
     case 'shared_url': toast('Opening the link from your phone'); break;
     case 'transfer_progress': transferProgress(u); break;
     case 'photo_taken': {
+      receivedFile(u.path);
       // Closing the viewer doesn't stop the phone; a picture that arrives later still gets a word.
       const showing = photoWait && $('.viewer');
       photoWait?.resolve(u.path);
@@ -1818,12 +1828,7 @@ function onEvent(ev) {
       break;
     }
     case 'photo_cancelled': photoWait?.reject(new Error('The camera closed without a photo.')); break;
-    case 'file_received': {
-      const name = u.path.split('/').pop();
-      const t = state.transfers.find((t) => !t.sending && !t.path && !t.error && (t.name === name || name.startsWith(t.name.replace(/(\.[^.]+)?$/, ' ('))));
-      if (t) t.path = u.path; else state.transfers.unshift({ name, path: u.path });
-      invalidate('feed'); toast(`Received ${name}`); break;
-    }
+    case 'file_received': receivedFile(u.path); toast(`Received ${u.path.split('/').pop()}`); break;
     case 'transfer_failed': { const t = state.transfers.find((t) => t.name === u.name && !t.path && !t.done); if (t) t.error = u.reason; invalidate('feed'); } toast(`${u.name} didn't arrive: ${u.reason}`, 'error'); break;
   }
 }
