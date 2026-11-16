@@ -61,6 +61,8 @@ pub fn incoming_capabilities() -> Vec<String> {
         mpris::REQUEST,
         notification::REQUEST,
         sftp::SFTP,
+        mousepad::STATE,
+        mousepad::ECHO,
     ]
     .map(String::from)
     .to_vec()
@@ -95,6 +97,7 @@ pub fn outgoing_capabilities() -> Vec<String> {
         mpris::MPRIS,
         notification::NOTIFICATION,
         sftp::REQUEST,
+        mousepad::REQUEST,
     ]
     .map(String::from)
     .to_vec()
@@ -118,6 +121,7 @@ pub struct Signal {
 /// and resends it on every connection.
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct DeviceData {
+    pub keyboard_active: Option<bool>,
     pub battery: Option<Battery>,
     #[serde(skip)]
     pub share_count: Option<i64>,
@@ -138,6 +142,13 @@ pub struct DeviceData {
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Update {
+    KeyboardState {
+        active: bool,
+    },
+    KeyboardEcho {
+        key: String,
+        special_key: Option<i64>,
+    },
     Computer {
         packet: Packet,
     },
@@ -221,6 +232,20 @@ pub struct Outcome {
 pub fn handle(data: &mut DeviceData, p: &Packet) -> Outcome {
     let mut out = Outcome::default();
     match p.kind.as_str() {
+        mousepad::STATE => {
+            if let Some(active) = p.bool("state") {
+                data.keyboard_active = Some(active);
+                out.updates.push(Update::KeyboardState { active });
+            }
+        }
+        mousepad::ECHO => {
+            if p.bool("isAck") == Some(true) {
+                out.updates.push(Update::KeyboardEcho {
+                    key: p.str("key").unwrap_or("").into(),
+                    special_key: p.i64("specialKey"),
+                });
+            }
+        }
         runcommand::REQUEST
         | mousepad::REQUEST
         | presenter::TYPE

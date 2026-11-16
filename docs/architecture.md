@@ -98,6 +98,15 @@ Request `{"id","method","params"}`, reply `{"id","result"|"error"}`, events push
   Phone text is only set via `textContent`. Icons are inline SVG in `ui/icons.js`.
 - Messages are cached in memory per thread; the phone is the source of truth and resends on connect.
 
+Phone tools: Files uses `files_list {device,path?}` and
+`file_operation {device,action,path,target?,directory?}` (open/save/upload/mkdir/rename/delete),
+sharing the Photos SFTP login cache. Listings batch metadata in one SFTP session; mutations surface
+server errors. Open downloads a fresh copy and invokes xdg-open; Save uses the configured Downloads.
+Contacts groups synced numbers by name and starts Messages with the selected number.
+Keyboard sends ordered `keyboard {device,key?,specialKey?,shift?,ctrl?,alt?,super?}` calls;
+core stores keyboard availability and emits keyboard_state/keyboard_echo updates. `tether type TEXT`
+uses the same API. Native GTK file selection adds rfd with only its gtk3 backend.
+
 ## Desktop media and incoming shares
 - `desktopmedia` watches session-bus MPRIS names, PropertiesChanged and Seeked. It excludes the
   `org.mpris.MediaPlayer2.tether` phone proxy. Phone requests reach it as authenticated `DesktopRequest`

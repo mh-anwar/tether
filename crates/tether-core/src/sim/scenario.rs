@@ -400,6 +400,13 @@ pub(super) fn seed() -> Phone {
 }
 
 pub(super) async fn greet(tx: &mpsc::Sender<Packet>) {
+    // The phone's Remote keyboard starts inactive until the user picks it (RemoteKeyboardPlugin).
+    let _ = tx
+        .send(Packet::new(
+            plugins::mousepad::STATE,
+            json!({"state": false}),
+        ))
+        .await;
     let _ = tx
         .send(Packet::new(
             "kdeconnect.battery",
@@ -617,6 +624,10 @@ pub(super) async fn handle(
         tokio::spawn(async move { send_attachment(&p, &tx, &tls, &peer_cert).await });
         return;
     }
+    if let Some(reply) = record_mousepad(p) {
+        let _ = tx.send(reply).await;
+        return;
+    }
     let out: Vec<Packet> = {
         let mut ph = phone.lock().unwrap_or_else(|e| e.into_inner());
         match p.kind.as_str() {
@@ -786,5 +797,43 @@ pub(super) async fn handle(
     };
     for o in out {
         let _ = tx.send(o).await;
+    }
+}
+
+/// Keys this computer types on the phone: logged to `$FAKE_MOUSEPAD_LOG` for the window tests and
+/// acknowledged the way RemoteKeyboardPlugin does when `sendAck` is set.
+fn record_mousepad(p: &Packet) -> Option<Packet> {
+    if p.kind != plugins::mousepad::REQUEST {
+        return None;
+    }
+    if let Ok(path) = std::env::var("FAKE_MOUSEPAD_LOG") {
+        use std::io::Write;
+        if let Ok(mut file) = std::fs::OpenOptions::new()
+            .append(true)
+            .create(true)
+            .open(path)
+        {
+            let _ = writeln!(file, "{}", Value::Object(p.body.clone()));
+        }
+    }
+    let mut body = p.body.clone();
+    body.remove("sendAck");
+    body.insert("isAck".into(), json!(true));
+    Some(Packet::new(plugins::mousepad::ECHO, Value::Object(body)))
+}
+
+#[cfg(test)]
+mod mousepad_tests {
+    use super::*;
+    #[test]
+    fn mousepad_ack_adds_a_new_field_without_panicking() {
+        let p = Packet::new(
+            plugins::mousepad::REQUEST,
+            json!({"key": "test", "sendAck": true}),
+        );
+        let ack = record_mousepad(&p).unwrap_or_else(|| Packet::new("none", json!({})));
+        assert_eq!(ack.bool("isAck"), Some(true));
+        assert_eq!(ack.str("key"), Some("test"));
+        assert!(record_mousepad(&Packet::new("other", json!({}))).is_none());
     }
 }
