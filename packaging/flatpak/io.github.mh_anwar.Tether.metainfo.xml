@@ -45,6 +45,11 @@
     <color type="primary" scheme_preference="dark">#1f2a40</color>
   </branding>
   <releases>
+    <release version="1.1.0" date="2026-11-16">
+      <description>
+        <p>Phone apps open once each in their own window, show which are open, and can be closed from Tether; older Android phones fall back to screen mirroring. The tray icon has a right-click menu, shows the phone and its battery, and marks unread texts. Notifications show the phone app's icon. Phones whose KDE Connect app still offers the camera can send a new photo straight to Downloads.</p>
+      </description>
+    </release>
     <release version="1.0.0" date="2026-11-16">
       <description>
         <p>The phone can now control this computer: touchpad and keyboard, presentation remote, screen lock, volume, music players, ringing the computer, and commands you set up. New Files, Contacts, Keyboard and Devices pages. Other additions: the computer's notifications on the phone (off by default), music that pauses during calls, file sharing with progress in both directions, discovery on networks that block broadcasts, and a checklist of what to turn on in the KDE Connect app.</p>
