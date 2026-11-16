@@ -297,6 +297,14 @@ impl Service {
         self.inner.cert.key_pem()
     }
 
+    /// The phone's last battery report, without copying the rest of its data (texts, contacts).
+    pub fn battery(&self, id: &str) -> Option<plugins::Battery> {
+        self.inner
+            .lock()
+            .get(id)
+            .and_then(|d| d.data.battery.clone())
+    }
+
     pub fn device_data(&self, id: &str) -> Result<DeviceData> {
         let devs = self.inner.lock();
         devs.get(id)

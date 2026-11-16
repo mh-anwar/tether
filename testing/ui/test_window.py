@@ -14,7 +14,7 @@ from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.common.options import ArgOptions
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
-from selenium.common.exceptions import StaleElementReferenceException
+from selenium.common.exceptions import ElementClickInterceptedException, StaleElementReferenceException
 
 opts = ArgOptions()
 opts.set_capability("browserName", "wry")
@@ -351,6 +351,31 @@ try:
         saved.find_element(By.XPATH, ".//button[text()='Remove command']").click()
         wait.until(lambda _: not any(c["name"] == "Test command" for c in json.loads(cfg.read_text()).get("commands", [])))
     check("Commands editor adds, edits and removes", commands_editor)
+
+    def tray_note():
+        # wd.sh runs the service as on GNOME with no tray; Settings explains once, until closed.
+        import json
+        click("Settings")
+        d.execute_script("return api('settings_set', { tray_note_dismissed: false }).then(() => loadSettings())")
+        note = wait.until(EC.visibility_of_element_located((By.CSS_SELECTOR, "[data-key=tray-note]")))
+        assert "extensions.gnome.org/extension/615" in note.text, note.text
+        assert note.find_element(By.CSS_SELECTOR, "[data-key=tray-extension]").is_enabled()
+        output = Path(os.environ.get("TETHER_SHOTS") or Path(os.environ["XDG_CONFIG_HOME"]).parent / "shots")
+        output.mkdir(parents=True, exist_ok=True)
+        d.save_screenshot(str(output / "settings-tray-note.png"))
+
+        # Toasts from earlier steps can sit over the button for a moment; retry until they go.
+        def close(_):
+            close_button = d.find_element(By.CSS_SELECTOR, "[data-key=tray-note-close]")
+            # WebKit can leave Settings at its previous scroll offset after redraw.
+            d.execute_script("arguments[0].scrollIntoView({block: 'center'})", close_button)
+            close_button.click()
+            return True
+        WebDriverWait(d, 20, ignored_exceptions=(StaleElementReferenceException, ElementClickInterceptedException)).until(close)
+        cfg = Path(os.environ["XDG_CONFIG_HOME"], "tether/config.json")
+        wait.until(lambda _: json.loads(cfg.read_text()).get("tray_note_dismissed") is True)
+        wait.until(lambda _: not d.find_elements(By.CSS_SELECTOR, "[data-key=tray-note]"))
+    check("Settings explains the missing tray on GNOME, once", tray_note)
 
     def rename_computer():
         # A new name restarts the background service; the window must come back by itself.

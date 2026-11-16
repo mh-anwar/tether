@@ -38,7 +38,8 @@ check on a real Android phone with the stock KDE Connect app (the owner's Samsun
   version shows the new behaviour without a reboot.
 - [~] Q32/Q33 **Screenshot Copy/Save, Photos page**: checked with a stand-in sftp server. Done when: they
   work with "Filesystem expose" on the Samsung.
-- [~] Q10 **Tray icon** on the owner's i3 and on KDE/GNOME (checked with stand-in trays).
+- [~] Q10 **Tray icon** on the owner's i3 and on KDE/GNOME (checked with stand-in trays). Done when: the
+  menu, tooltip and badge look right on a real KDE panel, GNOME with the AppIndicator extension, and i3bar.
 - [~] Q29 **Auto-update** goes live once the repo is public (Q17a).
 
 ## Next
@@ -68,6 +69,10 @@ check on a real Android phone with the stock KDE Connect app (the owner's Samsun
 - 2026-11-16 Q36 take a photo with the phone's camera (`kdeconnect.photo.request`; Ctrl+K and the Photos page,
   shown only for phones that still offer it; saved to Downloads and shown). Q14 notification app icons in the
   column with a letter when the icon is missing or broken (checked with the stand-in phone, not the real one).
+- 2026-11-16 Tray polish: right-click menu (Open Tether, Ring my phone, Send files, Pause notification
+  pop-ups, Quit Tether) over dbusmenu and as our own menu on XEmbed bars; tooltip with phone, battery and
+  unread count; NeedsAttention with unread; one-colour icon on GNOME/KDE panels; no X11 on Wayland; unread
+  count on the dock icon; Settings note when GNOME has no tray (`testing/ui/tray_e2e.sh`, `tray_xembed.sh`).
 - 2026-11-16 v1.0.0: every KDE Connect feature people expect, both directions. Phone controls the computer
   (run commands, touchpad and keyboard, presenter, lock, volume, ring this computer, battery to the phone,
   #2); desktop players on the phone, pause on calls, this computer's notifications on the phone, complete
