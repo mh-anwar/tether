@@ -1,4 +1,4 @@
-"""Run via dbus-run-session -- uv run --with dbus-next python testing/media/e2e.py."""
+"""Run via dbus-run-session -- uv run --with dbus-next --with python-xlib python testing/media/e2e.py."""
 import asyncio
 import json
 import os
@@ -18,7 +18,7 @@ async def main():
     for p in ['cfg/tether', 'run', 'control', 'bin']:
         (work / p).mkdir(parents=True)
     (work/'run').chmod(0o700)
-    (work/'cfg/tether/config.json').write_text(json.dumps({'device_name': 'Media test', 'send_notifications': True, 'clipboard_sync': False, 'downloads_dir': str(work/'downloads'), 'auto_update':False}))
+    (work/'cfg/tether/config.json').write_text(json.dumps({'device_name': 'Media test', 'send_notifications': True, 'notification_blocklist': ['Blocked App'], 'clipboard_sync': False, 'downloads_dir': str(work/'downloads'), 'auto_update':False}))
     (work/'art.png').write_bytes((ROOT/'testing/fake-art/icon-whatsapp.png').read_bytes())
     opener = work/'bin/xdg-open'
     opener.write_text('#!/bin/sh\nprintf "%s\\n" "$1" >> "$MEDIA_TEST_DIR/opened"\n')
@@ -48,7 +48,8 @@ async def main():
                     return v['result'], progress
         finally:
             writer.close(); await writer.wait_closed()
-    def desktop(s): return s in (work/'desktop.log').read_text()
+    def desktop_log(): return (work/'desktop.log').read_text()
+    def desktop(s): return s in desktop_log()
     def packets():
         return [json.loads(x) for x in (work/'control/received.jsonl').read_text().splitlines()]
     seq = 0
@@ -94,6 +95,28 @@ async def main():
         await until(lambda:any(p['body'].get('appName')=='Editor' for p in packets()),'desktop notification reaches phone')
         send('kdeconnect.notification.request',{'cancel':'tether-desktop:77'})
         await until(lambda:desktop('CloseNotification 77'),'phone dismisses desktop notification')
+        def notify(app, title):
+            subprocess.run(['gdbus','call','--session','--dest','org.freedesktop.Notifications','--object-path','/org/freedesktop/Notifications','--method','org.freedesktop.Notifications.Notify',app,'0','',title,'x','[]','{}','5000'],env=env,check=True,stdout=subprocess.DEVNULL)
+        notify('Blocked App','Hidden')
+        send('kdeconnect.notification',{'id':'phone-1','appName':'PhoneApp','title':'From phone','text':'hello','isClearable':True,'time':'1'})
+        await until(lambda:desktop('Notify PhoneApp'),'phone notification mirrored to desktop')
+        notify('Control App','Marker')
+        await until(lambda:any(p['body'].get('appName')=='Control App' for p in packets()),'later desktop notification still forwarded')
+        names = [p['body'].get('appName') for p in packets() if p['type']=='kdeconnect.notification']
+        assert 'Blocked App' not in names, names
+        assert 'PhoneApp' not in names, names
+        print('ok blocklisted and mirrored notifications are not forwarded')
+        # Talking mode with mute: ringing leaves the player alone, answering mutes it, hanging up restores the volume.
+        cfg = work/'cfg/tether/config.json'
+        conf = json.loads(cfg.read_text()); conf.update(pause_media='talking', mute_media=True); cfg.write_text(json.dumps(conf))
+        before = desktop_log().count('Volume')
+        send('kdeconnect.telephony',{'event':'ringing'})
+        await asyncio.sleep(.8)
+        assert desktop_log().count('Volume') == before, 'talking mode must not act on ringing'
+        send('kdeconnect.telephony',{'event':'talking'})
+        await until(lambda:desktop('Volume 0.0'),'answering mutes desktop player')
+        send('kdeconnect.telephony',{'event':'talking','isCancel':'true'})
+        await until(lambda:desktop_log().rstrip().endswith('Volume 0.35'),'hanging up restores the volume')
         source = work/'source'; source.write_text('shared bytes')
         devices, _ = await api('devices')
         result, progress = await api('share_files', {'device': devices[0]['id'], 'paths': [str(source),str(source)]})

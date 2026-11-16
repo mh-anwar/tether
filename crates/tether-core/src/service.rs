@@ -494,13 +494,7 @@ impl Service {
         for path in paths {
             total = total.saturating_add(tokio::fs::metadata(path).await?.len());
         }
-        self.send(
-            id,
-            Packet::new(
-                "kdeconnect.share.request.update",
-                json!({"numberOfFiles": paths.len(), "totalPayloadSize": total}),
-            ),
-        )?;
+        self.send(id, plugins::share_batch(paths.len(), total))?;
         let mut sent = 0;
         for path in paths {
             sent += self.share_file_batch(id, path, paths.len(), total).await?;
@@ -540,10 +534,7 @@ impl Service {
             })
         };
         progress(0);
-        let p = Packet::new(
-            plugins::SHARE,
-            json!({"filename": name, "open": false, "numberOfFiles": count, "totalPayloadSize": total}),
-        );
+        let p = plugins::share_file_packet(&name, count, total);
         let mut last = std::time::Instant::now();
         match self
             .send_payload_progress(id, p, path, |bytes| {
@@ -826,7 +817,7 @@ impl Inner {
             });
             return;
         }
-        if p.kind == "kdeconnect.share.request.update" {
+        if p.kind == plugins::SHARE_UPDATE {
             d.data.share_count = p.i64("numberOfFiles");
             d.data.share_total = p.i64("totalPayloadSize");
             self.emit(Event::Update {

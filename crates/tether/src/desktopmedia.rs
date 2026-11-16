@@ -65,6 +65,15 @@ fn packet(name: &str, p: &Props) -> Packet {
     }
     Packet::new(mpris::MPRIS, body)
 }
+/// Whether a call in `state` should silence desktop players under the `pause_media` setting:
+/// "ringing" acts as soon as the phone rings, "talking" waits for the call to be answered.
+fn pause_on(mode: &str, state: &CallState) -> bool {
+    match state {
+        CallState::Ringing => mode == "ringing",
+        CallState::Talking => mode != "off",
+        _ => false,
+    }
+}
 fn list(players: &BTreeMap<String, (String, Value)>) -> Packet {
     Packet::new(
         mpris::MPRIS,
@@ -126,7 +135,10 @@ async fn request(
         s.send(id, list(players))?;
     }
     let Some((bus, _)) = p.str("player").and_then(|n| players.get(n)) else {
-        s.send(id, list(players))?;
+        // Unknown or vanished player: the list tells the phone what is there now (once).
+        if p.bool("requestPlayerList") != Some(true) {
+            s.send(id, list(players))?;
+        }
         return Ok(());
     };
     let player = proxy(c, bus).await?;
@@ -249,8 +261,7 @@ pub async fn run(s: Service) {
                     Ok(Event::Device(d)) => { if d.connected && d.pair == PairState::Paired { let _ = s.send(&d.id,list(&previous)); } else { calls.remove(&d.id); } }
                     Ok(Event::Update { device_id, update: Update::Call(call) }) => {
                         let cfg = crate::config::Config::load().unwrap_or_default();
-                        let trigger = match call.state { CallState::Ringing => cfg.pause_media == "ringing", CallState::Talking => cfg.pause_media != "off", _ => false };
-                        if trigger {
+                        if pause_on(&cfg.pause_media, &call.state) {
                             calls.insert(device_id);
                             for (bus,body) in previous.values() {
                                 if paused.contains_key(bus) || body.get("isPlaying") != Some(&json!(true)) { continue; }
@@ -287,5 +298,33 @@ mod tests {
             list(&BTreeMap::new()).bool("supportAlbumArtPayload"),
             Some(true)
         );
+    }
+    #[test]
+    fn metadata_and_loop_fields() {
+        let p = HashMap::from([
+            (
+                "PlaybackStatus".into(),
+                OwnedVariant::try_from(zbus::Variant::from("Playing")).unwrap(),
+            ),
+            (
+                "LoopStatus".into(),
+                OwnedVariant::try_from(zbus::Variant::from("Track")).unwrap(),
+            ),
+            ("Shuffle".into(), OwnedVariant::from(true)),
+        ]);
+        let packet = packet("Test", &p);
+        assert_eq!(packet.bool("isPlaying"), Some(true));
+        assert_eq!(packet.str("loopStatus"), Some("Track"));
+        assert_eq!(packet.bool("shuffle"), Some(true));
+        assert_eq!(packet.str("player"), Some("Test"));
+    }
+    #[test]
+    fn call_states_pause_by_setting() {
+        assert!(pause_on("ringing", &CallState::Ringing));
+        assert!(pause_on("ringing", &CallState::Talking));
+        assert!(!pause_on("talking", &CallState::Ringing));
+        assert!(pause_on("talking", &CallState::Talking));
+        assert!(!pause_on("off", &CallState::Ringing));
+        assert!(!pause_on("off", &CallState::Talking));
     }
 }

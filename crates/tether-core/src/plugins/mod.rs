@@ -35,7 +35,7 @@ pub fn incoming_capabilities() -> Vec<String> {
         CLIPBOARD,
         CLIPBOARD_CONNECT,
         SHARE,
-        "kdeconnect.share.request.update",
+        SHARE_UPDATE,
         CONNECTIVITY,
         notification::NOTIFICATION,
         sms::MESSAGES,
@@ -59,7 +59,7 @@ pub fn outgoing_capabilities() -> Vec<String> {
         CLIPBOARD,
         CLIPBOARD_CONNECT,
         SHARE,
-        "kdeconnect.share.request.update",
+        SHARE_UPDATE,
         FIND_PHONE,
         notification::REQUEST,
         notification::REPLY,
@@ -277,6 +277,24 @@ pub fn share_url(url: &str) -> Packet {
     Packet::new(SHARE, json!({"url": url}))
 }
 
+pub const SHARE_UPDATE: &str = "kdeconnect.share.request.update";
+
+/// Announces a batch before its files (Android SharePlugin shows one progress for the lot).
+pub fn share_batch(count: usize, total: u64) -> Packet {
+    Packet::new(
+        SHARE_UPDATE,
+        json!({"numberOfFiles": count, "totalPayloadSize": total}),
+    )
+}
+
+/// One file of a batch; the payload size and port are added when it is sent.
+pub fn share_file_packet(name: &str, count: usize, total: u64) -> Packet {
+    Packet::new(
+        SHARE,
+        json!({"filename": name, "open": false, "numberOfFiles": count, "totalPayloadSize": total}),
+    )
+}
+
 /// Name lookup for a phone number, used to label threads and calls.
 pub fn contact_name(data: &DeviceData, number: &str) -> Option<String> {
     data.contacts.name_for(number)
@@ -295,11 +313,28 @@ mod media_share_tests {
             notification::NOTIFICATION,
             notification::REQUEST,
             SHARE,
-            "kdeconnect.share.request.update",
+            SHARE_UPDATE,
         ] {
             assert!(incoming_capabilities().iter().any(|k| k == kind));
             assert!(outgoing_capabilities().iter().any(|k| k == kind));
         }
+    }
+    #[test]
+    fn batch_packets_carry_count_and_total() {
+        let batch = share_batch(3, 9000);
+        assert_eq!(batch.kind, "kdeconnect.share.request.update");
+        assert_eq!(
+            (batch.i64("numberOfFiles"), batch.i64("totalPayloadSize")),
+            (Some(3), Some(9000))
+        );
+        let file = share_file_packet("a.jpg", 3, 9000);
+        assert_eq!(file.kind, SHARE);
+        assert_eq!(file.str("filename"), Some("a.jpg"));
+        assert_eq!(file.bool("open"), Some(false));
+        assert_eq!(
+            (file.i64("numberOfFiles"), file.i64("totalPayloadSize")),
+            (Some(3), Some(9000))
+        );
     }
     #[test]
     fn shared_text_and_url_parse_without_becoming_clipboard_sync() {

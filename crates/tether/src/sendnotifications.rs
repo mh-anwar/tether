@@ -31,7 +31,10 @@ fn notification_packet(id: u32, n: &Notify) -> Packet {
     )
 }
 fn allowed(n: &Notify) -> bool {
-    let cfg = crate::config::Config::load().unwrap_or_default();
+    allowed_by(&crate::config::Config::load().unwrap_or_default(), n)
+}
+/// Off by default; never our own notifications or the phone's, which we mirrored (they'd loop back).
+fn allowed_by(cfg: &crate::config::Config, n: &Notify) -> bool {
     cfg.send_notifications
         && !n.0.eq_ignore_ascii_case("tether")
         && !n.6.contains_key("x-tether-mirrored")
@@ -40,37 +43,38 @@ fn allowed(n: &Notify) -> bool {
             .iter()
             .any(|app| app.eq_ignore_ascii_case(&n.0))
 }
+/// Converts a freedesktop `image-data` hint (width, height, rowstride, has-alpha, bits, channels,
+/// bytes; rows are padded to the stride) to an RGBA image. Size limits and the length check keep a
+/// hostile or buggy sender from making us allocate or index out of range.
+fn rgba_image(v: OwnedVariant) -> Option<image::RgbaImage> {
+    let (w, h, stride, alpha, bits, channels, data) =
+        <(i32, i32, i32, bool, i32, i32, Vec<u8>)>::try_from(v).ok()?;
+    if !(1..=2048).contains(&w)
+        || !(1..=2048).contains(&h)
+        || bits != 8
+        || channels != if alpha { 4 } else { 3 }
+        || stride < w * channels
+        || data.len() < (stride as usize).checked_mul(h as usize)?
+    {
+        return None;
+    }
+    let mut pixels = Vec::with_capacity((w * h * 4) as usize);
+    for row in 0..h as usize {
+        for col in 0..w as usize {
+            let i = row * stride as usize + col * channels as usize;
+            pixels.extend_from_slice(&data[i..i + 3]);
+            pixels.push(if alpha { data[i + 3] } else { 255 });
+        }
+    }
+    image::RgbaImage::from_raw(w as u32, h as u32, pixels)
+}
 fn icon(n: &Notify, s: &Service) -> Option<std::path::PathBuf> {
     // freedesktop image-data is (width,height,rowstride,alpha,bits,channels,bytes), with row padding.
     for key in ["image-data", "image_data", "icon_data"] {
         let Some(v) = n.6.get(key).and_then(|v| v.try_clone().ok()) else {
             continue;
         };
-        let Ok((w, h, stride, alpha, bits, channels, data)) =
-            <(i32, i32, i32, bool, i32, i32, Vec<u8>)>::try_from(v)
-        else {
-            continue;
-        };
-        if !(1..=2048).contains(&w)
-            || !(1..=2048).contains(&h)
-            || bits != 8
-            || channels != if alpha { 4 } else { 3 }
-            || stride < w * channels
-        {
-            continue;
-        }
-        if data.len() < (stride as usize).checked_mul(h as usize)? {
-            continue;
-        }
-        let mut pixels = Vec::with_capacity((w * h * 4) as usize);
-        for row in 0..h as usize {
-            for col in 0..w as usize {
-                let i = row * stride as usize + col * channels as usize;
-                pixels.extend_from_slice(&data[i..i + 3]);
-                pixels.push(if alpha { data[i + 3] } else { 255 });
-            }
-        }
-        let image = image::RgbaImage::from_raw(w as u32, h as u32, pixels)?;
+        let Some(image) = rgba_image(v) else { continue };
         let dir = s.data_dir().join("desktop-icons");
         std::fs::create_dir_all(&dir).ok()?;
         let path = dir.join(format!("{}.png", uuid::Uuid::new_v4()));
@@ -223,5 +227,72 @@ mod tests {
         assert_eq!(p.str("id"), Some("tether-desktop:12"));
         assert_eq!(p.str("ticker"), Some("Saved: Document"));
         assert_eq!(p.bool("isClearable"), Some(true));
+    }
+    fn from_app(app: &str, hints: HashMap<String, OwnedVariant>) -> Notify {
+        (
+            app.into(),
+            0,
+            "".into(),
+            "t".into(),
+            "b".into(),
+            vec![],
+            hints,
+            -1,
+        )
+    }
+    #[test]
+    fn off_by_default_and_blocklist_applies() {
+        let mut cfg = crate::config::Config::default();
+        assert!(!allowed_by(&cfg, &from_app("Editor", HashMap::new())));
+        cfg.send_notifications = true;
+        assert!(allowed_by(&cfg, &from_app("Editor", HashMap::new())));
+        cfg.notification_blocklist = vec!["editor".into()];
+        assert!(!allowed_by(&cfg, &from_app("Editor", HashMap::new())));
+    }
+    fn hint(w: i32, h: i32, stride: i32, alpha: bool, bytes: usize) -> OwnedVariant {
+        let channels = if alpha { 4 } else { 3 };
+        OwnedVariant::try_from(zbus::Variant::from((
+            w,
+            h,
+            stride,
+            alpha,
+            8i32,
+            channels,
+            vec![200u8; bytes],
+        )))
+        .unwrap()
+    }
+    #[test]
+    fn image_data_with_row_padding_converts() {
+        // 2x2 RGB with a 8-byte stride: two bytes of padding per row are skipped.
+        let image = rgba_image(hint(2, 2, 8, false, 16)).unwrap();
+        assert_eq!(image.dimensions(), (2, 2));
+        assert_eq!(image.get_pixel(1, 1).0, [200, 200, 200, 255]);
+    }
+    #[test]
+    fn malformed_image_data_is_skipped() {
+        assert!(
+            rgba_image(hint(2, 2, 1, true, 4)).is_none(),
+            "stride below width"
+        );
+        assert!(
+            rgba_image(hint(2, 2, 8, true, 4)).is_none(),
+            "fewer bytes than rows"
+        );
+        assert!(
+            rgba_image(hint(4096, 1, 16384, true, 16384)).is_none(),
+            "too wide"
+        );
+        assert!(rgba_image(hint(0, 1, 4, true, 4)).is_none(), "empty");
+    }
+    #[test]
+    fn own_and_mirrored_notifications_are_never_forwarded() {
+        let cfg = crate::config::Config {
+            send_notifications: true,
+            ..Default::default()
+        };
+        assert!(!allowed_by(&cfg, &from_app("Tether", HashMap::new())));
+        let hints = HashMap::from([("x-tether-mirrored".to_string(), OwnedVariant::from(true))]);
+        assert!(!allowed_by(&cfg, &from_app("WhatsApp", hints)));
     }
 }

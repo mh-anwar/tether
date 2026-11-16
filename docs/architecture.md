@@ -107,5 +107,5 @@ Request `{"id","method","params"}`, reply `{"id","result"|"error"}`, events push
   provide the actual notification IDs for phone dismissals. It is off by default; mirrored notifications
   carry `x-tether-mirrored` to prevent loops. An app-name blocklist is in Settings.
 - `received` owns shared text's clipboard and handles file notifications and xdg-open with the window
-  closed. The window keeps recent transfers in its notifications column; `received_list` recovers the
+  closed. The window keeps recent transfers in a "Received from your phone" section at the top of its notifications column (progress while receiving or sending); `received_list` recovers the
   daemon's recent completed files when reopening it. `share_files` sends one batch sequentially.

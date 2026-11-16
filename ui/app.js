@@ -821,9 +821,15 @@ function settingSwitch(key, label, hint) {
   return h('label', { class: 'setting check' }, input, h('span', {}, h('b', { text: label }), hint ? h('small', { text: hint }) : null));
 }
 
-function settingText(key, label, hint, button = 'Save') {
-  const input = h('input', { type: 'text', 'data-key': `set-${key}`, value: settings.data[key], 'aria-label': label });
-  return h('form', { class: 'setting', onsubmit: (e) => { e.preventDefault(); if (input.value.trim() !== String(settings.data[key])) saveSettings({ [key]: input.value.trim() }); } },
+// `list`: the setting is a list of names, shown and edited as comma-separated text.
+function settingText(key, label, hint, button = 'Save', list = false) {
+  const current = list ? (settings.data[key] || []).join(', ') : String(settings.data[key]);
+  const input = h('input', { type: 'text', 'data-key': `set-${key}`, value: current, 'aria-label': label, placeholder: list ? 'App names, separated by commas' : null });
+  return h('form', { class: 'setting', onsubmit: (e) => {
+    e.preventDefault();
+    const value = list ? input.value.split(',').map((v) => v.trim()).filter(Boolean) : input.value.trim();
+    if (list || value !== current) saveSettings({ [key]: value });
+  } },
     h('label', {}, h('b', { text: label }), hint ? h('small', { text: hint }) : null),
     h('div', { class: 'field-row' }, input, h('button', { class: 'btn', type: 'submit' }, button)));
 }
@@ -844,11 +850,10 @@ function renderSettings() {
         settingText('device_name', 'Name', 'What your phone calls this computer.'),
         settingSwitch('autostart', 'Start Tether when I log in', 'Texts, notifications and the clipboard keep working with the window closed.'),
         settingSwitch('send_notifications', "Send this computer's notifications to the phone", 'Off until you turn it on. Tether notifications are excluded.'),
-        h('form', { class: 'setting', onsubmit: (e) => { e.preventDefault(); saveSettings({ notification_blocklist: e.currentTarget.elements.blocklist.value.split(',').map((v) => v.trim()).filter(Boolean) }); } },
-          h('label', {}, 'Blocked notification apps', h('input', { name: 'blocklist', 'data-key': 'set-blocklist', value: (s.notification_blocklist || []).join(', '), placeholder: 'App names, separated by commas' })),
-          h('button', { class: 'btn', type: 'submit' }, 'Save')),
-        h('div', { class: 'setting' }, h('label', {}, 'During phone calls', h('select', { 'aria-label': 'Pause media during calls', onchange: (e) => saveSettings({ pause_media: e.target.value }) },
-          [['ringing', 'Pause when ringing'], ['talking', 'Pause when talking'], ['off', 'Keep playing']].map(([value, label]) => h('option', { value, selected: s.pause_media === value }, label))))),
+        settingText('notification_blocklist', 'Apps that stay on this computer', 'Notifications from these apps are not sent to the phone.', 'Save', true),
+        h('div', { class: 'setting' }, h('label', { for: 'pause-media' }, h('b', { text: 'During phone calls' }), h('small', { text: 'Desktop players you were listening to.' })),
+          h('select', { id: 'pause-media', 'aria-label': 'Pause media during calls', onchange: (e) => saveSettings({ pause_media: e.target.value }) },
+            [['ringing', 'Pause when the phone rings'], ['talking', 'Pause when the call is answered'], ['off', 'Keep playing']].map(([value, label]) => h('option', { value, selected: s.pause_media === value }, label)))),
         settingSwitch('mute_media', 'Mute instead of pausing', 'Restores each playing player’s volume when the call ends.'),
         settingSwitch('auto_update', 'Install new versions by themselves', 'Off: Tether still tells you when there is one.'),
         h('div', { class: 'setting' }, h('button', { class: 'btn', onclick: checkForUpdates }, icon('refresh', 'sm'), 'Check for updates'))),
@@ -1355,18 +1360,41 @@ function renderFeed() {
   ]);
 }
 
+function fileSize(n) {
+  if (!(n >= 0)) return '';
+  if (n < 1024) return `${n} B`;
+  const units = ['KB', 'MB', 'GB'];
+  let v = n / 1024, i = 0;
+  while (v >= 1024 && i < units.length - 1) { v /= 1024; i++; }
+  return `${v < 10 ? v.toFixed(1) : Math.round(v)} ${units[i]}`;
+}
+
+function transferRow(t) {
+  const files = t.number_of_files > 1 ? ` · ${t.number_of_files} files` : '';
+  const row = h('article', { class: 'transfer', 'aria-label': t.name },
+    h('div', { class: 'top' }, icon(t.sending ? 'upload' : 'download', 'sm'), h('span', { class: 'name', title: t.name, text: t.name })));
+  if (t.error) {
+    row.append(h('div', { class: 'status error', role: 'alert', text: t.error }));
+  } else if (t.path) {
+    row.append(h('div', { class: 'acts' },
+      h('button', { class: 'btn', onclick: () => api('received_open', { path: t.path }).catch((e) => toast(String(e), 'error')) }, 'Open'),
+      h('button', { class: 'btn ghost', onclick: () => api('received_show', { path: t.path }).catch((e) => toast(String(e), 'error')) }, 'Show in folder')));
+  } else if (t.done) {
+    row.append(h('div', { class: 'status', text: `Sent${files}` }));
+  } else {
+    const known = t.total > 0;
+    row.append(
+      h('div', { class: 'status', text: `${t.sending ? 'Sending' : 'Receiving'}${known ? ` · ${fileSize(t.bytes)} of ${fileSize(t.total)}` : ''}${files}` }),
+      h('progress', { max: Math.max(1, t.total), ...(known ? { value: t.bytes } : {}), 'aria-label': `${t.sending ? 'Sending' : 'Receiving'} ${t.name}` }));
+  }
+  return row;
+}
+
 function receivedPanel() {
   return h('section', { class: 'received-panel', 'aria-label': 'Received from your phone' },
     h('h3', { text: 'Received from your phone' }),
-    state.transfers.length ? state.transfers.slice(0, 20).map((t) => h('div', { class: 'note-card' },
-      h('strong', { text: t.name }),
-      t.error ? h('p', { role: 'alert', text: t.error }) : t.path ? h('div', { class: 'row' },
-        h('button', { class: 'btn ghost', onclick: () => api('received_open', { path: t.path }).catch((e) => toast(String(e), 'error')) }, 'Open'),
-        h('button', { class: 'btn ghost', onclick: () => api('received_show', { path: t.path }).catch((e) => toast(String(e), 'error')) }, 'Show in folder'))
-        : t.done ? h('p', { text: 'Sent' }) : h('div', {},
-          h('p', { text: `${t.sending ? 'Sending' : 'Receiving'} · ${t.number_of_files || 1} ${t.number_of_files === 1 ? 'file' : 'files'}` }),
-          h('progress', { max: Math.max(1, t.total), ...(t.total > 0 ? { value: t.bytes } : {}), 'aria-label': `${t.sending ? 'Sending' : 'Receiving'} ${t.name}` }))))
-      : h('p', { class: 'sub', text: 'Files you receive appear here. Drop files in this window to send them.' }));
+    state.transfers.length ? state.transfers.slice(0, 20).map(transferRow)
+      : h('p', { class: 'quiet', text: 'Files you receive appear here. Drop files in this window to send them.' }));
 }
 function transferProgress(u) {
   if (!u.name) {
