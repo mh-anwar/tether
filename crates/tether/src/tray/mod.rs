@@ -138,9 +138,7 @@ fn snapshot(service: &Service) -> TrayState {
         .filter(|d| d.pair == PairState::Paired)
         .map(|d| {
             let battery = service
-                .device_data(&d.id)
-                .ok()
-                .and_then(|data| data.battery)
+                .battery(&d.id)
                 .filter(|b| (0..=100).contains(&b.charge))
                 .map(|b| (b.charge, b.charging));
             Phone {
