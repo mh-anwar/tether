@@ -7,11 +7,14 @@ mod client;
 mod clipsync;
 mod config;
 mod daemon;
+mod desktopmedia;
 mod exec;
 mod mdns_probe;
 mod mprisd;
 mod notify;
 mod phonefiles;
+mod received;
+mod sendnotifications;
 mod tray;
 mod update;
 

@@ -28,6 +28,7 @@ const state = {
   battery: null,
   signal: {},
   notifications: {},
+  transfers: [],
   threads: new Map(), // thread_id -> Map(message id -> message)
   contacts: [], // [{name, number}] numbers are digits only
   selected: null, // thread id, or 'new'
@@ -275,6 +276,8 @@ async function loadDevice() {
       api('device_data', { device: id }), api('threads', { device: id }), api('contacts', { device: id }),
     ]);
     if (state.deviceId !== id) return; // another phone was picked meanwhile
+    const received = await api('received_list');
+    state.transfers = [...state.transfers.filter((t) => !t.path), ...received];
     state.battery = data.battery;
     state.signal = data.signal || {};
     state.notifications = data.notifications || {};
@@ -840,6 +843,13 @@ function renderSettings() {
       h('section', {}, h('h2', { text: 'This computer' }),
         settingText('device_name', 'Name', 'What your phone calls this computer.'),
         settingSwitch('autostart', 'Start Tether when I log in', 'Texts, notifications and the clipboard keep working with the window closed.'),
+        settingSwitch('send_notifications', "Send this computer's notifications to the phone", 'Off until you turn it on. Tether notifications are excluded.'),
+        h('form', { class: 'setting', onsubmit: (e) => { e.preventDefault(); saveSettings({ notification_blocklist: e.currentTarget.elements.blocklist.value.split(',').map((v) => v.trim()).filter(Boolean) }); } },
+          h('label', {}, 'Blocked notification apps', h('input', { name: 'blocklist', 'data-key': 'set-blocklist', value: (s.notification_blocklist || []).join(', '), placeholder: 'App names, separated by commas' })),
+          h('button', { class: 'btn', type: 'submit' }, 'Save')),
+        h('div', { class: 'setting' }, h('label', {}, 'During phone calls', h('select', { 'aria-label': 'Pause media during calls', onchange: (e) => saveSettings({ pause_media: e.target.value }) },
+          [['ringing', 'Pause when ringing'], ['talking', 'Pause when talking'], ['off', 'Keep playing']].map(([value, label]) => h('option', { value, selected: s.pause_media === value }, label))))),
+        settingSwitch('mute_media', 'Mute instead of pausing', 'Restores each playing player’s volume when the call ends.'),
         settingSwitch('auto_update', 'Install new versions by themselves', 'Off: Tether still tells you when there is one.'),
         h('div', { class: 'setting' }, h('button', { class: 'btn', onclick: checkForUpdates }, icon('refresh', 'sm'), 'Check for updates'))),
       h('section', {}, h('h2', { text: 'From your phone' }),
@@ -1340,8 +1350,47 @@ function renderFeed() {
         h('div', { class: 'from' }, icon('key', 'sm'), `Code from ${code.from}`),
         h('div', { class: 'row' }, h('span', { class: 'digits', text: code.code }),
           h('button', { class: 'btn primary', onclick: () => copy(code.code, 'Code copied') }, icon('copy', 'sm'), 'Copy'))) : null,
+      receivedPanel(),
       notes.length ? notes.map(noteCard) : h('div', { class: 'empty' }, icon('bell'), h('p', { text: 'No notifications on your phone.' }))),
   ]);
+}
+
+function receivedPanel() {
+  return h('section', { class: 'received-panel', 'aria-label': 'Received from your phone' },
+    h('h3', { text: 'Received from your phone' }),
+    state.transfers.length ? state.transfers.slice(0, 20).map((t) => h('div', { class: 'note-card' },
+      h('strong', { text: t.name }),
+      t.error ? h('p', { role: 'alert', text: t.error }) : t.path ? h('div', { class: 'row' },
+        h('button', { class: 'btn ghost', onclick: () => api('received_open', { path: t.path }).catch((e) => toast(String(e), 'error')) }, 'Open'),
+        h('button', { class: 'btn ghost', onclick: () => api('received_show', { path: t.path }).catch((e) => toast(String(e), 'error')) }, 'Show in folder'))
+        : t.done ? h('p', { text: 'Sent' }) : h('div', {},
+          h('p', { text: `${t.sending ? 'Sending' : 'Receiving'} · ${t.number_of_files || 1} ${t.number_of_files === 1 ? 'file' : 'files'}` }),
+          h('progress', { max: Math.max(1, t.total), ...(t.total > 0 ? { value: t.bytes } : {}), 'aria-label': `${t.sending ? 'Sending' : 'Receiving'} ${t.name}` }))))
+      : h('p', { class: 'sub', text: 'Files you receive appear here. Drop files in this window to send them.' }));
+}
+function transferProgress(u) {
+  if (!u.name) {
+    for (const t of state.transfers) if (!t.sending && !t.path && !t.error) Object.assign(t, { number_of_files: u.number_of_files, total_payload_size: u.total_payload_size });
+    invalidate('feed'); return;
+  }
+  let t = state.transfers.find((t) => t.name === u.name && t.sending === u.sending && !t.path && !t.done && !t.error);
+  if (!t) { t = {}; state.transfers.unshift(t); }
+  Object.assign(t, u, { done: u.sending && u.total >= 0 && u.bytes >= u.total });
+  state.transfers = state.transfers.slice(0, 100);
+  invalidate('feed');
+}
+function sendTextOrLink() {
+  const root = $('#palette-root');
+  const text = h('textarea', { 'aria-label': 'Text or link', rows: 5, required: true });
+  const send = h('button', { class: 'btn primary', type: 'submit' }, 'Send');
+  root.replaceChildren(h('div', { class: 'palette-backdrop', onclick: (e) => { if (e.target === e.currentTarget) root.replaceChildren(); } },
+    h('form', { class: 'palette', role: 'dialog', 'aria-label': 'Send text or link', onsubmit: async (e) => {
+      e.preventDefault(); const value = text.value.trim(); if (!value) return; send.disabled = true;
+      const isUrl = /^https?:\/\/\S+$/i.test(value);
+      try { await api(isUrl ? 'share_url' : 'share_text', { device: state.deviceId, [isUrl ? 'url' : 'text']: value }); root.replaceChildren(); toast('Sent to your phone'); }
+      catch (e) { toast(String(e), 'error'); send.disabled = false; }
+    } }, h('h2', { text: 'Send text or link' }), text, send, h('button', { class: 'btn ghost', type: 'button', onclick: () => root.replaceChildren() }, 'Cancel'))));
+  text.focus();
 }
 
 function appBadge(n) {
@@ -1494,6 +1543,7 @@ function commands() {
   const player = activePlayer();
   const cmds = [
     { label: 'New message', sub: 'Ctrl+N', icon: 'plus', run: () => openNew() },
+    live && { label: 'Send text or link', icon: 'send', run: sendTextOrLink },
     live && { label: 'Ring my phone', icon: 'ring', run: ringPhone },
     live && { label: 'Ping my phone', icon: 'bolt', run: () => quick('ping', 'Ping sent') },
     live && player && { label: player.is_playing ? `Pause ${player.title}` : `Play ${player.title}`, sub: player.name, icon: player.is_playing ? 'pause' : 'play', run: () => mediaAction(player, 'PlayPause') },
@@ -1565,22 +1615,15 @@ async function setupDrop() {
     } else if (t === 'drop') {
       overlay.hidden = true;
       if (!(d && d.connected)) return toast('Your phone is out of reach', 'error');
-      for (const path of e.payload.paths || []) sendFile(path, d);
+      sendFiles(e.payload.paths || [], d);
     }
   });
 }
 
-async function sendFile(path, d) {
-  const name = path.split('/').pop();
-  const t = toast(`Sending ${name}`, 'progress', 600000);
-  try {
-    await api('share_file', { device: d.id, path });
-    t.remove();
-    toast(`${name} is on ${d.name}`);
-  } catch (e) {
-    t.remove();
-    toast(`${name} didn't send: ${e}`, 'error');
-  }
+async function sendFiles(paths, d) {
+  if (!paths.length) return;
+  try { await api('share_files', { device: d.id, paths }); toast(`${paths.length} ${paths.length === 1 ? 'file sent' : 'files sent'} to ${d.name}`); }
+  catch (e) { toast(`Files didn't send: ${e}`, 'error'); }
 }
 
 // ---------- events ----------
@@ -1629,10 +1672,16 @@ function onEvent(ev) {
     case 'call_ended': state.call = null; renderRail(); break;
     case 'ping': toast(u.message ? `Phone: ${u.message}` : 'Ping from your phone'); break;
     case 'clipboard': phoneClipboard(u.content); break;
-    case 'shared_text': copy(u.text, 'Text from your phone copied'); break;
-    case 'shared_url': copy(u.url, 'Link from your phone copied'); break;
-    case 'file_received': toast(`Saved ${u.path.split('/').pop()} to Downloads`); break;
-    case 'transfer_failed': toast(`${u.name} didn't arrive: ${u.reason}`, 'error'); break;
+    case 'shared_text': toast('Text from your phone copied'); break;
+    case 'shared_url': toast('Opening the link from your phone'); break;
+    case 'transfer_progress': transferProgress(u); break;
+    case 'file_received': {
+      const name = u.path.split('/').pop();
+      const t = state.transfers.find((t) => !t.sending && !t.path && !t.error && (t.name === name || name.startsWith(t.name.replace(/(\.[^.]+)?$/, ' ('))));
+      if (t) t.path = u.path; else state.transfers.unshift({ name, path: u.path });
+      invalidate('feed'); toast(`Received ${name}`); break;
+    }
+    case 'transfer_failed': { const t = state.transfers.find((t) => t.name === u.name && !t.path && !t.done); if (t) t.error = u.reason; invalidate('feed'); } toast(`${u.name} didn't arrive: ${u.reason}`, 'error'); break;
   }
 }
 

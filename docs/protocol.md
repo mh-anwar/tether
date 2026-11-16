@@ -340,3 +340,18 @@ Direction: P->D = phone sends, D->P = desktop (us) sends. Android files under `A
 - Exact cipher suites negotiated (Android defaults vary by OS version; only the protocol is pinned).
 - Whether Android's PKIX path check enforces notBefore/notAfter on the stored self-signed peer cert.
 - Bluetooth backend (`A:backends/bluetooth/`) was not reviewed.
+
+## Desktop MPRIS, notifications and share batches
+- Both MPRIS packet types are advertised in both directions. Desktop player list includes
+  `supportAlbumArtPayload`; metadata uses ms for `length`/`pos`/`SetPosition`, while relative `Seek`
+  remains MPRIS microseconds. Loop/shuffle use `loopStatus`, `shuffle`, `setLoopStatus`, `setShuffle`.
+  Art payloads require an exact match to the current local `albumArtUrl` and `transferringAlbumArt: true`.
+  References: K:plugins/mpriscontrol/mpriscontrolplugin.cpp;
+  A:src/main/java/org/kde/kdeconnect/plugins/mpris/MprisPlugin.kt.
+- Desktop notification IDs are namespaced `tether-desktop:<real desktop id>`. Phone `cancel` requests
+  close only IDs this daemon forwarded. Notification fields follow
+  K:plugins/sendnotifications/dbusnotificationslistener.cpp; icon payloads include `payloadHash`.
+- Share batches advertise `numberOfFiles` and `totalPayloadSize` on each file and
+  `kdeconnect.share.request.update` (incoming and outgoing capabilities). Each file retains its own
+  authenticated payload connection. Incoming updates announce revised batch totals, not a file payload.
+  Reference: K:plugins/share/kdeconnect_share.json and Android SharePlugin.

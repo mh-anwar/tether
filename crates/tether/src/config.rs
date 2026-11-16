@@ -16,6 +16,10 @@ pub struct Config {
     pub mirror_notifications: bool,
     /// Keep the computer's and the phone's clipboards the same.
     pub clipboard_sync: bool,
+    pub send_notifications: bool,
+    pub notification_blocklist: Vec<String>,
+    pub pause_media: String,
+    pub mute_media: bool,
     pub downloads_dir: Option<PathBuf>,
     /// Install new versions by themselves where that needs no password (AppImage, no-admin install).
     /// Off: still check, and the window offers the update.
@@ -33,6 +37,10 @@ impl Default for Config {
             addresses: vec![],
             mirror_notifications: true,
             clipboard_sync: true,
+            send_notifications: false,
+            notification_blocklist: vec![],
+            pause_media: "ringing".into(),
+            mute_media: false,
             downloads_dir: None,
             auto_update: true,
             update_url: None,
@@ -92,6 +100,10 @@ pub fn settings() -> Result<Value> {
         "addresses": cfg.addresses,
         "mirror_notifications": cfg.mirror_notifications,
         "clipboard_sync": cfg.clipboard_sync,
+        "send_notifications": cfg.send_notifications,
+        "notification_blocklist": cfg.notification_blocklist,
+        "pause_media": cfg.pause_media,
+        "mute_media": cfg.mute_media,
         "downloads_dir": cfg.core().downloads_dir,
         "auto_update": cfg.auto_update,
         "autostart": crate::autostart::is_enabled(),
@@ -143,7 +155,21 @@ pub fn save_settings(changes: &Value) -> Result<bool> {
                     .as_bool()
                     .context("clipboard_sync must be on or off")?)
             }
-            "mirror_notifications" | "auto_update" => {
+            "pause_media" => {
+                let mode = value
+                    .as_str()
+                    .context("pause_media must be ringing, talking or off")?;
+                if !["ringing", "talking", "off"].contains(&mode) {
+                    bail!("Invalid call media setting");
+                }
+                json!(mode)
+            }
+            "notification_blocklist" => {
+                let names: Vec<String> = serde_json::from_value(value.clone())
+                    .context("blocklist must be a list of app names")?;
+                json!(names)
+            }
+            "mirror_notifications" | "auto_update" | "send_notifications" | "mute_media" => {
                 json!(value.as_bool().context("must be on or off")?)
             }
             "autostart" => {

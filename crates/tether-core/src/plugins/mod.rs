@@ -35,6 +35,7 @@ pub fn incoming_capabilities() -> Vec<String> {
         CLIPBOARD,
         CLIPBOARD_CONNECT,
         SHARE,
+        "kdeconnect.share.request.update",
         CONNECTIVITY,
         notification::NOTIFICATION,
         sms::MESSAGES,
@@ -43,6 +44,8 @@ pub fn incoming_capabilities() -> Vec<String> {
         contacts::RESPONSE_UIDS,
         contacts::RESPONSE_VCARDS,
         mpris::MPRIS,
+        mpris::REQUEST,
+        notification::REQUEST,
         sftp::SFTP,
     ]
     .map(String::from)
@@ -56,6 +59,7 @@ pub fn outgoing_capabilities() -> Vec<String> {
         CLIPBOARD,
         CLIPBOARD_CONNECT,
         SHARE,
+        "kdeconnect.share.request.update",
         FIND_PHONE,
         notification::REQUEST,
         notification::REPLY,
@@ -68,6 +72,8 @@ pub fn outgoing_capabilities() -> Vec<String> {
         contacts::REQUEST_UIDS,
         contacts::REQUEST_VCARDS,
         mpris::REQUEST,
+        mpris::MPRIS,
+        notification::NOTIFICATION,
         sftp::REQUEST,
     ]
     .map(String::from)
@@ -93,6 +99,10 @@ pub struct Signal {
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct DeviceData {
     pub battery: Option<Battery>,
+    #[serde(skip)]
+    pub share_count: Option<i64>,
+    #[serde(skip)]
+    pub share_total: Option<i64>,
     pub signal: BTreeMap<String, Signal>,
     pub notifications: BTreeMap<String, Notification>,
     /// thread id -> message id -> message.
@@ -135,6 +145,18 @@ pub enum Update {
     },
     FileReceived {
         path: String,
+        open: bool,
+    },
+    TransferProgress {
+        name: String,
+        sending: bool,
+        bytes: u64,
+        total: i64,
+        number_of_files: i64,
+        total_payload_size: i64,
+    },
+    DesktopRequest {
+        packet: Packet,
     },
     TransferFailed {
         name: String,
@@ -261,3 +283,35 @@ pub fn contact_name(data: &DeviceData, number: &str) -> Option<String> {
 }
 
 pub type ContactMap = HashMap<String, String>;
+
+#[cfg(test)]
+mod media_share_tests {
+    use super::*;
+    #[test]
+    fn desktop_plugins_negotiate_both_directions() {
+        for kind in [
+            mpris::MPRIS,
+            mpris::REQUEST,
+            notification::NOTIFICATION,
+            notification::REQUEST,
+            SHARE,
+            "kdeconnect.share.request.update",
+        ] {
+            assert!(incoming_capabilities().iter().any(|k| k == kind));
+            assert!(outgoing_capabilities().iter().any(|k| k == kind));
+        }
+    }
+    #[test]
+    fn shared_text_and_url_parse_without_becoming_clipboard_sync() {
+        let mut data = DeviceData::default();
+        let text = handle(&mut data, &share_text("hello"));
+        assert!(matches!(&text.updates[..], [Update::SharedText { text }] if text == "hello"));
+        let url = handle(&mut data, &share_url("https://example.org"));
+        assert!(
+            matches!(&url.updates[..], [Update::SharedUrl { url }] if url == "https://example.org")
+        );
+        assert!(handle(&mut data, &Packet::new(SHARE, json!({"text": 12})))
+            .updates
+            .is_empty());
+    }
+}

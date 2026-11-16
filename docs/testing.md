@@ -95,3 +95,12 @@ pillow`), write `"<name> <password>" > $FAKE_APPS_DIR/scanned`. Pair-by-code acc
 `com.example.broken` fails like an old phone. `touch $FAKE_APPS_DIR/codeopen` acts as the phone showing its
 pairing-code screen (the form then fills in the address). `TETHER_SCRCPY=` (empty) shows the helper-download screen.
 Use the stand-ins here rather than the real adb: its server listens on localhost:5037, shared with everyone on the box.
+
+## Desktop media and sharing
+`CARGO_TARGET_DIR=target dbus-run-session -- uv run --no-project --with dbus-next python testing/media/e2e.py`
+uses a private bus, desktop player/notification server (`testing/media/standin.py`) and the real fake
+phone. Build `tether`, `tether-app` and the `fake_phone` example first. It checks MPRIS list/metadata,
+commands, property signals, art payload, call pause/resume, notification forwarding/dismissal and
+shared files/URLs/text. It prints its temporary artifact folder. `FAKE_PHONE_CONTROL` enables an opt-in
+fake-phone test inbox: numbered JSON packets, optional top-level `testPayloadPath`; received packets
+are appended to `received.jsonl` and payloads saved as `payload.bin`. No real phone data is used.

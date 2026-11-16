@@ -484,6 +484,7 @@ async fn session(
             }
         }
     });
+    media_test_control(tx.clone(), tls.clone(), peer_cert.clone());
     let mut paired = paired_flag.exists();
     if paired {
         greet(&tx).await;
@@ -516,9 +517,105 @@ async fn session(
         if !paired {
             continue;
         }
+        if let Ok(dir) = std::env::var("FAKE_PHONE_CONTROL") {
+            use std::io::Write;
+            if let Ok(mut f) = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(PathBuf::from(&dir).join("received.jsonl"))
+            {
+                if let Ok(line) = serde_json::to_string(&p) {
+                    let _ = writeln!(f, "{line}");
+                }
+            }
+            if let Some(port) = p.payload_port() {
+                let tls = tls.clone();
+                let cert = peer_cert.clone();
+                let p = p.clone();
+                tokio::spawn(async move {
+                    let mut bytes = Vec::new();
+                    if payload::fetch(
+                        SocketAddr::from(([127, 0, 0, 1], port)),
+                        &tls,
+                        &cert,
+                        p.payload_size.unwrap_or(-1),
+                        &mut bytes,
+                    )
+                    .await
+                    .is_ok()
+                    {
+                        let _ = std::fs::write(PathBuf::from(dir).join("payload.bin"), bytes);
+                    }
+                });
+            }
+        }
         handle(&p, &phone, &tx, &tls, &peer_cert).await;
     }
     Ok(())
+}
+
+/// Opt-in script channel, separate from the normal interactive simulator.
+fn media_test_control(tx: mpsc::Sender<Packet>, tls: Arc<TlsContext>, cert: Vec<u8>) {
+    let Ok(dir) = std::env::var("FAKE_PHONE_CONTROL") else {
+        return;
+    };
+    tokio::spawn(async move {
+        loop {
+            if tx.is_closed() {
+                return;
+            }
+            let Ok(entries) = std::fs::read_dir(&dir) else {
+                return;
+            };
+            let mut paths = entries
+                .flatten()
+                .map(|e| e.path())
+                .filter(|p| p.extension().is_some_and(|e| e == "json"))
+                .collect::<Vec<_>>();
+            paths.sort();
+            for path in paths {
+                let Ok(bytes) = std::fs::read(&path) else {
+                    continue;
+                };
+                let Ok(mut value) = serde_json::from_slice::<Value>(&bytes) else {
+                    continue;
+                };
+                let payload_path = value
+                    .as_object_mut()
+                    .and_then(|v| v.remove("testPayloadPath"))
+                    .and_then(|v| v.as_str().map(String::from));
+                let Ok(mut p) = serde_json::from_value::<Packet>(value) else {
+                    continue;
+                };
+                let _ = std::fs::remove_file(path);
+                if let Some(path) = payload_path {
+                    if let Ok(file) = tokio::fs::File::open(path).await {
+                        if let (Ok(meta), Ok((listener, port))) = (
+                            file.metadata().await,
+                            payload::bind_payload_listener().await,
+                        ) {
+                            p.payload_size = Some(meta.len() as i64);
+                            p.payload_transfer_info = Some(
+                                json!({"port":port})
+                                    .as_object()
+                                    .cloned()
+                                    .unwrap_or_default(),
+                            );
+                            let _ = tx.send(p).await;
+                            let tls = tls.clone();
+                            let cert = cert.clone();
+                            tokio::spawn(async move {
+                                let _ = payload::serve(listener, &tls, &cert, file).await;
+                            });
+                        }
+                    }
+                } else {
+                    let _ = tx.send(p).await;
+                }
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+    });
 }
 
 async fn greet(tx: &mpsc::Sender<Packet>) {

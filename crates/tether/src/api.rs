@@ -151,6 +151,25 @@ async fn call(svc: &Service, method: &str, p: &Value) -> Result<Value> {
                 json!(crate::clipsync::ACTIVE.load(std::sync::atomic::Ordering::Relaxed));
             Ok(v)
         }
+        "received_list" => Ok(json!(crate::received::history())),
+        "received_open" | "received_show" => {
+            let path = std::path::PathBuf::from(s(p, "path")?);
+            let downloads = crate::config::Config::load()?
+                .core()
+                .downloads_dir
+                .canonicalize()?;
+            let path = path.canonicalize()?;
+            if !path.starts_with(downloads) {
+                anyhow::bail!("This file is outside the downloads folder");
+            }
+            let target = if method == "received_show" {
+                path.parent().context("no parent folder")?
+            } else {
+                &path
+            };
+            crate::received::open(&target.to_string_lossy())?;
+            ok()
+        }
         "devices" => Ok(serde_json::to_value(svc.devices())?),
         "refresh" => {
             svc.refresh();
@@ -338,6 +357,14 @@ async fn call(svc: &Service, method: &str, p: &Value) -> Result<Value> {
                 "screenshot_save" => {
                     let to = crate::phonefiles::save_screenshot(svc, dev).await?;
                     Ok(json!({"path": to.to_string_lossy()}))
+                }
+                "share_files" => {
+                    let paths: Vec<std::path::PathBuf> =
+                        serde_json::from_value(p.get("paths").cloned().context("missing paths")?)?;
+                    if paths.is_empty() || paths.len() > 256 {
+                        anyhow::bail!("Choose between 1 and 256 files");
+                    }
+                    Ok(json!({"bytes": svc.share_files(dev, &paths).await?}))
                 }
                 "share_file" => {
                     let n = svc.share_file(dev, Path::new(s(p, "path")?)).await?;
