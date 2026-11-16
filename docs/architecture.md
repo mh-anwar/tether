@@ -97,3 +97,10 @@ Request `{"id","method","params"}`, reply `{"id","result"|"error"}`, events push
 - Page: `ui/app.js` holds all state in `state`, renders regions with `swap()` (keeps focus and typed text).
   Phone text is only set via `textContent`. Icons are inline SVG in `ui/icons.js`.
 - Messages are cached in memory per thread; the phone is the source of truth and resends on connect.
+
+## Protocol simulator
+
+`tether_core::sim::Simulator` owns a real TLS phone link, packet/payload history and a Unix JSON-lines
+control socket. `sim/scenario.rs` holds the seeded Android-style request responses; `examples/fake_phone`
+is the reconnecting screenshot wrapper. Daemon integration tests share a short-path XDG/process/API
+fixture in `crates/tether/tests/support`; `TETHER_PORT` isolates daemon TCP and UDP listeners.

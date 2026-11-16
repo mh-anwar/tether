@@ -1,0 +1,70 @@
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  rust:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install system libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev libsoup-3.0-dev \
+            libjavascriptcoregtk-4.1-dev libayatana-appindicator3-dev patchelf pkg-config
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --all --check
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - run: cargo test --workspace
+  window:
+    # WebKit's compositing/driver behavior varies on hosted runners; keep diagnostics available
+    # without blocking protocol changes until this job has a reliable track record.
+    continue-on-error: true
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    env:
+      TETHER_UI_DIR: /tmp/tether-wd
+      WD_DISPLAY: ':74'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install window test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev libsoup-3.0-dev \
+            libjavascriptcoregtk-4.1-dev libayatana-appindicator3-dev pkg-config webkit2gtk-driver xvfb openssh-server
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: astral-sh/setup-uv@v6
+      - run: cargo install tauri-driver --locked
+      - run: cargo build -p tether -p tether-app
+      - run: cargo build -p tether-core --example fake_phone
+      - name: Pair stand-in phone, then test window
+        run: |
+          mkdir -p "$TETHER_UI_DIR"/{cfg/tether,data,run}
+          export XDG_CONFIG_HOME=$TETHER_UI_DIR/cfg XDG_DATA_HOME=$TETHER_UI_DIR/data XDG_RUNTIME_DIR=$TETHER_UI_DIR/run
+          echo '{"mirror_notifications":false,"clipboard_sync":false}' > "$XDG_CONFIG_HOME/tether/config.json"
+          target/debug/tether daemon > "$TETHER_UI_DIR/daemon.log" 2>&1 & daemon=$!
+          target/debug/examples/fake_phone 127.0.0.1:1716 "$TETHER_UI_DIR/phone" > "$TETHER_UI_DIR/phone.log" 2>&1 & phone=$!
+          trap 'kill "$daemon" "$phone" 2>/dev/null || true' EXIT
+          for attempt in $(seq 1 30); do
+            if target/debug/tether accept; then break; fi
+            sleep 1
+          done
+          sleep 1
+          kill "$daemon" "$phone"
+          wait "$daemon" "$phone" || true
+          trap - EXIT
+          dbus-run-session -- testing/ui/wd.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: window-diagnostics
+          path: /tmp/tether-wd/*.log
