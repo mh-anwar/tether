@@ -54,18 +54,86 @@ jobs:
           cp target/release/tether target/release/tether-app packaging/install.sh crates/tether-app/icons/icon.png "$STAGE"/
           tar -czf tether-linux-x86_64.tar.gz "$STAGE"
 
-      # The updater installs only files whose hash matches this list (crates/tether/src/update.rs).
-      - name: Collect files and checksums
+      - name: Collect files
         run: |
           mkdir dist
           cp target/release/bundle/deb/*.deb target/release/bundle/rpm/*.rpm \
             target/release/bundle/appimage/*.AppImage tether-linux-x86_64.tar.gz dist/
-          cd dist && sha256sum * > SHA256SUMS && cat SHA256SUMS
 
       - uses: actions/upload-artifact@v4
         with:
           name: tether-linux
           if-no-files-found: error
+          path: dist/*
+
+  flatpak:
+    runs-on: ubuntu-24.04
+    # Flathub's builder image: flatpak-builder plus the GNOME runtime and SDK the manifest names.
+    container:
+      image: ghcr.io/flathub-infra/flatpak-github-actions:gnome-50
+      # The host's preinstalled toolchains are mounted so the first step can delete them: the image,
+      # the GNOME SDK and a release build of the Tauri app don't fit in the runner's free space.
+      options: >-
+        --privileged
+        -v /usr/share/dotnet:/hostfree/dotnet
+        -v /usr/local/lib/android:/hostfree/android
+        -v /usr/local/.ghcup:/hostfree/ghcup
+        -v /opt/hostedtoolcache:/hostfree/toolcache
+        -v /usr/local/share/boost:/hostfree/boost
+        -v /usr/share/swift:/hostfree/swift
+    steps:
+      - name: Free disk space
+        run: |
+          df -h /__w
+          find /hostfree -mindepth 2 -maxdepth 2 -exec rm -rf {} +
+          df -h /__w
+
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6
+
+      # Vendored crate list for the offline build, made from this commit's Cargo.lock.
+      - name: Generate cargo sources
+        run: packaging/flatpak/cargo-sources.sh
+
+      - uses: flatpak/flatpak-github-actions/flatpak-builder@v6
+        with:
+          manifest-path: packaging/flatpak/io.github.mh_anwar.Tether.yml
+          bundle: Tether-x86_64.flatpak
+          cache-key: flatpak-builder-${{ hashFiles('Cargo.lock') }}
+          upload-artifact: false
+
+      # Tether runs these programs; inside the sandbox only the runtime's copies exist. The log says
+      # which are missing, so docs/flathub.md can say which features need work there.
+      - name: Programs in the runtime
+        continue-on-error: true
+        run: |
+          flatpak run --command=sh org.gnome.Platform//50 -c \
+            'for p in pactl paplay pw-play canberra-gtk-play sftp xdg-open loginctl dotool; do
+               command -v "$p" || echo "missing: $p"; done'
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tether-flatpak
+          if-no-files-found: error
+          path: Tether-x86_64.flatpak
+
+  publish:
+    needs: [linux, flatpak]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      # The updater installs only files whose hash matches this list (crates/tether/src/update.rs).
+      - name: Checksums
+        run: cd dist && sha256sum * > SHA256SUMS && cat SHA256SUMS
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tether-release
           path: dist/*
 
       - name: Attach to GitHub release

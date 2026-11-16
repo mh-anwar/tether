@@ -35,6 +35,7 @@ Download a package from the [Releases page](../../releases/latest) (x86_64):
 - Ubuntu, Debian, Mint, Pop!_OS: `sudo apt install ./Tether_*.deb`
 - Fedora, openSUSE: `sudo dnf install ./Tether-*.rpm`
 - Other distributions: `chmod +x Tether_*.AppImage` and run it.
+- Flatpak: `flatpak install --user ./Tether-x86_64.flatpak` (needs Flathub's GNOME runtime).
 - Without admin rights: unpack the `.tar.gz` and run `./install.sh` (installs into `~/.local`;
   `./install.sh --remove` uninstalls). This needs WebKitGTK 4.1 from your distribution.
 

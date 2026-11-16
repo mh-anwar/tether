@@ -9,6 +9,15 @@ Traps that already cost time. Add new ones here with the symptom first.
   binaries. Build binaries and examples in separate commands.
 - **`target/` size**: ~3.3 GB with the window app. `cargo clean` past ~15 GB.
 
+## Flatpak
+- **No tray icon in the Flatpak**: the D-Bus proxy lets the app own only names under its own id, so
+  `org.kde.StatusNotifierItem-<pid>-1` fails. Inside the sandbox the item uses
+  `io.github.mh_anwar.Tether.StatusNotifierItem-<pid>-1` (`tray.rs`).
+- **Sending notifications to the phone does nothing in the Flatpak**: `BecomeMonitor` and eavesdropping
+  are refused by the D-Bus proxy, so the option is hidden there.
+- **Autostart looks off inside the sandbox although it's on**: the portal writes the entry on the host,
+  invisible to the app; `config/tether/autostart-portal` is the record.
+
 ## Testing
 - **`run.sh start` says Xvfb runs but the window can't open the display**: `pgrep -f "Xvfb :57"` also
   matches your own shell when the command line you ran contains that text. Don't mention it in the same

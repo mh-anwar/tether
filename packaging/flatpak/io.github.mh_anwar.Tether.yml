@@ -1,0 +1,62 @@
+id: io.github.mh_anwar.Tether
+# The GNOME runtime ships WebKitGTK 4.1 and libsoup 3, which the Tauri window links against.
+runtime: org.gnome.Platform
+runtime-version: '50'
+sdk: org.gnome.Sdk
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.rust-stable
+command: tether-app
+
+finish-args:
+  # KDE Connect (UDP/TCP 1716 and up, mDNS), wireless debugging for phone apps, update checks.
+  - --share=network
+  - --share=ipc
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --device=dri
+  # Ringing the computer and phone-app windows (scrcpy) play sound.
+  - --socket=pulseaudio
+  # Files from the phone are saved in Downloads by default; also where shared files usually come from.
+  - --filesystem=xdg-download
+  # Phone notifications on the desktop (notify-rust talks to the server directly).
+  - --talk-name=org.freedesktop.Notifications
+  # Tray icon: registering with the desktop's tray. The item's own name is under the app id (tray.rs).
+  - --talk-name=org.kde.StatusNotifierWatcher
+  # The phone's media on the keyboard's media keys (mprisd.rs) and the phone's remote for desktop
+  # players (desktopmedia.rs).
+  - --own-name=org.mpris.MediaPlayer2.tether
+  - --talk-name=org.mpris.MediaPlayer2.*
+  # "Lock the screen" and the lock state the phone shows (computer.rs).
+  - --talk-name=org.freedesktop.ScreenSaver
+
+modules:
+  - name: tether
+    buildsystem: simple
+    build-options:
+      append-path: /usr/lib/sdk/rust-stable/bin
+      env:
+        # cargo-sources.json writes the vendored crates and a config pointing at them here.
+        CARGO_HOME: /run/build/tether/cargo
+        CARGO_NET_OFFLINE: 'true'
+    build-commands:
+      # -j overrides the repository's jobs = 2, which is meant for the shared dev box.
+      - cargo --offline build --release --locked -j "$FLATPAK_BUILDER_N_JOBS" -p tether
+      # custom-protocol is what `tauri build` turns on: the window serves the embedded ui/ files as a
+      # production build instead of a dev build.
+      - cargo --offline build --release --locked -j "$FLATPAK_BUILDER_N_JOBS" -p tether-app --features tauri/custom-protocol
+      - install -Dm755 target/release/tether /app/bin/tether
+      - install -Dm755 target/release/tether-app /app/bin/tether-app
+      - install -Dm644 crates/tether-app/icons/icon.png /app/share/icons/hicolor/512x512/apps/io.github.mh_anwar.Tether.png
+      - install -Dm644 packaging/flatpak/io.github.mh_anwar.Tether.desktop /app/share/applications/io.github.mh_anwar.Tether.desktop
+      - install -Dm644 packaging/flatpak/io.github.mh_anwar.Tether.metainfo.xml /app/share/metainfo/io.github.mh_anwar.Tether.metainfo.xml
+    sources:
+      - type: dir
+        path: ../..
+        skip:
+          - target
+          - .flatpak-builder
+          - flatpak-build
+          - packaging/flatpak/cargo-sources.json
+      # Generated from Cargo.lock by flatpak-cargo-generator (packaging/flatpak/cargo-sources.sh);
+      # Flathub builds have no network, so every crate is listed with its checksum.
+      - cargo-sources.json

@@ -4,8 +4,9 @@
 //! `install.sh` folder and AppImages) download the new version, check it against the release's
 //! `SHA256SUMS`, and swap the files in place; the new version runs after a restart, which the window
 //! offers. `.deb` and `.rpm` installs need the admin password, so on request the installer is saved to
-//! Downloads and opened. Flatpak updates come from the store, and builds from a source tree never
-//! update. A private repository answers 404, which reads as "no update".
+//! Downloads and opened. A Flatpak from Flathub updates from the store; a `.flatpak` bundle has no
+//! remote, so it is pointed at the releases page. Builds from a source tree never update. A private
+//! repository answers 404, which reads as "no update".
 
 use std::{
     path::{Path, PathBuf},
@@ -33,7 +34,7 @@ const EVERY: Duration = Duration::from_secs(24 * 60 * 60);
 enum Kind {
     /// Built from source (`target/debug`, `target/release`): never updates.
     Dev,
-    /// Flatpak: the store updates it.
+    /// Flatpak installed from Flathub: the store updates it.
     Store,
     AppImage(PathBuf),
     /// `install.sh` or any folder this user can write: `tether` and `tether-app` side by side.
@@ -84,9 +85,12 @@ pub fn exe_path() -> Option<PathBuf> {
     })
 }
 
-fn detect(exe: &Path, appimage: Option<PathBuf>, flatpak: bool) -> Kind {
-    if flatpak {
-        return Kind::Store;
+/// `flatpak`: inside a Flatpak, whether a store updates it.
+fn detect(exe: &Path, appimage: Option<PathBuf>, flatpak: Option<bool>) -> Kind {
+    match flatpak {
+        Some(true) => return Kind::Store,
+        Some(false) => return Kind::Other,
+        None => {}
     }
     if let Some(a) = appimage {
         return Kind::AppImage(a);
@@ -126,7 +130,8 @@ fn kind() -> Kind {
     let appimage = std::env::var_os("APPIMAGE")
         .filter(|a| !a.is_empty())
         .map(PathBuf::from);
-    detect(&exe, appimage, std::env::var_os("FLATPAK_ID").is_some())
+    let flatpak = crate::flatpak::active().then(crate::flatpak::store_updates);
+    detect(&exe, appimage, flatpak)
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Serialize)]
@@ -510,21 +515,25 @@ mod tests {
     #[test]
     fn kinds() {
         let p = |s: &str| PathBuf::from(s);
-        assert_eq!(detect(&p("/x/tether"), None, true), Kind::Store);
+        assert_eq!(detect(&p("/app/bin/tether"), None, Some(true)), Kind::Store);
+        assert_eq!(
+            detect(&p("/app/bin/tether"), None, Some(false)),
+            Kind::Other
+        );
         assert_eq!(
             detect(
                 &p("/tmp/.mount_x/usr/bin/tether"),
                 Some(p("/home/a/T.AppImage")),
-                false
+                None
             ),
             Kind::AppImage(p("/home/a/T.AppImage"))
         );
         assert_eq!(
-            detect(&p("/src/t/target/debug/tether"), None, false),
+            detect(&p("/src/t/target/debug/tether"), None, None),
             Kind::Dev
         );
         let dir = std::env::temp_dir();
-        assert_eq!(detect(&dir.join("tether"), None, false), Kind::Folder(dir));
+        assert_eq!(detect(&dir.join("tether"), None, None), Kind::Folder(dir));
         assert!(Kind::Folder(p("/x")).asset_matches(TARBALL));
         assert!(!Kind::Folder(p("/x")).asset_matches("Tether_0.3.0_amd64.deb"));
         assert!(Kind::Deb.asset_matches("Tether_0.3.0_amd64.deb"));

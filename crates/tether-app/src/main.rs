@@ -28,11 +28,13 @@ struct Daemon {
     next: AtomicU64,
 }
 
+/// Same path as `socket_path` in the tether crate, including the Flatpak's shared app folder.
 fn socket_path() -> PathBuf {
-    dirs::runtime_dir()
-        .unwrap_or_else(std::env::temp_dir)
-        .join("tether")
-        .join("tether.sock")
+    let base = dirs::runtime_dir().unwrap_or_else(std::env::temp_dir);
+    match std::env::var("FLATPAK_ID").ok().filter(|id| !id.is_empty()) {
+        Some(id) => base.join("app").join(id).join("tether.sock"),
+        None => base.join("tether").join("tether.sock"),
+    }
 }
 
 /// The `tether` binary next to this one (packages and AppImages ship them together), or from PATH.
@@ -245,9 +247,11 @@ fn sync_autostart() {
     let Some(marker) = dirs::data_dir().map(|d| d.join("tether").join("autostart-offered")) else {
         return;
     };
+    // Same files as `autostart::is_enabled` in the tether crate; the last is the Flatpak's.
     let enabled = dirs::config_dir().is_some_and(|c| {
         c.join("systemd/user/tether.service").exists()
             || c.join("autostart/tether.desktop").exists()
+            || c.join("tether/autostart-portal").exists()
     });
     if marker.exists() && !enabled {
         return;

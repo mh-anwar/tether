@@ -48,8 +48,9 @@ check on a real Android phone with the stock KDE Connect app (the owner's Samsun
   audio, answer, decline, hang up and dial; call banner in the window. KDE Connect only reports calls, so
   this is a separate channel (see docs/decisions.md). Done when: a call to the phone is answered and heard
   on the laptop.
-- [ ] Q17 **Flathub**: Flatpak manifest with bundled adb + scrcpy, Background portal for start at login,
-  screenshots, CI build, then the Flathub PR. Store listing is written (packaging/flatpak). Needs Q17a.
+- [ ] Q17 **Flathub**: the Flatpak builds and ships with releases; left: source from a tag, bundled adb +
+  scrcpy, Dynamic Launcher for pinned apps, screenshots, lint, then the Flathub PR (docs/flathub.md, "Work
+  left"). Needs Q17a.
 - [ ] Q37 **Window CI job blocking**: the WebDriver job in `.github/workflows/ci.yml` is still
   `continue-on-error`; make it required once it has passed reliably for a week.
 
@@ -73,6 +74,10 @@ check on a real Android phone with the stock KDE Connect app (the owner's Samsun
   pop-ups, Quit Tether) over dbusmenu and as our own menu on XEmbed bars; tooltip with phone, battery and
   unread count; NeedsAttention with unread; one-colour icon on GNOME/KDE panels; no X11 on Wayland; unread
   count on the dock icon; Settings note when GNOME has no tray (`testing/ui/tray_e2e.sh`, `tray_xembed.sh`).
+- 2026-11-16 Flatpak: manifest `packaging/flatpak/io.github.mh_anwar.Tether.yml`, a `flatpak` job in the
+  release workflow that attaches `Tether-x86_64.flatpak` (in SHA256SUMS), start at login through the
+  Background portal, tray name under the app id, the bundle points at the releases page for updates, and
+  options the sandbox can't deliver are hidden (docs/flathub.md).
 - 2026-11-16 v1.0.0: every KDE Connect feature people expect, both directions. Phone controls the computer
   (run commands, touchpad and keyboard, presenter, lock, volume, ring this computer, battery to the phone,
   #2); desktop players on the phone, pause on calls, this computer's notifications on the phone, complete
