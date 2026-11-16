@@ -9,6 +9,9 @@ use tracing::debug;
 
 /// Settings screen switch; phone notifications still reach the window when off.
 pub static ENABLED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
+/// "Pause notification pop-ups" in the tray menu: until it is unticked or the service restarts.
+/// Calls still show, so a ringing phone is never missed.
+pub static PAUSED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 pub async fn mirror(service: Service) {
     let mut events = service.subscribe();
@@ -26,6 +29,7 @@ pub async fn mirror(service: Service) {
                 update: Update::Notification(n),
             } => {
                 if !ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+                    || PAUSED.load(std::sync::atomic::Ordering::Relaxed)
                     || n.silent
                     || (n.title.is_empty() && n.text.is_empty())
                 {

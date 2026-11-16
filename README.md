@@ -24,6 +24,7 @@ computer. It works on GNOME, KDE, Xfce, i3, Sway and other desktops.
 - Open phone apps in their own windows with scrcpy (Android 10 or newer, Wireless debugging).
 - Search contacts and start a text from them.
 - Tray icon with the number of unread conversations.
+- Tray menu to ring your phone, send files, pause notification pop-ups or quit; the unread count also shows on the dock icon.
 - A checklist on the Devices page of what to turn on in the KDE Connect app.
 
 ## Install

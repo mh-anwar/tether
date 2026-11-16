@@ -27,6 +27,12 @@ cleanup() {
   for p in $(pgrep -x tether || true); do { tr "\0" "\n" < /proc/$p/environ | grep -q "XDG_DATA_HOME=$W/data" && kill "$p"; } 2>/dev/null || true; done
 }
 trap cleanup EXIT
+# A session bus of its own, as on GNOME without the AppIndicator extension (no tray), so the
+# Settings note about the tray shows whatever desktop runs the test.
+export XDG_CURRENT_DESKTOP=GNOME
+dbus-daemon --session --nofork --print-address=3 3>"$W/bus" 2>/dev/null & pids+=($!)
+for _ in $(seq 50); do [ -s "$W/bus" ] && break; sleep 0.1; done
+export DBUS_SESSION_BUS_ADDRESS=$(head -1 "$W/bus")
 "$BIN/tether" daemon > "$W/daemon.log" 2>&1 & pids+=($!)
 sleep 2
 DAEMON_PORT=$(sed -n 's/.* on tcp \([0-9]*\).*/\1/p' "$W/daemon.log" | head -1)

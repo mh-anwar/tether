@@ -268,6 +268,8 @@ async function loadAll() {
   if (state.view === 'settings') loadSettings();
   if (state.deviceId) await loadDevice();
   render();
+  // A window started from the tray menu ("Send files...") picks up what it was opened for.
+  api('ui_pending').then((ev) => { if (ev) onEvent(ev); }).catch(() => {});
 }
 
 async function loadDevice() {
@@ -900,6 +902,7 @@ function renderSettings() {
     const flatpak = !!state.me?.flatpak;
     const addr = h('input', { type: 'text', 'data-key': 'set-address', placeholder: '192.168.1.20', 'aria-label': "Phone's address" });
     return [head, h('div', { class: 'settings-body' },
+      s.tray_missing && !s.tray_note_dismissed ? trayNote() : null,
       h('section', {}, h('h2', { text: 'This computer' }),
         settingText('device_name', 'Name', 'What your phone calls this computer.'),
         settingSwitch('autostart', 'Start Tether when I log in', 'Texts, notifications and the clipboard keep working with the window closed.'),
@@ -938,6 +941,17 @@ function renderSettings() {
               h('button', { class: 'btn', onclick: () => { settings.forgetting = false; renderSettings(); } }, 'Keep it')))
           : h('div', { class: 'setting' }, h('button', { class: 'btn', 'data-key': 'set-forget', onclick: () => { settings.forgetting = true; renderSettings(); } }, icon('trash', 'sm'), 'Forget this phone'))) : null)];
   });
+}
+
+// GNOME has no tray unless an extension adds one; say so once, until it is closed.
+function trayNote() {
+  return h('section', { 'data-key': 'tray-note', 'aria-label': 'No tray on this desktop' }, h('h2', { text: 'Tray icon' }),
+    h('div', { class: 'setting' },
+      h('b', { text: 'Your desktop has no tray, so the Tether icon has nowhere to show' }),
+      h('small', { text: 'GNOME shows tray icons with the AppIndicator extension, at extensions.gnome.org/extension/615. Without it, Tether keeps running when you close this window, and the unread count shows on its dock icon if your dock supports badges.' }),
+      h('div', { class: 'field-row' },
+        h('button', { class: 'btn', 'data-key': 'tray-extension', onclick: () => api('tray_extension_open').catch((e) => toast(e.message || String(e), 'error')) }, 'Get the extension'),
+        h('button', { class: 'btn', 'data-key': 'tray-note-close', onclick: () => saveSettings({ tray_note_dismissed: true }, 'Note closed') }, 'Close this note'))));
 }
 
 async function forgetPhone() {
@@ -1749,6 +1763,15 @@ async function setupDrop() {
   });
 }
 
+// "Send files..." in the tray menu.
+async function pickAndSendFiles() {
+  const d = device();
+  if (!(d && d.connected)) return toast('Your phone is out of reach', 'error');
+  let paths;
+  try { paths = await T.core.invoke('choose_files', { title: `Send to ${d.name}` }); } catch (e) { return toast(`The file picker didn't open: ${e}`, 'error'); }
+  sendFiles(paths, d);
+}
+
 async function sendFiles(paths, d) {
   if (!paths.length) return;
   try { await api('share_files', { device: d.id, paths }); toast(`${paths.length} ${paths.length === 1 ? 'file sent' : 'files sent'} to ${d.name}`); }
@@ -1758,6 +1781,7 @@ async function sendFiles(paths, d) {
 // ---------- events ----------
 function onEvent(ev) {
   if (ev.event === 'computer_settings') { openCommandsSettings(); return; }
+  if (ev.event === 'send_files') { pickAndSendFiles(); return; }
   if (ev.event === 'computer_ring') { state.computerRinging = ev.ringing; renderRail(); return; }
   if (ev.event === 'device') {
     const i = state.devices.findIndex((d) => d.id === ev.id);

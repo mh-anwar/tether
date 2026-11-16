@@ -130,7 +130,7 @@ pub fn ui_event(event: Value) {
 
 /// Stops the service after the reply has gone out, so the window knows it was heard; the window
 /// then starts a fresh copy (after an update, or to pick up changed settings).
-fn exit_soon() {
+pub(crate) fn exit_soon() {
     tokio::spawn(async {
         tokio::time::sleep(std::time::Duration::from_millis(200)).await;
         let _ = std::fs::remove_file(crate::socket_path());
@@ -201,6 +201,12 @@ async fn call(svc: &Service, method: &str, p: &Value) -> Result<Value> {
             crate::tray::window_shown();
             ok()
         }
+        "ui_pending" => Ok(crate::tray::take_pending()),
+        // A fixed page, so the window can't be used to open arbitrary links.
+        "tray_extension_open" => {
+            crate::received::open(crate::tray::EXTENSION_URL)?;
+            ok()
+        }
         "seen_set" => {
             // thread id -> date of the newest message read in the window (JSON keys are text).
             let seen: std::collections::HashMap<String, i64> =
@@ -238,6 +244,7 @@ async fn call(svc: &Service, method: &str, p: &Value) -> Result<Value> {
                     .await??;
             if let Some(on) = p.get("mirror_notifications").and_then(Value::as_bool) {
                 crate::notify::ENABLED.store(on, std::sync::atomic::Ordering::Relaxed);
+                crate::tray::refresh();
             }
             if let Some(on) = p.get("auto_update").and_then(Value::as_bool) {
                 crate::update::set_auto(on);
