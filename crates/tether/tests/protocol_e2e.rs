@@ -464,3 +464,89 @@ async fn simulator_json_control() -> Result<()> {
     .await?;
     Ok(())
 }
+
+#[tokio::test]
+async fn mdns_discovery_uses_tls_and_pairing() -> Result<()> {
+    let api = support::start_daemon_with_mdns(true).await?;
+    let udp = tokio::net::UdpSocket::bind("127.0.0.1:0").await?;
+    let query = tether_core::dns::query(&[(tether_core::mdns::SERVICE, 12)], true);
+    let mut buf = [0; 9000];
+    // Startup and the first membership refresh run independently of API startup.
+    let response = tokio::time::timeout(WAIT, async {
+        loop {
+            udp.send_to(&query, "127.0.0.1:5353").await?;
+            if let Ok(Ok((n, _))) = tokio::time::timeout(
+                std::time::Duration::from_millis(200),
+                udp.recv_from(&mut buf),
+            )
+            .await
+            {
+                if let Some(m) = tether_core::mdns::parse(&buf[..n]) {
+                    if m.response {
+                        return Ok::<_, Box<dyn std::error::Error + Send + Sync>>(m);
+                    }
+                }
+            }
+        }
+    })
+    .await??;
+    assert!(response
+        .records
+        .iter()
+        .any(|r| matches!(r.data,tether_core::mdns::Data::Srv(port,_) if port == api.port)));
+    let sim = Simulator::new(api.dir.join("mdns-phone")).await?;
+    sim.discover_mdns("127.0.0.1:5353".parse()?).await?;
+    api.pair_state(&sim, "unpaired").await?;
+    sim.pair().await?;
+    api.pair_state(&sim, "requested_by_peer").await?;
+    api.device_call(&sim, "accept", json!({})).await?;
+    api.pair_state(&sim, "paired").await?;
+    assert_eq!(api.call("settings_get", json!({})).await?["mdns"], true);
+    assert_eq!(
+        api.call("settings_set", json!({"mdns":false})).await?["restart"],
+        true
+    );
+    let saved: Value =
+        serde_json::from_slice(&std::fs::read(api.dir.join("cfg/tether/config.json"))?)?;
+    assert_eq!(saved["mdns"], false);
+    Ok(())
+}
+
+#[tokio::test]
+async fn unauthenticated_connections_are_limited_and_expire() -> Result<()> {
+    use tokio::io::AsyncReadExt;
+    let api = start_daemon().await?;
+    let mut held = Vec::new();
+    for _ in 0..8 {
+        held.push(tokio::net::TcpStream::connect(("127.0.0.1", api.port)).await?);
+    }
+    // An accepted connection keeps its slot throughout plaintext identity, TLS and secure identity.
+    tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+    let mut extra = tokio::net::TcpStream::connect(("127.0.0.1", api.port)).await?;
+    let mut b = [0];
+    assert_eq!(tokio::time::timeout(WAIT, extra.read(&mut b)).await??, 0);
+    // All eight stalled identity exchanges must close at the ten-second deadline.
+    for tcp in &mut held {
+        assert_eq!(
+            tokio::time::timeout(std::time::Duration::from_secs(12), tcp.read(&mut b)).await??,
+            0
+        );
+    }
+    let sim = api.sim().await?;
+    api.pair_state(&sim, "unpaired").await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn oversized_api_request_closes_only_its_connection() -> Result<()> {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let api = start_daemon().await?;
+    let mut stream =
+        tokio::net::UnixStream::connect(api.dir.join("run/tether/tether.sock")).await?;
+    let bytes = vec![b'x'; 1024 * 1024 + 1];
+    let _ = stream.write_all(&bytes).await;
+    let mut b = [0];
+    assert_eq!(tokio::time::timeout(WAIT, stream.read(&mut b)).await??, 0);
+    api.call("identity", json!({})).await?;
+    Ok(())
+}

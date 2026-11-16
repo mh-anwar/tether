@@ -125,6 +125,13 @@ impl Simulator {
     }
     /// Advertise a listener, then accept the daemon's dial (also exercises the opposite TLS role).
     pub async fn discover(&self, target: SocketAddr) -> Result<()> {
+        self.discover_using(target, false).await
+    }
+    /// Exercise DNS-SD discovery without UDP identity announcements.
+    pub async fn discover_mdns(&self, target: SocketAddr) -> Result<()> {
+        self.discover_using(target, true).await
+    }
+    async fn discover_using(&self, target: SocketAddr, mdns: bool) -> Result<()> {
         self.disconnect();
         // LAN discovery intentionally rejects ports outside the protocol's 1716..1764 range.
         let mut listener = None;
@@ -139,7 +146,12 @@ impl Simulator {
         identity.tcp_port = Some(listener.local_addr()?.port());
         let udp = UdpSocket::bind("0.0.0.0:0").await?;
         udp.set_broadcast(true)?;
-        udp.send_to(&identity.to_packet().to_line(), target).await?;
+        let announcement = if mdns {
+            crate::mdns::announcement(&identity, std::net::Ipv4Addr::LOCALHOST)
+        } else {
+            identity.to_packet().to_line()
+        };
+        udp.send_to(&announcement, target).await?;
         let (tcp, addr) = tokio::time::timeout(Duration::from_secs(5), listener.accept()).await??;
         self.attach(link::accept(tcp, addr, &identity, &self.0.tls).await?)
             .await;

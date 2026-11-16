@@ -16,6 +16,7 @@ use crate::{cert::LocalCert, Result};
 
 #[derive(Clone)]
 pub struct TlsContext {
+    handshakes: Arc<tokio::sync::Semaphore>,
     pub server: Arc<ServerConfig>,
     pub client: Arc<ClientConfig>,
 }
@@ -38,9 +39,18 @@ impl TlsContext {
             .with_custom_certificate_verifier(verifier)
             .with_client_auth_cert(chain(), key())?;
         Ok(TlsContext {
+            handshakes: Arc::new(tokio::sync::Semaphore::new(8)),
             server: Arc::new(server),
             client: Arc::new(client),
         })
+    }
+
+    // All clones and both connection roles share this budget, independently of other peers/services.
+    pub(crate) fn handshake_slot(&self) -> Result<tokio::sync::OwnedSemaphorePermit> {
+        self.handshakes
+            .clone()
+            .try_acquire_owned()
+            .map_err(|_| crate::Error::Protocol("too many unauthenticated connections".into()))
     }
 
     /// SNI is meaningless here; the peer ignores it.
