@@ -230,3 +230,10 @@ before a command so old packets cannot satisfy a new assertion. Every API call h
 CI (`.github/workflows/ci.yml`) checks formatting, all-target clippy, and all workspace tests on Ubuntu
 22.04. A separate non-blocking WebDriver job installs tauri-driver/WebKitWebDriver, seeds pairing and
 runs `testing/ui/wd.sh` under Xvfb and a private D-Bus session; its logs are uploaded on failure.
+
+mDNS codec/malformed-packet and two-socket loopback coverage lives in `tether_core::mdns`.
+`protocol_e2e` additionally queries the real daemon's DNS-SD responder, advertises a simulator over
+mDNS alone, and pairs it over TLS. Other daemon fixtures disable mDNS to keep discovery isolated.
+The suite also holds eight silent TCP clients through their ten-second expiry, verifies the ninth is
+closed, then connects a real simulator; oversized API requests must close only their own API socket.
+Physical Android/Avahi coexistence and discovery on real Wi-Fi still need a device/network check.

@@ -396,3 +396,15 @@ Reference: kdeconnect-kde `plugins/runcommand/runcommandplugin.cpp`,
 The daemon's optional `TETHER_PORT` overrides its local TCP/UDP listeners and broadcast destination;
 it does not relax the standard advertised TCP port validation on incoming discovery identities.
 See `testing.md` for scripting, captured payloads and the integration-test fixture.
+
+## KDE Connect DNS-SD
+
+Reference: KDE `core/backends/lan/mdnshdiscovery.cpp` / `mdnsh_wrapper.cpp` (the current names of
+mdnsdiscovery/mdns_wrapper), Android `backends/lan/MdnsDiscovery.kt`.
+The service is `_kdeconnect._udp.local`; its instance label is the device ID. PTR points to the instance,
+SRV carries the **TCP** listener port and host target, TXT contains `id`, `name`, `type`, `protocol`, and
+A supplies the host's IPv4 address. Tether resolves split PTR/SRV/TXT/A replies, handles compressed DNS
+names, and answers multicast, QU and legacy unicast queries. IPv6 discovery is not implemented (the
+existing TCP listener is IPv4). Advertised IDs/ports/protocol versions pass the UDP discovery filters;
+only the identity inside TLS and the pinned certificate are trusted. Eight in-flight unauthenticated
+connections maximum share the existing ten-second exchange deadline; the ninth is closed immediately.

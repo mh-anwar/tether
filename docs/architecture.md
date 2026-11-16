@@ -137,3 +137,13 @@ share validation. Commands execute as the logged-in user, without shell interpol
 control socket. `sim/scenario.rs` holds the seeded Android-style request responses; `examples/fake_phone`
 is the reconnecting screenshot wrapper. Daemon integration tests share a short-path XDG/process/API
 fixture in `crates/tether/tests/support`; `TETHER_PORT` isolates daemon TCP and UDP listeners.
+
+## LAN discovery and input limits
+
+`tether-core::mdns` announces and browses `_kdeconnect._udp.local` alongside UDP identity broadcasts.
+It shares the small DNS name codec with the adb probe, joins each active IPv4 interface, and refreshes
+memberships and browsing every 15 seconds. Port 5353 uses reuse-address/reuse-port and multicast loopback
+so Avahi can coexist. Settings > Finding your phone controls `mdns` (default true; restart applies it).
+Both discovery paths use the same dial filtering and TLS/pinning path; TXT records never establish trust.
+The shared link layer admits eight simultaneous unauthenticated exchanges across both TCP roles, each
+with a ten-second deadline. Local API request lines are limited to 1 MiB before JSON parsing, without unbounded buffering.

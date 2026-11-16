@@ -24,6 +24,9 @@ impl Drop for Daemon {
     }
 }
 pub async fn start_daemon() -> Result<Daemon> {
+    start_daemon_with_mdns(false).await
+}
+pub async fn start_daemon_with_mdns(mdns: bool) -> Result<Daemon> {
     let dir = PathBuf::from(format!(
         "/tmp/ts-{}",
         &uuid::Uuid::new_v4().simple().to_string()[..10]
@@ -31,10 +34,17 @@ pub async fn start_daemon() -> Result<Daemon> {
     for part in ["cfg/tether", "data", "run", "downloads"] {
         std::fs::create_dir_all(dir.join(part))?;
     }
-    std::fs::write(dir.join("cfg/tether/config.json"), json!({"device_name":"Integration test", "clipboard_sync":false, "mirror_notifications":false, "auto_update":false, "downloads_dir":dir.join("downloads")}).to_string())?;
-    let listener = std::net::TcpListener::bind("127.0.0.1:0")?;
-    let port = listener.local_addr()?.port();
-    drop(listener);
+    std::fs::write(dir.join("cfg/tether/config.json"), json!({"mdns":mdns, "device_name":"Integration test", "clipboard_sync":false, "mirror_notifications":false, "auto_update":false, "downloads_dir":dir.join("downloads")}).to_string())?;
+    // TCP and UDP have separate ephemeral allocators; reserve both to avoid another test's UDP client.
+    let port = loop {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0")?;
+        let port = listener.local_addr()?.port();
+        if let Ok(udp) = std::net::UdpSocket::bind(("0.0.0.0", port)) {
+            drop(udp);
+            drop(listener);
+            break port;
+        }
+    };
     let log = std::fs::File::create(dir.join("daemon.log"))?;
     let child = Command::new(env!("CARGO_BIN_EXE_tether"))
         .arg("daemon")

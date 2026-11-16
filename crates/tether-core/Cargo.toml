@@ -18,3 +18,5 @@ sha2.workspace = true
 hex.workspace = true
 uuid.workspace = true
 socket2.workspace = true
+# Enumerate interface addresses for multicast membership without a discovery runtime.
+libc = "0.2"

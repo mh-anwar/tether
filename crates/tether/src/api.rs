@@ -13,7 +13,7 @@ use tether_core::{
     Service,
 };
 use tokio::{
-    io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
+    io::{AsyncBufRead, AsyncBufReadExt, AsyncWriteExt, BufReader},
     net::{UnixListener, UnixStream},
     sync::mpsc,
 };
@@ -83,9 +83,9 @@ async fn handle_conn(service: Service, stream: UnixStream) {
             }
         }
     });
-    let mut lines = BufReader::new(rd).lines();
-    while let Ok(Some(line)) = lines.next_line().await {
-        let req: Request = match serde_json::from_str(&line) {
+    let mut reader = BufReader::new(rd);
+    while let Ok(Some(line)) = request_line(&mut reader).await {
+        let req: Request = match serde_json::from_slice(&line) {
             Ok(r) => r,
             Err(e) => {
                 debug!("bad request: {e}");
@@ -414,5 +414,61 @@ async fn call(svc: &Service, method: &str, p: &Value) -> Result<Value> {
                 _ => Err(anyhow!("unknown method '{method}'")),
             }
         }
+    }
+}
+
+// fill_buf bounds allocation even when a client never sends a newline.
+const MAX_REQUEST_LINE: usize = 1024 * 1024;
+async fn request_line<R: AsyncBufRead + Unpin>(reader: &mut R) -> std::io::Result<Option<Vec<u8>>> {
+    let mut line = Vec::new();
+    loop {
+        let bytes = reader.fill_buf().await?;
+        if bytes.is_empty() {
+            return Ok((!line.is_empty()).then_some(line));
+        }
+        let count = bytes
+            .iter()
+            .position(|b| *b == b'\n')
+            .map_or(bytes.len(), |n| n + 1);
+        if line.len() + count > MAX_REQUEST_LINE {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "request line exceeds 1 MiB",
+            ));
+        }
+        let done = bytes[count - 1] == b'\n';
+        line.extend_from_slice(&bytes[..count]);
+        reader.consume(count);
+        if done {
+            return Ok(Some(line));
+        }
+    }
+}
+#[cfg(test)]
+mod limit_tests {
+    use super::*;
+    #[tokio::test]
+    async fn request_lines_are_bounded() {
+        let bytes = vec![b'x'; MAX_REQUEST_LINE + 1];
+        assert_eq!(
+            request_line(&mut BufReader::new(bytes.as_slice()))
+                .await
+                .unwrap_err()
+                .kind(),
+            std::io::ErrorKind::InvalidData
+        );
+        let mut exact = vec![b' '; MAX_REQUEST_LINE];
+        *exact.last_mut().unwrap() = b'\n';
+        assert_eq!(
+            request_line(&mut BufReader::new(exact.as_slice()))
+                .await
+                .unwrap()
+                .unwrap()
+                .len(),
+            MAX_REQUEST_LINE
+        );
+        let mut reader = BufReader::new(&b"one\ntwo\n"[..]);
+        assert_eq!(request_line(&mut reader).await.unwrap().unwrap(), b"one\n");
+        assert_eq!(request_line(&mut reader).await.unwrap().unwrap(), b"two\n");
     }
 }

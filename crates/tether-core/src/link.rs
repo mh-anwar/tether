@@ -36,6 +36,7 @@ pub struct Link {
 
 /// We opened the connection (after hearing the peer's UDP announcement).
 pub async fn connect(addr: SocketAddr, local: &Identity, tls: &TlsContext) -> Result<Link> {
+    let _slot = tls.handshake_slot()?;
     timeout(HANDSHAKE_TIMEOUT, async {
         let mut tcp = TcpStream::connect(addr).await?;
         configure(&tcp);
@@ -48,10 +49,20 @@ pub async fn connect(addr: SocketAddr, local: &Identity, tls: &TlsContext) -> Re
 
 /// The peer opened the connection to our TCP listener.
 pub async fn accept(
+    tcp: TcpStream,
+    addr: SocketAddr,
+    local: &Identity,
+    tls: &TlsContext,
+) -> Result<Link> {
+    accept_with_slot(tcp, addr, local, tls, tls.handshake_slot()?).await
+}
+
+pub(crate) async fn accept_with_slot(
     mut tcp: TcpStream,
     addr: SocketAddr,
     local: &Identity,
     tls: &TlsContext,
+    _slot: tokio::sync::OwnedSemaphorePermit,
 ) -> Result<Link> {
     timeout(HANDSHAKE_TIMEOUT, async {
         configure(&tcp);

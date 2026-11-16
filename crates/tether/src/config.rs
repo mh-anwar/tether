@@ -22,6 +22,7 @@ pub struct Config {
     pub mirror_notifications: bool,
     /// Keep the computer's and the phone's clipboards the same.
     pub clipboard_sync: bool,
+    pub mdns: bool,
     pub send_notifications: bool,
     pub notification_blocklist: Vec<String>,
     pub pause_media: String,
@@ -49,6 +50,7 @@ impl Default for Config {
             addresses: vec![],
             mirror_notifications: true,
             clipboard_sync: true,
+            mdns: true,
             send_notifications: false,
             notification_blocklist: vec![],
             pause_media: "ringing".into(),
@@ -88,6 +90,7 @@ impl Config {
             downloads_dir: downloads,
             device_name: self.device_name.clone(),
             device_type: device_type(),
+            mdns: self.mdns,
             manual_addresses: self
                 .addresses
                 .iter()
@@ -118,6 +121,7 @@ pub fn settings() -> Result<Value> {
         "addresses": cfg.addresses,
         "mirror_notifications": cfg.mirror_notifications,
         "clipboard_sync": cfg.clipboard_sync,
+        "mdns": cfg.mdns,
         "send_notifications": cfg.send_notifications,
         "notification_blocklist": cfg.notification_blocklist,
         "pause_media": cfg.pause_media,
@@ -186,11 +190,9 @@ pub fn save_settings(changes: &Value) -> Result<bool> {
                 restart = true;
                 json!(dir)
             }
-            "clipboard_sync" => {
+            "clipboard_sync" | "mdns" => {
                 restart = true;
-                json!(value
-                    .as_bool()
-                    .context("clipboard_sync must be on or off")?)
+                json!(value.as_bool().context("must be on or off")?)
             }
             "pause_media" => {
                 let mode = value
