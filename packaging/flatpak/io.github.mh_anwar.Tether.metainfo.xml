@@ -47,7 +47,7 @@
   <releases>
     <release version="1.0.0" date="2026-11-16">
       <description>
-        <p>Everything KDE Connect does, in both directions. The phone can now control this computer: touchpad and keyboard, presentation remote, lock, volume, music on the computer, ringing the computer, and commands you set up. New Files, Contacts, Keyboard and Devices pages, this computer's notifications on the phone (if you turn it on), music that pauses during calls, complete file sharing with progress, discovery on networks that block broadcasts, and a checklist of what to switch on in the phone app.</p>
+        <p>The phone can now control this computer: touchpad and keyboard, presentation remote, screen lock, volume, music players, ringing the computer, and commands you set up. New Files, Contacts, Keyboard and Devices pages. Other additions: the computer's notifications on the phone (off by default), music that pauses during calls, file sharing with progress in both directions, discovery on networks that block broadcasts, and a checklist of what to turn on in the KDE Connect app.</p>
       </description>
     </release>
     <release version="0.3.4" date="2026-11-12">

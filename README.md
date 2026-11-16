@@ -43,7 +43,7 @@ Tether checks for updates once a day. The AppImage and the `.tar.gz` install upd
 ## Pairing
 
 1. Install KDE Connect on the phone and open it. The phone and computer must be on the same network.
-2. Open Tether and click **Pair** next to your phone.
+2. Open Tether and click Pair next to your phone.
 3. Accept on the phone. Both screens show the same code.
 
 Then open the Devices page in Tether. It lists each feature and what to enable for it in the KDE Connect
@@ -68,15 +68,17 @@ Run `tether --help` for the full list.
 
 ## Troubleshooting
 
-- **The phone doesn't show up.** Quit KDE Connect or Valent on the computer; they use the same ports.
-  If a firewall is on, open ports 1714-1764 (TCP and UDP). On VPNs, guest Wi-Fi or networks that block
-  discovery, add the phone's IP address in Settings > Finding your phone.
-- **A feature does nothing.** Check the Devices page; the switch or permission for it is probably off in
-  the KDE Connect app. On Samsung phones, also set Settings > Apps > KDE Connect > Battery > Unrestricted.
-- **Remote input from the phone doesn't work on Wayland.** Install `ydotool`, `wtype` or `dotool`. On X11
-  it works without extra tools.
-- **Volume control from the phone shows nothing.** It needs `pactl` (PulseAudio or PipeWire) or `wpctl`.
-- Calls are only reported; the audio stays on the phone.
+If the phone doesn't show up, quit KDE Connect or Valent on the computer, since they use the same ports.
+With a firewall, open ports 1714-1764 (TCP and UDP). On a VPN, guest Wi-Fi or a network that blocks
+discovery, add the phone's IP address in Settings > Finding your phone.
+
+If a feature does nothing, check the Devices page. Its switch or permission is probably off in the KDE
+Connect app. On Samsung phones, also set Settings > Apps > KDE Connect > Battery > Unrestricted.
+
+Remote input from the phone works on X11 without extra tools. On Wayland, install `ydotool`, `wtype` or
+`dotool`. Volume control from the phone needs `pactl` (PulseAudio or PipeWire) or `wpctl`.
+
+Calls are only reported. The audio stays on the phone.
 
 ## Building
 
