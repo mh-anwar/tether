@@ -24,6 +24,9 @@ pub async fn run(cfg: Config) -> Result<()> {
     );
     tokio::spawn(crate::notify::mirror(service.clone()));
     tokio::spawn(crate::mprisd::run(service.clone()));
+    tokio::spawn(crate::desktopmedia::run(service.clone()));
+    tokio::spawn(crate::sendnotifications::run(service.clone()));
+    tokio::spawn(crate::received::run(service.clone()));
     tokio::spawn(crate::computer::run(service.clone()));
     if cfg.clipboard_sync {
         crate::clipsync::start(service.clone());

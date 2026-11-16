@@ -96,6 +96,22 @@ pillow`), write `"<name> <password>" > $FAKE_APPS_DIR/scanned`. Pair-by-code acc
 pairing-code screen (the form then fills in the address). `TETHER_SCRCPY=` (empty) shows the helper-download screen.
 Use the stand-ins here rather than the real adb: its server listens on localhost:5037, shared with everyone on the box.
 
+## Desktop media and sharing
+`CARGO_TARGET_DIR=target dbus-run-session -- uv run --no-project --with dbus-next --with python-xlib python testing/media/e2e.py`
+uses a private bus, desktop player/notification server (`testing/media/standin.py`) and the real fake
+phone. Build `tether`, `tether-app` and the `fake_phone` example first. It checks MPRIS list/metadata,
+commands, property signals, art payload, call pause/resume, notification forwarding/dismissal and
+shared files/URLs/text. It prints its temporary artifact folder. `FAKE_PHONE_CONTROL` enables an opt-in
+fake-phone test inbox: numbered JSON packets, optional top-level `testPayloadPath`; received packets
+are appended to `received.jsonl` and payloads saved as `payload.bin`. No real phone data is used.
+
+It also covers the app blocklist, that mirrored phone notifications are not sent back, and the
+"pause when talking" + "mute instead" call modes. `testing/media/window.sh [shot.png]` runs the window
+checks (received-files list with Open / Show in folder and progress, the new Settings rows, Ctrl+K "Send
+text or link") on its own display (`:72`), its own daemon port and `TETHER_UI_DIR`, so it works while another
+daemon owns UDP/TCP 1716 and other tauri-drivers run (`WD_PORT`, `MEDIA_DISPLAY` override the defaults).
+`xdg-open` is faked by a script in the e2e's PATH; clicking Open / Show in folder on the desktop
+notification itself (needs a notification server that emits ActionInvoked) is not automated.
 ## Computer controls (stand-in phone)
 
 With `CARGO_TARGET_DIR` pointing at your private target directory:

@@ -30,3 +30,5 @@ uuid.workspace = true
 socket2.workspace = true
 # Tray icon on bars with the older XEmbed tray (i3bar, polybar). Already built for arboard.
 x11rb = { version = "0.13", features = ["xtest"] }
+futures-util = { version = "0.3", default-features = false, features = ["std", "async-await"] }
+url = "2"

@@ -98,6 +98,17 @@ Request `{"id","method","params"}`, reply `{"id","result"|"error"}`, events push
   Phone text is only set via `textContent`. Icons are inline SVG in `ui/icons.js`.
 - Messages are cached in memory per thread; the phone is the source of truth and resends on connect.
 
+## Desktop media and incoming shares
+- `desktopmedia` watches session-bus MPRIS names, PropertiesChanged and Seeked. It excludes the
+  `org.mpris.MediaPlayer2.tether` phone proxy. Phone requests reach it as authenticated `DesktopRequest`
+  updates; the core never depends on D-Bus. Calls pause only playing desktop players and restore those
+  players, or their saved per-player volume when mute-instead is enabled.
+- `sendnotifications` uses a dedicated BecomeMonitor connection (eavesdrop fallback). Notify replies
+  provide the actual notification IDs for phone dismissals. It is off by default; mirrored notifications
+  carry `x-tether-mirrored` to prevent loops. An app-name blocklist is in Settings.
+- `received` owns shared text's clipboard and handles file notifications and xdg-open with the window
+  closed. The window keeps recent transfers in a "Received from your phone" section at the top of its notifications column (progress while receiving or sending); `received_list` recovers the
+  daemon's recent completed files when reopening it. `share_files` sends one batch sequentially.
 ## Phone controls for this computer
 
 `plugins/{runcommand,mousepad,presenter,lock,systemvolume,battery,findmyphone}.rs` contain wire

@@ -39,6 +39,10 @@ pub async fn mirror(service: Service) {
                     n.title.clone()
                 };
                 let mut desk = notify_rust::Notification::new();
+                desk.hint(notify_rust::Hint::Custom(
+                    "x-tether-mirrored".into(),
+                    "true".into(),
+                ));
                 desk.appname(&n.app)
                     .summary(&summary)
                     .body(&escape(&n.text));
