@@ -77,6 +77,7 @@ try:
  send('findmyphone.request',{});wait(lambda:api('computer_status')['ringing']);api('computer_ring_stop');wait(lambda:not api('computer_status')['ringing'])
  print('ok ring, second-request stop and window stop API')
  api('settings_set',{'allow_commands':False,'allow_input':False,'allow_lock':False,'allow_volume':False,'allow_ring':False})
+ time.sleep(1)  # a sound stub started just before the stop may still be logging
  (W/'touched').unlink();before=calls();root.warp_pointer(300,300);x.sync()
  for kind,body in [('runcommand.request',{'key':'touch'}),('mousepad.request',{'dx':50}),('lock.request',{'setLocked':True}),('systemvolume.request',{'name':'test-sink','volume':20}),('findmyphone.request',{})]:send(kind,body)
  time.sleep(1)
