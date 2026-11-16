@@ -66,7 +66,8 @@ pub async fn request_background(autostart: bool) -> Result<()> {
         .member("Response")
         .path(path.as_str())
         .build()?;
-    let mut responses = zbus::MessageStream::for_match_rule(rule, &conn, std::num::NonZeroUsize::new(4)).await?;
+    let mut responses =
+        zbus::MessageStream::for_match_rule(rule, &conn, std::num::NonZeroUsize::new(4)).await?;
 
     let mut options: HashMap<&str, Variant> = HashMap::new();
     options.insert("handle_token", Variant::from(token.as_str()));

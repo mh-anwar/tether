@@ -331,7 +331,10 @@ fn item_name(flatpak_id: Option<&str>, pid: u32) -> String {
 }
 
 async fn sni(mut unread: watch::Receiver<usize>, click: mpsc::UnboundedSender<()>) {
-    let name = item_name(std::env::var("FLATPAK_ID").ok().as_deref(), std::process::id());
+    let name = item_name(
+        std::env::var("FLATPAK_ID").ok().as_deref(),
+        std::process::id(),
+    );
     let built = zbus::conn::Builder::session()
         .name(name.as_str())
         .serve_at(
@@ -661,7 +664,11 @@ mod tests {
             item_name(Some("io.github.mh_anwar.Tether"), 2),
             "io.github.mh_anwar.Tether.StatusNotifierItem-2-1"
         );
-        assert!(zbus::names::WellKnownName::try_from(item_name(Some("io.github.mh_anwar.Tether"), 2)).is_ok());
+        assert!(zbus::names::WellKnownName::try_from(item_name(
+            Some("io.github.mh_anwar.Tether"),
+            2
+        ))
+        .is_ok());
     }
 
     #[test]

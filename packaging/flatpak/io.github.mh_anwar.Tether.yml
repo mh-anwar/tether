@@ -40,7 +40,10 @@ modules:
         CARGO_NET_OFFLINE: 'true'
     build-commands:
       # -j overrides the repository's jobs = 2, which is meant for the shared dev box.
-      - cargo --offline build --release --locked -j "$FLATPAK_BUILDER_N_JOBS" -p tether -p tether-app
+      - cargo --offline build --release --locked -j "$FLATPAK_BUILDER_N_JOBS" -p tether
+      # custom-protocol is what `tauri build` turns on: the window serves the embedded ui/ files as a
+      # production build instead of a dev build.
+      - cargo --offline build --release --locked -j "$FLATPAK_BUILDER_N_JOBS" -p tether-app --features tauri/custom-protocol
       - install -Dm755 target/release/tether /app/bin/tether
       - install -Dm755 target/release/tether-app /app/bin/tether-app
       - install -Dm644 crates/tether-app/icons/icon.png /app/share/icons/hicolor/512x512/apps/io.github.mh_anwar.Tether.png

@@ -230,7 +230,12 @@ async fn call(svc: &Service, method: &str, p: &Value) -> Result<Value> {
         }
         "settings_get" => crate::config::settings(),
         "settings_set" => {
-            let restart = crate::config::save_settings(p)?;
+            // Turning on start at login in the Flatpak waits for the desktop's permission dialog,
+            // so keep it off the runtime's worker threads.
+            let changes = p.clone();
+            let restart =
+                tokio::task::spawn_blocking(move || crate::config::save_settings(&changes))
+                    .await??;
             if let Some(on) = p.get("mirror_notifications").and_then(Value::as_bool) {
                 crate::notify::ENABLED.store(on, std::sync::atomic::Ordering::Relaxed);
             }

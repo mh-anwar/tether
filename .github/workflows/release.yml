@@ -88,6 +88,15 @@ jobs:
           cache-key: flatpak-builder-${{ hashFiles('Cargo.lock') }}
           upload-artifact: false
 
+      # Tether runs these programs; inside the sandbox only the runtime's copies exist. The log says
+      # which are missing, so docs/flathub.md can say which features need work there.
+      - name: Programs in the runtime
+        continue-on-error: true
+        run: |
+          flatpak run --command=sh org.gnome.Platform//50 -c \
+            'for p in pactl paplay pw-play canberra-gtk-play sftp xdg-open loginctl dotool; do
+               command -v "$p" || echo "missing: $p"; done'
+
       - uses: actions/upload-artifact@v4
         with:
           name: tether-flatpak

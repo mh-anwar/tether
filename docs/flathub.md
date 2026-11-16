@@ -16,6 +16,9 @@ Needs the GNOME 50 runtime and SDK and the `rust-stable` SDK extension from Flat
 flatpak, the CI image works under (rootless) Docker:
 `docker run --privileged -v "$PWD:/src" -w /src ghcr.io/flathub-infra/flatpak-github-actions:gnome-50 flatpak-builder ...`.
 
+Never run `flatpak-builder` or other container builds on the shared dev box; let CI build it (run the
+Release workflow by hand with workflow_dispatch) or use a machine of your own.
+
 `cargo-sources.json` is generated, not committed: CI makes it from the tagged commit's `Cargo.lock`, so it
 can't go stale. The Flathub repo will need a committed copy, regenerated with each release.
 
@@ -39,8 +42,11 @@ can't go stale. The Flathub repo will need a committed copy, regenerated with ea
   switch.
 - Commands the phone runs execute inside the sandbox, so host programs aren't there; the Settings text
   says so. Remote mouse and keyboard need `dotool`/`ydotool`/`wtype`, which the sandbox lacks, so the
-  phone's remote input reports itself unavailable unless X11 is in use. Volume control uses the
-  runtime's `pactl`; screen lock uses `org.freedesktop.ScreenSaver` (no `loginctl` in the sandbox).
+  phone's remote input reports itself unavailable unless X11 is in use. Screen lock falls back to
+  `org.freedesktop.ScreenSaver` when `loginctl` is missing. Volume (`pactl`), ringing (`canberra-gtk-play`,
+  `paplay`, `pw-play`) and browsing the phone's files (`sftp`) work only if the GNOME runtime has those
+  programs; the release workflow's "Programs in the runtime" step lists what is missing. Read it after the
+  first Flatpak build and bundle or hide what isn't there.
 - Files from the phone can only be saved inside Downloads (`--filesystem=xdg-download`).
 
 ## Blockers only the owner can clear
@@ -50,6 +56,10 @@ can't go stale. The Flathub repo will need a committed copy, regenerated with ea
 - **License**: `GPL-3.0-or-later` (Cargo.toml, LICENSE). Change before going public if a different one is wanted.
 
 ## Work left (ours)
+The Flatpak has not been built yet (no flatpak-builder run outside CI). First: dispatch the Release
+workflow, install the bundle on a real desktop, and check start at login (the portal dialog), the tray
+icon, notifications and the runtime-programs list above.
+
 1. Point the manifest's source at a release tag (`type: git`, `tag`, `commit`) instead of `type: dir`, and
    commit `cargo-sources.json` next to it in the Flathub repo.
 2. Bundle `adb` (android-tools) and `scrcpy` (meson; SDL3 + FFmpeg) as modules and set `TETHER_ADB` /

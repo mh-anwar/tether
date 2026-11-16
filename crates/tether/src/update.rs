@@ -5,7 +5,8 @@
 //! `SHA256SUMS`, and swap the files in place; the new version runs after a restart, which the window
 //! offers. `.deb` and `.rpm` installs need the admin password, so on request the installer is saved to
 //! Downloads and opened. A Flatpak from Flathub updates from the store; a `.flatpak` bundle has no
-//! remote, so it is pointed at the releases page. Builds from a source tree never update. A private repository answers 404, which reads as "no update".
+//! remote, so it is pointed at the releases page. Builds from a source tree never update. A private
+//! repository answers 404, which reads as "no update".
 
 use std::{
     path::{Path, PathBuf},
@@ -515,7 +516,10 @@ mod tests {
     fn kinds() {
         let p = |s: &str| PathBuf::from(s);
         assert_eq!(detect(&p("/app/bin/tether"), None, Some(true)), Kind::Store);
-        assert_eq!(detect(&p("/app/bin/tether"), None, Some(false)), Kind::Other);
+        assert_eq!(
+            detect(&p("/app/bin/tether"), None, Some(false)),
+            Kind::Other
+        );
         assert_eq!(
             detect(
                 &p("/tmp/.mount_x/usr/bin/tether"),
