@@ -283,6 +283,43 @@ try:
         wait.until(lambda _: not d.find_elements(By.CSS_SELECTOR, ".palette-backdrop"))
     check("Ctrl+K offers Check for updates", palette)
 
+    def notification_icons():
+        # The fake phone sends WhatsApp's and Spotify's icons as payloads; other apps keep a letter.
+        wait.until(lambda _: d.execute_script(
+            "return [...document.querySelectorAll('.note-card .app-row img.app-icon-img')]"
+            ".some((i) => i.complete && i.naturalWidth > 0)"))
+        wait.until(lambda _: d.find_elements(By.CSS_SELECTOR, ".note-card .app-row .app-badge"))
+        # An icon file that has gone (pruned cache) turns back into the letter.
+        app = d.execute_script(
+            "const n = Object.values(state.notifications).find((n) => n.icon_path);"
+            "n.icon_path = '/nonexistent/icon.png'; invalidate('feed'); return n.app;")
+        wait.until(lambda _: d.find_elements(
+            By.XPATH, f"//article[contains(@class,'note-card')][starts-with(@aria-label, \"{app}:\")]"
+                      "//span[contains(@class,'app-badge')]"))
+    check("notifications show app icons, letters otherwise", notification_icons)
+
+    def take_photo():
+        import json
+        d.find_element(By.TAG_NAME, "body").send_keys(Keys.CONTROL, "k")
+        d.switch_to.active_element.send_keys("photo")
+        wait.until(EC.element_to_be_clickable(
+            (By.XPATH, "//*[contains(@class, 'palette')]//*[normalize-space(.)='Take a photo']"))).click()
+        text_shown("Take the photo on")
+        wait.until(lambda _: d.execute_script(
+            "const i = document.querySelector('.viewer img'); return !!(i && i.complete && i.naturalWidth > 0)"))
+        button("Show in folder")
+        cfg = json.loads(Path(os.environ["XDG_CONFIG_HOME"], "tether/config.json").read_text())
+        assert list(Path(cfg["downloads_dir"]).glob("IMG_20261116_101500*.jpg")), "photo not in Downloads"
+        # Its download row in the notifications column finishes too.
+        wait.until(lambda _: d.execute_script(
+            "return state.transfers.some((t) => t.name.startsWith('IMG_20261116_101500') && t.path)"))
+        d.switch_to.active_element.send_keys(Keys.ESCAPE)
+        wait.until(lambda _: not d.find_elements(By.CSS_SELECTOR, ".viewer"))
+        d.execute_script("showView('photos')")
+        wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "[data-key=photos-camera]")))
+        d.execute_script("showView('messages')")
+    check("Take a photo shows the phone's picture and saves it", take_photo)
+
     def settings_page():
         click("Settings")
         box = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "[data-key=set-auto_update]")))

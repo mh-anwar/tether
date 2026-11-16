@@ -604,6 +604,31 @@ async fn send_attachment(
     .await;
 }
 
+/// Answers `kdeconnect.photo.request` like the old Android PhotoPlugin: the camera opens, the
+/// user takes a picture a moment later and it comes back as `kdeconnect.photo` with a payload.
+/// `FAKE_PHONE_PHOTO=cancel` acts as the user closing the camera instead.
+async fn send_camera_photo(tx: &mpsc::Sender<Packet>, tls: &Arc<TlsContext>, peer_cert: &[u8]) {
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    if std::env::var("FAKE_PHONE_PHOTO").as_deref() == Ok("cancel") {
+        println!("camera closed without a photo");
+        let _ = tx
+            .send(Packet::new(plugins::photo::PHOTO, json!({"cancel": true})))
+            .await;
+        return;
+    }
+    println!("photo taken");
+    let body = json!({"filename": "IMG_20261116_101500.jpg"});
+    send_payload(
+        plugins::photo::PHOTO,
+        body,
+        PHOTOS[1].jpeg,
+        tx,
+        tls,
+        peer_cert,
+    )
+    .await;
+}
+
 pub(super) async fn handle(
     p: &Packet,
     phone: &Arc<Mutex<Phone>>,
@@ -622,6 +647,11 @@ pub(super) async fn handle(
         // Spawned so the one-second delay doesn't hold up the rest of the session.
         let (p, tx, tls, peer_cert) = (p.clone(), tx.clone(), tls.clone(), peer_cert.to_vec());
         tokio::spawn(async move { send_attachment(&p, &tx, &tls, &peer_cert).await });
+        return;
+    }
+    if p.kind == plugins::photo::REQUEST {
+        let (tx, tls, peer_cert) = (tx.clone(), tls.clone(), peer_cert.to_vec());
+        tokio::spawn(async move { send_camera_photo(&tx, &tls, &peer_cert).await });
         return;
     }
     if let Some(reply) = record_mousepad(p) {

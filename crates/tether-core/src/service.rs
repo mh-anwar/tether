@@ -101,6 +101,8 @@ struct IncomingShare {
     open: bool,
     count: i64,
     total: i64,
+    /// The camera picture asked for with `take_photo`.
+    photo: bool,
 }
 
 struct LinkHandle {
@@ -133,6 +135,8 @@ struct Dev {
     cache_dirty: bool,
     /// Callers waiting for the phone's file server to answer `sftp::request`.
     sftp_waiters: Vec<tokio::sync::oneshot::Sender<std::result::Result<sftp::Login, String>>>,
+    /// Photos asked for and not answered yet; a `kdeconnect.photo` is only accepted against one.
+    photos_wanted: u32,
 }
 
 struct Inner {
@@ -210,6 +214,7 @@ impl Service {
                     last_seen: t.last_seen,
                     cache_dirty: false,
                     sftp_waiters: Vec::new(),
+                    photos_wanted: 0,
                 },
             );
         }
@@ -451,6 +456,32 @@ impl Service {
             .as_ref()
             .ok_or_else(|| Error::NotConnected(id.into()))?;
         l.tx.try_send(p).map_err(|_| Error::NotConnected(id.into()))
+    }
+
+    /// Asks the phone to open its camera; the picture arrives as `Update::PhotoTaken`. Only phones
+    /// that list `kdeconnect.photo.request` can do it (newer Android releases dropped it).
+    pub fn take_photo(&self, id: &str) -> Result<()> {
+        let supported = self
+            .inner
+            .lock()
+            .get(id)
+            .ok_or_else(|| Error::UnknownDevice(id.into()))?
+            .identity
+            .incoming_capabilities
+            .iter()
+            .any(|c| c == plugins::photo::REQUEST);
+        if !supported {
+            return Err(Error::Protocol(
+                "this phone's KDE Connect app can't take photos for the computer".into(),
+            ));
+        }
+        self.send(id, plugins::photo::request())?;
+        // The user needs seconds to take the picture, so counting after the send is safe. Capped
+        // so a phone that never answers can't let pictures in forever.
+        if let Some(d) = self.inner.lock().get_mut(id) {
+            d.photos_wanted = (d.photos_wanted + 1).min(3);
+        }
+        Ok(())
     }
 
     /// Asks the phone to start its file server and returns how to log in. Fails with the phone's
@@ -758,6 +789,7 @@ impl Inner {
             last_seen: None,
             cache_dirty: false,
             sftp_waiters: Vec::new(),
+            photos_wanted: 0,
         });
         d.identity = peer;
         d.last_seen = Some(crate::packet::now_millis());
@@ -874,6 +906,18 @@ impl Inner {
             return;
         }
 
+        if plugins::photo::is_cancel(&p) {
+            if d.photos_wanted > 0 {
+                d.photos_wanted -= 1;
+                drop(devs);
+                self.emit(Event::Update {
+                    device_id: id.into(),
+                    update: Update::PhotoCancelled,
+                });
+            }
+            return;
+        }
+
         // Payload-bearing packets need the network; start the transfer outside the lock.
         if let Some(port) = p.payload_port() {
             let size = p.payload_size.unwrap_or(-1);
@@ -912,6 +956,28 @@ impl Inner {
                             open,
                             count,
                             total,
+                            photo: false,
+                        },
+                    ));
+                    return;
+                }
+                plugins::photo::PHOTO => {
+                    // Like kdeconnect-kde's photo plugin: a picture nobody asked for is dropped.
+                    if d.photos_wanted == 0 {
+                        return;
+                    }
+                    d.photos_wanted -= 1;
+                    tokio::spawn(self.clone().receive_file(
+                        id.to_string(),
+                        target,
+                        cert,
+                        size,
+                        IncomingShare {
+                            name: plugins::photo::file_name(&p),
+                            open: false,
+                            count: 1,
+                            total: size,
+                            photo: true,
                         },
                     ));
                     return;
@@ -1080,6 +1146,7 @@ impl Inner {
             open,
             count,
             total,
+            photo,
         } = share;
         let dir = self.config.downloads_dir.clone();
         let result: Result<PathBuf> = async {
@@ -1130,6 +1197,9 @@ impl Inner {
         }
         .await;
         let update = match result {
+            Ok(path) if photo => Update::PhotoTaken {
+                path: path.to_string_lossy().into(),
+            },
             Ok(path) => Update::FileReceived {
                 path: path.to_string_lossy().into(),
                 open,

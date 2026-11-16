@@ -783,11 +783,11 @@ async function fetchAttachment(a) {
 }
 
 // A picture in a dialog: `buttons` go in its bar, `load` resolves to the element to show.
-function openViewer(label, buttons, load, retry) {
+function openViewer(label, buttons, load, retry, waiting = 'Getting it from your phone') {
   const root = $('#palette-root');
   const back = document.activeElement;
   const close = () => { root.replaceChildren(); back?.focus?.(); };
-  const body = h('div', { class: 'viewer-body' }, h('div', { class: 'spinner' }), h('p', { text: 'Getting it from your phone' }));
+  const body = h('div', { class: 'viewer-body', 'aria-live': 'polite' }, h('div', { class: 'spinner' }), h('p', { text: waiting }));
   const closeBtn = h('button', { class: 'btn ghost icon-only', title: 'Close (Esc)', 'aria-label': 'Close', onclick: close }, icon('x'));
   for (const b of buttons) b.disabled = true;
   root.replaceChildren(h('div', { class: 'palette-backdrop viewer-backdrop', onclick: (e) => { if (e.target === e.currentTarget) close(); },
@@ -802,6 +802,31 @@ function openViewer(label, buttons, load, retry) {
     body.replaceChildren(icon('alert', 'lg'), h('p', { text: e.message || String(e) }),
       h('button', { class: 'btn', onclick: () => { close(); retry(); } }, icon('refresh', 'sm'), 'Try again'));
   });
+}
+
+// ---------- camera ----------
+// Older KDE Connect Android releases can open the camera for the computer; newer ones dropped it,
+// so the command only shows for phones that say they can.
+const canTakePhoto = (d) => !!(d && d.connected && (d.incoming_capabilities || []).includes('kdeconnect.photo.request'));
+let photoWait = null; // the open "Take a photo" viewer, waiting for the phone's picture
+
+function takePhoto() {
+  const d = device();
+  if (!canTakePhoto(d)) { toast('Your phone can\'t take photos for this computer', 'error'); return; }
+  let saved = null;
+  const act = (method) => async () => { try { await api(method, { path: saved }); } catch (e) { toast(String(e), 'error'); } };
+  const openBtn = h('button', { class: 'btn', 'data-key': 'camera-open', onclick: act('received_open') }, icon('image', 'sm'), 'Open');
+  const folder = h('button', { class: 'btn', 'data-key': 'camera-folder', onclick: act('received_show') }, icon('folder', 'sm'), 'Show in folder');
+  openViewer('Photo from your phone', [openBtn, folder], async () => {
+    const path = await new Promise((resolve, reject) => {
+      const t = setTimeout(() => { photoWait = null; reject(new Error('No photo came from your phone. Try again with the phone unlocked.')); }, 180000);
+      photoWait = { resolve: (p) => { clearTimeout(t); photoWait = null; resolve(p); }, reject: (e) => { clearTimeout(t); photoWait = null; reject(e); } };
+      api('photo_take', { device: d.id }).catch((e) => photoWait?.reject(e));
+    });
+    saved = path;
+    const preview = await api('photo_preview', { path });
+    return h('img', { src: T.core.convertFileSrc(preview), alt: 'Photo from your phone' });
+  }, takePhoto, `Take the photo on ${d.name}`);
 }
 
 function openAttachment(a) {
@@ -1023,7 +1048,9 @@ function renderPhotos() {
     const head = h('div', { class: 'apps-head' },
       h('div', { class: 'row' },
         h('div', {}, h('h1', { text: 'Photos' }), h('p', { class: 'sub', text: `The newest pictures on ${d?.name || 'your phone'}. Open one to copy or save it.` })),
-        h('button', { class: 'btn', 'data-key': 'photos-refresh', disabled: photos.status === 'loading', onclick: loadPhotos }, icon('refresh', 'sm'), 'Refresh')),
+        h('div', { class: 'row' },
+          canTakePhoto(d) ? h('button', { class: 'btn', 'data-key': 'photos-camera', onclick: takePhoto }, icon('camera', 'sm'), 'Take a photo') : null,
+          h('button', { class: 'btn', 'data-key': 'photos-refresh', disabled: photos.status === 'loading', onclick: loadPhotos }, icon('refresh', 'sm'), 'Refresh'))),
       photos.status === 'ready' ? h('div', { class: 'tabs', role: 'tablist', 'aria-label': 'Kind of picture' },
         photos.folders.map((f, i) => h('button', { role: 'tab', 'data-key': `photos-tab-${i}`, 'aria-selected': photos.tab === i ? 'true' : 'false',
           onclick: () => { photos.tab = i; renderPhotos(); pumpThumbs(); } }, f.name, h('span', { class: 'count', text: String(f.items.length) })))) : null);
@@ -1513,11 +1540,19 @@ function sendTextOrLink() {
   text.focus();
 }
 
-function appBadge(n) {
-  if (n.icon_path) return h('img', { src: T.core.convertFileSrc(n.icon_path), alt: '' });
+function letterBadge(app) {
   let hash = 0;
-  for (const ch of n.app || '?') hash = (hash * 31 + ch.codePointAt(0)) >>> 0;
-  return h('span', { class: 'app-badge', style: `background:hsl(${hash % 360} 45% 46%)`, text: (n.app || '?')[0].toUpperCase() });
+  for (const ch of app || '?') hash = (hash * 31 + ch.codePointAt(0)) >>> 0;
+  return h('span', { class: 'app-badge', 'aria-hidden': 'true', style: `background:hsl(${hash % 360} 45% 46%)`, text: (app || '?')[0].toUpperCase() });
+}
+
+// The app's icon from the phone, or its first letter until the icon has arrived (or if the
+// cached file was pruned or can't be decoded).
+function appBadge(n) {
+  if (!n.icon_path) return letterBadge(n.app);
+  const img = h('img', { class: 'app-icon-img', src: T.core.convertFileSrc(n.icon_path), alt: '' });
+  img.addEventListener('error', () => img.replaceWith(letterBadge(n.app)), { once: true });
+  return img;
 }
 
 function noteCard(n) {
@@ -1677,6 +1712,8 @@ function commands() {
   ].filter(Boolean);
   cmds.push({ label: 'Show phone apps', icon: 'apps', run: () => showView('apps') });
   cmds.push({ label: 'Show phone photos', icon: 'image', run: () => showView('photos') });
+  // After the everyday commands: the palette shows nine before anything is typed.
+  if (canTakePhoto(d)) cmds.push({ label: 'Take a photo', sub: 'With the phone\'s camera', icon: 'camera', run: takePhoto });
   for (const [view, label] of [['files', 'Browse phone files'], ['contacts', 'Show contacts'], ['keyboard', 'Keyboard'], ['devices', 'Manage phones']])
     cmds.push({ label, icon: view === 'keyboard' ? 'key' : 'phone', run: () => showView(view) });
   cmds.push({ label: 'Settings', icon: 'settings', run: () => showView('settings') });
@@ -1750,6 +1787,14 @@ async function sendFiles(paths, d) {
   catch (e) { toast(`Files didn't send: ${e}`, 'error'); }
 }
 
+// A finished download from the phone (a shared file or a camera photo) completes its progress row.
+function receivedFile(path) {
+  const name = path.split('/').pop();
+  const t = state.transfers.find((t) => !t.sending && !t.path && !t.error && (t.name === name || name.startsWith(t.name.replace(/(\.[^.]+)?$/, ' ('))));
+  if (t) t.path = path; else state.transfers.unshift({ name, path });
+  invalidate('feed');
+}
+
 // ---------- events ----------
 function onEvent(ev) {
   if (ev.event === 'computer_settings') { openCommandsSettings(); return; }
@@ -1804,12 +1849,16 @@ function onEvent(ev) {
     case 'shared_text': toast('Text from your phone copied'); break;
     case 'shared_url': toast('Opening the link from your phone'); break;
     case 'transfer_progress': transferProgress(u); break;
-    case 'file_received': {
-      const name = u.path.split('/').pop();
-      const t = state.transfers.find((t) => !t.sending && !t.path && !t.error && (t.name === name || name.startsWith(t.name.replace(/(\.[^.]+)?$/, ' ('))));
-      if (t) t.path = u.path; else state.transfers.unshift({ name, path: u.path });
-      invalidate('feed'); toast(`Received ${name}`); break;
+    case 'photo_taken': {
+      receivedFile(u.path);
+      // Closing the viewer doesn't stop the phone; a picture that arrives later still gets a word.
+      const showing = photoWait && $('.viewer');
+      photoWait?.resolve(u.path);
+      if (!showing) toast(`Photo from your phone saved as ${u.path.split('/').pop()}`);
+      break;
     }
+    case 'photo_cancelled': photoWait?.reject(new Error('The camera closed without a photo.')); break;
+    case 'file_received': receivedFile(u.path); toast(`Received ${u.path.split('/').pop()}`); break;
     case 'transfer_failed': { const t = state.transfers.find((t) => t.name === u.name && !t.path && !t.done); if (t) t.error = u.reason; invalidate('feed'); } toast(`${u.name} didn't arrive: ${u.reason}`, 'error'); break;
   }
 }
