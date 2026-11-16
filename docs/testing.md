@@ -99,8 +99,9 @@ Use the stand-ins here rather than the real adb: its server listens on localhost
 
 ## Window pages: Files, Contacts, Keyboard, Devices
 `test_window.py` covers each, and writes light and dark screenshots of them plus 720 and 1000 px layouts to
-`/home/pippin/tether-wt/shots/` (edit `output` in the `screenshots` check for another folder). `wd.sh` starts
-its own daemon and points the fake phone at the port it got (other agents' daemons hold 1716-1718), and sets
+`$TETHER_SHOTS` (default: `shots/` next to the test's config folder); the README's pictures in
+`docs/screenshots/` come from there. `wd.sh` starts its own daemon and points the fake phone at the port it
+got (so other daemons on 1716-1718 don't matter), and sets
 `FAKE_MOUSEPAD_LOG`: every `kdeconnect.mousepad.request` the fake phone receives is appended there as JSON
 and answered with an `isAck` echo. Run one `wd.sh` at a time per `TETHER_UI_DIR` and display.
 

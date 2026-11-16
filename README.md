@@ -1,108 +1,104 @@
 # Tether
 
-Your Android phone on your Linux desktop: texts, notifications, files, clipboard, and your phone's apps
-in their own windows, on any desktop (GNOME, KDE, i3, Sway, and the rest).
+Tether connects an Android phone to a Linux desktop. It uses the KDE Connect protocol, so the phone runs
+the normal KDE Connect app from Google Play or F-Droid, and Tether replaces KDE Connect or Valent on the
+computer. It works on GNOME, KDE, Xfce, i3, Sway and other desktops.
 
-Tether is a new desktop side for the KDE Connect protocol. On the phone you keep using the stock
-**KDE Connect** app from Google Play or F-Droid; Tether replaces KDE Connect or Valent on the computer.
+![The Tether window](docs/screenshots/messages.png)
 
-> Status: early. The background service, the command-line tool and the Messages window work.
+## Features
+
+- Read and send texts, including picture messages, with names from the phone's contacts.
+- Phone notifications on the desktop. Reply to messaging apps, use the notification's buttons, or
+  dismiss it on the phone. Optionally send the computer's notifications to the phone.
+- Send files and links to the phone by dropping them on the window. Files shared from the phone go to
+  your Downloads folder, links open in the browser, and text goes to the clipboard.
+- Browse the phone's storage (Files page) and its newest photos and screenshots (Photos page).
+- Clipboard sync for text, both ways.
+- Control the phone's music from the window or the desktop's media keys, and control the computer's
+  music from the phone. Music on the computer pauses during calls.
+- From the phone: use it as a touchpad and keyboard or a presentation remote, lock the screen, change the
+  volume, ring the computer, and run commands you set up in Settings.
+- Type on the phone from the computer's keyboard (Keyboard page).
+- Ring the phone to find it. See its battery and signal.
+- Open phone apps in their own windows with scrcpy (Android 10 or newer, Wireless debugging).
+- Search contacts and start a text from them.
+- Tray icon with the number of unread conversations.
+- A checklist on the Devices page of what to turn on in the KDE Connect app.
 
 ## Install
 
-Download from the [Releases page](../../releases) (x86_64):
+Download a package from the [Releases page](../../releases/latest) (x86_64):
 
-- **Ubuntu, Debian, Mint, Pop!_OS**: the `.deb`. Open it, or `sudo apt install ./Tether_*.deb`.
-- **Fedora, openSUSE**: the `.rpm`. `sudo dnf install ./Tether-*.rpm`.
-- **Anything else**: the `.AppImage`. `chmod +x Tether_*.AppImage`, then run it.
-- **No admin rights**: the `.tar.gz`. Unpack it and run `./install.sh` (installs into `~/.local`;
-  `./install.sh --remove` uninstalls). It needs WebKitGTK 4.1 from your distribution.
+- Ubuntu, Debian, Mint, Pop!_OS: `sudo apt install ./Tether_*.deb`
+- Fedora, openSUSE: `sudo dnf install ./Tether-*.rpm`
+- Other distributions: `chmod +x Tether_*.AppImage` and run it.
+- Without admin rights: unpack the `.tar.gz` and run `./install.sh` (installs into `~/.local`;
+  `./install.sh --remove` uninstalls). This needs WebKitGTK 4.1 from your distribution.
 
-Then open **Tether** from your app menu. It starts itself at every login from then on, so your phone stays
-linked with the window closed. `tether autostart off` stops that.
+Open Tether from the app menu. It starts at login from then on; you can turn that off in Settings.
+Tether checks for updates once a day. The AppImage and the `.tar.gz` install update themselves; for
+`.deb` and `.rpm` the window offers to download the new package.
 
-**Updates**: Tether checks for a new version once a day. The AppImage and the no-admin install update
-themselves (the window then offers a restart); `.deb` and `.rpm` installs get an Update button that saves
-the new installer to Downloads and opens it. `"auto_update": false` in the config makes every update wait
-for your click. `tether update` checks right away.
+## Pairing
 
-Quit KDE Connect or Valent first: they use the same network ports. Tether warns you if one is running.
-If your firewall blocks them, open ports 1714-1764 (TCP and UDP).
-
-### From source
-
-Build dependencies (Debian/Ubuntu names): `pkg-config libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev
-libsoup-3.0-dev libjavascriptcoregtk-4.1-dev`.
-
-```sh
-cargo build --release -p tether -p tether-app
-./target/release/tether-app           # the window; starts the background service itself
-```
-
-`tether daemon` runs the background service on its own (only one copy can run at a time). Packages are
-built by `.github/workflows/release.yml` (push a `v*` tag, or run it by hand).
-
-## Pair your phone
-
-1. Install KDE Connect on the phone and open it, on the same Wi-Fi as the computer.
-2. Open Tether. Your phone appears under "Connect your phone"; click **Pair**.
+1. Install KDE Connect on the phone and open it. The phone and computer must be on the same network.
+2. Open Tether and click Pair next to your phone.
 3. Accept on the phone. Both screens show the same code.
 
-Or tap the computer's name in the KDE Connect app and click **Accept** in Tether. From a terminal:
-`tether devices`, then `tether pair -d <phone name>` or `tether accept`.
+Then open the Devices page in Tether. It lists each feature and what to enable for it in the KDE Connect
+app (for example notification access, SMS and contacts permissions, or "Filesystem expose" for the Files
+page).
 
-If the phone never shows up (VPNs, guest Wi-Fi), run `tether connect <phone IP>`, or add the address to
-`~/.config/tether/config.json`:
-
-```json
-{ "addresses": ["100.64.0.12"] }
-```
-
-## Use it
+## Command line
 
 ```sh
 tether status                         # battery, signal, notifications
-tether threads                        # text conversations
-tether thread 42                      # one conversation
+tether threads                        # list conversations
 tether sms --to +15551234567 "On my way"
-tether share ~/Pictures/photo.jpg     # or a https:// link
-tether clip "some text"               # copy to the phone's clipboard
-tether ring                           # find your phone
-tether apps spotify                   # open a phone app in its own window (after setup in the window)
-tether apps doctor                    # why phone apps can't find the phone
-tether update                         # install a newer Tether now
-tether watch                          # live events, as JSON lines
+tether share ~/Pictures/photo.jpg     # send a file or a link
+tether clip "some text"               # set the phone's clipboard
+tether type "hello"                   # type into the phone
+tether ring                           # ring the phone
+tether media toggle                   # play or pause the phone's music
+tether apps spotify                   # open a phone app in a window
 ```
 
-Phone notifications also appear as normal desktop notifications. Turn that off with
-`"mirror_notifications": false` in the config.
+Run `tether --help` for the full list.
 
-## The window
+## Troubleshooting
 
-- Messages: conversations with names from your phone's contacts, full history on demand, sending with a
-  "Sending" state until the phone confirms.
-- Notifications column: reply inline (WhatsApp and other messaging apps), run notification actions, dismiss
-  on the phone.
-- One-time codes from texts and notifications are pulled out with a Copy button.
-- `Ctrl+K`: jump to a conversation, text a contact, ring or ping the phone.
-- Drop files anywhere on the window to send them to the phone.
-- Apps: open any phone app in its own window (with its sound on Android 11+), or the whole phone screen. Setup is once:
-  turn on Wireless debugging on the phone and scan the QR code the Apps page shows. The pin on an app
-  adds it to the computer's app menu (GNOME, KDE, rofi and others), so it starts like any other app. Needs Android 10 or
-  newer and scrcpy 3.0 or newer, which the Apps page can download for you (or `TETHER_SCRCPY` and
-  `TETHER_ADB` point at your own).
-- Follows the system's light or dark theme.
+If the phone doesn't show up, quit KDE Connect or Valent on the computer, since they use the same ports.
+With a firewall, open ports 1714-1764 (TCP and UDP). On a VPN, guest Wi-Fi or a network that blocks
+discovery, add the phone's IP address in Settings > Finding your phone.
 
-## Development
+If a feature does nothing, check the Devices page. Its switch or permission is probably off in the KDE
+Connect app. On Samsung phones, also set Settings > Apps > KDE Connect > Battery > Unrestricted.
 
-`cargo run -p tether-core --example fake_phone -- 127.0.0.1:1716 /tmp/fake-phone` starts a stand-in phone
-with made-up texts and notifications; accept it with `tether accept`.
+Remote input from the phone works on X11 without extra tools. On Wayland, install `ydotool`, `wtype` or
+`dotool`. Volume control from the phone needs `pactl` (PulseAudio or PipeWire) or `wpctl`.
 
-## Layout
+Calls are only reported. The audio stays on the phone.
 
-- `crates/tether-core`: the protocol (discovery, TLS, pairing, packets) and plugin logic.
-- `crates/tether`: the daemon, its local API (`$XDG_RUNTIME_DIR/tether/tether.sock`) and the CLI.
-- `crates/tether-app` + `ui/`: the window (Tauri, system WebKitGTK; plain HTML/CSS/JS, no bundler).
-- `docs/`: protocol notes and design decisions.
+## Building
 
-License: GPL-3.0-or-later.
+Build dependencies (Debian/Ubuntu package names): `pkg-config libwebkit2gtk-4.1-dev libgtk-3-dev
+librsvg2-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev`.
+
+```sh
+cargo build --release -p tether -p tether-app
+./target/release/tether-app
+```
+
+`cargo test --workspace` runs the background service against a simulated phone
+(`crates/tether-core/src/sim`). `testing/ui/wd.sh` tests the window over WebDriver. See
+[docs/testing.md](docs/testing.md) for details. Release packages are built by
+`.github/workflows/release.yml` when a `v*` tag is pushed.
+
+Code layout: `crates/tether-core` (protocol and plugins), `crates/tether` (background service, local API
+and command line tool), `crates/tether-app` and `ui/` (the window, Tauri with the system WebKitGTK),
+`docs/` (protocol notes and design decisions).
+
+## License
+
+GPL-3.0-or-later.

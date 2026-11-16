@@ -29,7 +29,7 @@ jobs:
     # without blocking protocol changes until this job has a reliable track record.
     continue-on-error: true
     runs-on: ubuntu-22.04
-    timeout-minutes: 30
+    timeout-minutes: 45
     env:
       TETHER_UI_DIR: /tmp/tether-wd
       WD_DISPLAY: ':74'
@@ -50,7 +50,7 @@ jobs:
         run: |
           mkdir -p "$TETHER_UI_DIR"/{cfg/tether,data,run}
           export XDG_CONFIG_HOME=$TETHER_UI_DIR/cfg XDG_DATA_HOME=$TETHER_UI_DIR/data XDG_RUNTIME_DIR=$TETHER_UI_DIR/run
-          echo '{"mirror_notifications":false,"clipboard_sync":false}' > "$XDG_CONFIG_HOME/tether/config.json"
+          echo "{\"mirror_notifications\":false,\"clipboard_sync\":false,\"downloads_dir\":\"$TETHER_UI_DIR/dl\"}" > "$XDG_CONFIG_HOME/tether/config.json"
           target/debug/tether daemon > "$TETHER_UI_DIR/daemon.log" 2>&1 & daemon=$!
           target/debug/examples/fake_phone 127.0.0.1:1716 "$TETHER_UI_DIR/phone" > "$TETHER_UI_DIR/phone.log" 2>&1 & phone=$!
           trap 'kill "$daemon" "$phone" 2>/dev/null || true' EXIT

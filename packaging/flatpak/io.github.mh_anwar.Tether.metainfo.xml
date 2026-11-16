@@ -21,7 +21,9 @@
       <li>Notifications from the phone, with replies and actions</li>
       <li>Clipboard shared both ways, files and links sent by dropping them on the window</li>
       <li>What plays on the phone, on your keyboard's media keys</li>
-      <li>Ring your phone to find it</li>
+      <li>Ring your phone to find it, and ring the computer from the phone</li>
+      <li>Browse the phone's files, search its contacts, and type on the phone from the computer's keyboard</li>
+      <li>Use the phone as a touchpad, keyboard and presentation remote, and to lock the screen, change the volume, control music and run commands you set up</li>
     </ul>
   </description>
   <launchable type="desktop-id">io.github.mh_anwar.Tether.desktop</launchable>
@@ -43,6 +45,11 @@
     <color type="primary" scheme_preference="dark">#1f2a40</color>
   </branding>
   <releases>
+    <release version="1.0.0" date="2026-11-16">
+      <description>
+        <p>The phone can now control this computer: touchpad and keyboard, presentation remote, screen lock, volume, music players, ringing the computer, and commands you set up. New Files, Contacts, Keyboard and Devices pages. Other additions: the computer's notifications on the phone (off by default), music that pauses during calls, file sharing with progress in both directions, discovery on networks that block broadcasts, and a checklist of what to turn on in the KDE Connect app.</p>
+      </description>
+    </release>
     <release version="0.3.4" date="2026-11-12">
       <description>
         <p>A Settings screen, and a tray icon that shows how many conversations are unread and opens the window with a click.</p>
