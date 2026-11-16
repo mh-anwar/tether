@@ -96,6 +96,37 @@ pillow`), write `"<name> <password>" > $FAKE_APPS_DIR/scanned`. Pair-by-code acc
 pairing-code screen (the form then fills in the address). `TETHER_SCRCPY=` (empty) shows the helper-download screen.
 Use the stand-ins here rather than the real adb: its server listens on localhost:5037, shared with everyone on the box.
 
+## Computer controls (stand-in phone)
+
+With `CARGO_TARGET_DIR` pointing at your private target directory:
+
+```sh
+box heavy -- cargo build -p tether -p tether-app
+box heavy -- cargo build -p tether-core --example fake_phone
+uv run --no-project --with python-xlib python testing/computer/test_computer.py
+```
+
+The test owns Xvfb :71 if unused, a private daemon under `/tmp/tw-computer/protocol`, and a paired TLS
+stand-in phone. It checks configured command execution, XTest pointer movement/presenter, keyboard
+acknowledgements (including Unicode), helper-based lock/volume, ring toggling/stop, and all permission
+switches. Mock loginctl/pactl/sound helpers are prepended to PATH. `FAKE_COMPUTER_DIR` on fake_phone
+opts into append-only send.jsonl / received.jsonl packet control, isolated from normal demo behaviour.
+The real-window `test_window.py` also checks adding, editing and removing a command.
+
+For the focused editor check after that protocol test has seeded a paired device:
+
+```sh
+TETHER_UI_DIR=/tmp/tw-computer/protocol TETHER_SKIP_PHONE=1 WD_DISPLAY=:71 WD_PORT=14571 testing/ui/wd.sh testing/ui/test_commands.py
+```
+
+`TETHER_SKIP_PHONE=1` avoids connecting the UI stand-in to another daemon on shared port 1716;
+`TETHER_PHONE_ADDRESS` can select an isolated daemon for broader window tests.
+
+Looks: with the window running under Xvfb and the stand-in phone paired to that daemon, append
+`{"id":1,"type":"kdeconnect.findmyphone.request","body":{}}` to `$FAKE_COMPUTER_DIR/send.jsonl` to show the
+"finding this computer" card (Stop ends it), then `testing/ui/shot.py` as usual. Check Settings > "What your
+phone can do on this computer" and "Commands your phone can run" the same way.
+
 ## Scriptable protocol peer and daemon integration tests
 
 `cargo test --workspace` includes `crates/tether/tests/protocol_e2e.rs`: real daemon processes with

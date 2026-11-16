@@ -261,6 +261,7 @@ async function loadAll() {
     state.threads.clear();
     state.selected = null;
   }
+  api('computer_status').then((c) => { state.computerRinging = c.ringing; if (c.commands) openCommandsSettings(); renderRail(); }).catch(() => {});
   loadUpdate();
   api('seen_set', { seen: state.seen }).catch(() => {});
   if (state.view === 'settings') loadSettings();
@@ -352,6 +353,10 @@ function renderRail() {
       icon('call', 'pulse'),
       h('div', {}, h('b', { text: state.call.name || prettyNumber(state.call.number || '') || 'Unknown caller' }), h('span', { text: 'Incoming call' })),
       h('button', { class: 'btn', onclick: () => quick('mute', 'Ringer muted') }, icon('mute', 'sm'), 'Mute')) : null,
+    state.computerRinging ? h('div', { class: 'call finding', role: 'status' },
+      icon('ring', 'pulse'),
+      h('b', { text: 'Your phone is finding this computer' }),
+      h('button', { class: 'btn primary small', onclick: () => api('computer_ring_stop').catch((e) => toast(String(e), 'error')) }, 'Stop')) : null,
     mediaCard(),
     h('nav', { class: 'nav' },
       h('button', { 'aria-current': state.view === 'messages' ? 'page' : null, onclick: () => showView('messages') }, icon('message'), h('span', { class: 'label', text: 'Messages' }),
@@ -790,11 +795,17 @@ function openAttachment(a) {
 }
 
 // ---------- settings ----------
-const settings = { data: null, error: '', forgetting: false, saving: false };
+const settings = { data: null, error: '', forgetting: false, saving: false, openCommands: false };
+
+function openCommandsSettings() { settings.openCommands = true; showView('settings'); }
 
 async function loadSettings() {
   try { settings.data = await api('settings_get'); settings.error = ''; } catch (e) { settings.error = e.message || String(e); }
   renderSettings();
+  if (settings.openCommands && document.getElementById('run-commands')) {
+    settings.openCommands = false;
+    document.getElementById('run-commands').scrollIntoView();
+  }
 }
 
 // Saves one or more settings. Some need the background service to restart; it comes back by itself.
@@ -825,6 +836,26 @@ function settingText(key, label, hint, button = 'Save') {
     h('div', { class: 'field-row' }, input, h('button', { class: 'btn', type: 'submit' }, button)));
 }
 
+function commandsEditor(commands) {
+  const row = (command, index) => {
+    const name = h('input', { type: 'text', 'aria-label': 'Command name', value: command.name, required: true });
+    const shell = h('input', { type: 'text', 'aria-label': 'Shell command', value: command.command, required: true });
+    return h('form', { class: 'setting command-editor', 'data-key': `command-${command.id || 'new'}`, onsubmit: (e) => {
+      e.preventDefault();
+      const entry = { id: command.id || crypto.randomUUID(), name: name.value.trim(), command: shell.value.trim() };
+      if (!entry.name || !entry.command) return;
+      const next = [...commands]; if (index < 0) next.push(entry); else next[index] = entry;
+      saveSettings({ commands: next });
+    } }, h('label', {}, h('b', { text: index < 0 ? 'New command' : command.name }), h('small', { text: 'Name' }), name),
+      h('label', {}, h('small', { text: 'Shell command' }), shell),
+      h('div', { class: 'field-row' }, h('button', { class: 'btn', type: 'submit' }, index < 0 ? 'Add command' : 'Save command'),
+        index >= 0 ? h('button', { class: 'btn', type: 'button', onclick: () => saveSettings({ commands: commands.filter((_, i) => i !== index) }) }, 'Remove command') : null));
+  };
+  return h('section', { id: 'run-commands' }, h('h2', { text: 'Commands your phone can run' }),
+    h('p', { class: 'sub', text: 'Commands run on this computer with your account. Only add commands you want your paired phone to run.' }),
+    commands.length ? commands.map(row) : h('p', { class: 'none', text: 'No commands yet.' }), row({ name: '', command: '' }, -1));
+}
+
 function renderSettings() {
   const page = $('.settings-page');
   if (!page || state.view !== 'settings') return;
@@ -846,6 +877,13 @@ function renderSettings() {
         settingSwitch('mirror_notifications', 'Show phone notifications on this computer', 'They always show in the Tether window.'),
         settingSwitch('clipboard_sync', 'Share the clipboard', 'What you copy on one is ready to paste on the other.'),
         settingText('downloads_dir', 'Save files from the phone in', 'The whole path of a folder.')),
+      h('section', {}, h('h2', { text: 'What your phone can do on this computer' }),
+        settingSwitch('allow_commands', 'Run commands'),
+        settingSwitch('allow_input', 'Control the mouse and keyboard'),
+        settingSwitch('allow_lock', 'Lock the screen'),
+        settingSwitch('allow_volume', 'Change the volume'),
+        settingSwitch('allow_ring', 'Ring this computer')),
+      commandsEditor(s.commands || []),
       h('section', {}, h('h2', { text: 'Finding your phone' }),
         h('p', { class: 'sub', text: "Tether finds your phone by itself on the same Wi-Fi. On a network where it can't (a VPN, some office or guest Wi-Fi), add the phone's address. It is in the phone's Wi-Fi settings, under the network's details." }),
         s.addresses.length ? h('ul', { class: 'addr-list' }, s.addresses.map((a) => h('li', {}, h('span', { text: a }),
@@ -1585,6 +1623,8 @@ async function sendFile(path, d) {
 
 // ---------- events ----------
 function onEvent(ev) {
+  if (ev.event === 'computer_settings') { openCommandsSettings(); return; }
+  if (ev.event === 'computer_ring') { state.computerRinging = ev.ringing; renderRail(); return; }
   if (ev.event === 'device') {
     const i = state.devices.findIndex((d) => d.id === ev.id);
     const before = i >= 0 ? state.devices[i] : null;
