@@ -33,6 +33,10 @@
   with sound; rewriting that buys nothing. Tether owns the parts scrcpy lacks: QR pairing, finding the phone,
   the app list, errors in plain words. Helpers come from `TETHER_ADB`/`TETHER_SCRCPY`, our download, next to
   the binary, then PATH.
+- One window per app, and Android 9 still works. A second click on an open app doesn't start another
+  virtual display (each costs the phone memory and its own encoder); it says the app is open. Phones
+  without virtual displays (before Android 10) get the apps on the phone's own screen in one shared
+  window rather than an error, and the Apps page says so.
 - **One-click helper download, pinned and checksummed** (scrcpy 5.0.1 static build, includes adb), because
   Ubuntu 24.04 and Debian 12 ship scrcpy 1.25, too old for app windows. Flatpak will bundle them instead.
 - **Ask the phone directly as well as adb's multicast DNS**: we already know its IP from KDE Connect, and a

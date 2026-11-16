@@ -3,10 +3,12 @@
 #   scanned    "<name> <password>" written by the test to act as the phone scanning the QR code
 #   codeopen   acts as the phone showing "Pair device with pairing code" (advertises its pairing port)
 #   paired     created by a successful `adb pair`; connected: created by `adb connect`
+#   sdk        the phone's Android API level (default 35, Android 15); 28 acts as Android 9
 # Every call is appended to calls.log.
 D=${FAKE_APPS_DIR:?set FAKE_APPS_DIR}
 mkdir -p "$D"; echo "adb $*" >> "$D/calls.log"
 PHONE=127.0.0.1
+[ "$1" = -s ] && shift 2
 case "$1" in
   devices)
     echo "List of devices attached"
@@ -25,5 +27,12 @@ case "$1" in
     else echo "Failed: Wrong password or connection was dropped."; exit 1; fi ;;
   connect)
     [ -f "$D/paired" ] && { touch "$D/connected"; echo "connected to $2"; } || { echo "failed to connect to $2"; exit 1; } ;;
+  shell)
+    [ -f "$D/connected" ] || { echo "error: device offline" >&2; exit 1; }
+    case "$2 $3" in
+      "getprop ro.build.version.sdk") cat "$D/sdk" 2>/dev/null || echo 35 ;;
+      "monkey -p") echo "Events injected: 1" ;;
+      *) echo "fake adb: unsupported shell $*" >&2; exit 1 ;;
+    esac ;;
   *) echo "fake adb: unsupported $*" >&2; exit 1 ;;
 esac

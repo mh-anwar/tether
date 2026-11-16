@@ -218,9 +218,14 @@ pub async fn run(device: Option<String>, cmd: Cmd) -> Result<()> {
             }
             match app.as_deref() {
                 Some("screen") => {
-                    c.call("apps_open", json!({"title": "Phone screen"}))
+                    let r = c
+                        .call("apps_open", json!({"title": "Phone screen"}))
                         .await?;
-                    println!("Opening the phone screen.");
+                    if r["alreadyOpen"] == true {
+                        println!("The phone screen is already open.");
+                    } else {
+                        println!("Opening the phone screen.");
+                    }
                 }
                 Some(want) => {
                     let list = c.call("apps_list", json!({})).await?;
@@ -240,12 +245,19 @@ pub async fn run(device: Option<String>, cmd: Cmd) -> Result<()> {
                         bail!("No app called \"{want}\" on the phone.");
                     };
                     let name = str_of(a, "name");
-                    c.call(
-                        "apps_open",
-                        json!({"package": str_of(a, "package"), "title": name}),
-                    )
-                    .await?;
-                    println!("Opening {name}.");
+                    let r = c
+                        .call(
+                            "apps_open",
+                            json!({"package": str_of(a, "package"), "title": name}),
+                        )
+                        .await?;
+                    if r["alreadyOpen"] == true {
+                        println!("{name} is already open in its own window.");
+                    } else if r["sharedScreen"] == true {
+                        println!("Opening {name} in the phone screen window (Android 9 or older).");
+                    } else {
+                        println!("Opening {name}.");
+                    }
                 }
                 None => {
                     let list = c.call("apps_list", json!({})).await?;

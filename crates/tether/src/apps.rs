@@ -17,12 +17,12 @@ use std::{
 
 use anyhow::{anyhow, bail, Context, Result};
 
-use crate::exec::{download as fetch_file, is_executable, run, run_input, which};
+use crate::exec::{download as fetch_file, is_executable, run, run_env, run_input, which};
 use serde::Serialize;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use tether_core::Service;
-use tokio::process::Command;
+use tokio::{process::Command, sync::oneshot};
 use tracing::{info, warn};
 
 /// The helper offered as a one-click download: scrcpy's static Linux build, which also ships adb.
@@ -31,6 +31,8 @@ const HELPER_VERSION: &str = "v5.0.1";
 const HELPER_URL: &str = "https://github.com/Genymobile/scrcpy/releases/download/v5.0.1/scrcpy-linux-x86_64-v5.0.1.tar.gz";
 const HELPER_SHA256: &str = "9f969d30cc574816077edecda65719c1c70b0aee1df1ba5fa00779ac07b8fd6e";
 const PAIR_TIMEOUT: Duration = Duration::from_secs(180);
+/// Android 10: the first version where scrcpy can start an app on a virtual display of its own.
+const VIRTUAL_DISPLAY_SDK: u32 = 29;
 
 #[derive(Default)]
 struct Apps {
@@ -169,6 +171,14 @@ fn tool(name: &str) -> Option<PathBuf> {
     dirs.into_iter()
         .map(|d| d.join(name))
         .find(|p| is_executable(p))
+}
+
+/// scrcpy finds adb through `$ADB`; point it at the one Tether uses, so a bundled or downloaded
+/// adb isn't mixed with an older one on PATH (two adb servers on one port fight).
+fn scrcpy_env() -> Vec<(&'static str, std::ffi::OsString)> {
+    tool("adb")
+        .map(|p| vec![("ADB", p.into_os_string())])
+        .unwrap_or_default()
 }
 
 async fn adb(args: &[&str], timeout: Duration) -> Result<(bool, String)> {
@@ -371,6 +381,14 @@ pub async fn status(svc: &Service) -> Result<Value> {
     if device.is_none() && adb_path.is_some() {
         maybe_autoconnect(svc);
     }
+    let sdk = match &device {
+        Some(d) => android_sdk(&d.serial).await,
+        None => {
+            // Asked again on the next connection: the phone may have been updated meanwhile.
+            *sdk_cache() = None;
+            None
+        }
+    };
     let s = state();
     let qr = match (&s.qr, s.phase) {
         (Some((name, pw)), Phase::Waiting) => {
@@ -389,7 +407,14 @@ pub async fn status(svc: &Service) -> Result<Value> {
         "pairedBefore": paired_marker().exists(),
         "phoneIp": phone_ips(svc).into_iter().find(|ip| ip.parse::<IpAddr>().is_ok()),
         "pairingAddr": s.code_addr.map(|a| a.to_string()),
-        "device": device.map(|d| json!({"serial": d.serial, "model": d.model})),
+        "device": device.map(|d| json!({
+            "serial": d.serial,
+            "model": d.model,
+            "android": sdk.map(android_release),
+        })),
+        "ownWindows": own_windows(sdk),
+        "windows": windows(),
+        "installHint": install_hint(),
     }))
 }
 
@@ -854,9 +879,12 @@ pub async fn list(svc: &Service) -> Result<Value> {
         }
     }
     let prog = tool("scrcpy").ok_or_else(|| anyhow!("scrcpy isn't installed"))?;
-    let (ok, out) = run(
+    let env = scrcpy_env();
+    let env: Vec<(&str, &std::ffi::OsStr)> = env.iter().map(|(k, v)| (*k, v.as_os_str())).collect();
+    let (ok, out) = run_env(
         &prog,
         &["-s", &serial, "--list-apps"],
+        &env,
         Duration::from_secs(45),
     )
     .await?;
@@ -879,54 +907,276 @@ fn scrcpy_error(out: &str) -> String {
 
 /// Opens one phone app in its own window, or the whole phone screen when `package` is None.
 /// Waits briefly so an immediate failure (old Android, app gone) is reported instead of lost.
+///
+/// One window per app: opening an app that is already open doesn't start a second copy. Phones older
+/// than Android 10 have no virtual displays, so their apps start on the phone's own screen and show in
+/// the one "Phone screen" window instead.
 pub async fn open(svc: &Service, package: Option<&str>, title: &str) -> Result<Value> {
+    if package.is_some_and(|p| !valid_package(p)) {
+        bail!("not an app package name");
+    }
     let serial = serial(svc).await?;
     let prog = tool("scrcpy").ok_or_else(|| anyhow!("scrcpy isn't installed"))?;
-    let mut args = vec!["-s".to_string(), serial, format!("--window-title={title}")];
-    if let Some(pkg) = package {
-        if !pkg
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '_')
-        {
-            bail!("not an app package name");
+    let own = own_windows(android_sdk(&serial).await);
+    let key = if own { package } else { None };
+    let title = if key.is_none() { "Phone screen" } else { title };
+    let Some((id, close_rx)) = reserve_window(&serial, key, title) else {
+        if let (false, Some(pkg)) = (own, package) {
+            start_on_phone(&serial, pkg).await?;
+            return Ok(json!({"opened": true, "sharedScreen": true}));
         }
-        args.push("--new-display".into());
-        args.push(format!("--start-app={pkg}"));
-    } else {
-        args.push("--stay-awake".into());
-    }
+        return Ok(json!({"opened": false, "alreadyOpen": true}));
+    };
+    let args = open_args(&serial, package, own, title);
     let log = std::env::temp_dir().join(format!("tether-scrcpy-{}.log", random_hex(6)));
-    let mut child = Command::new(&prog)
-        .args(&args)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(std::fs::File::create(&log)?)
-        .spawn()
-        .context("starting scrcpy")?;
-    let deadline = Instant::now() + Duration::from_secs(4);
-    while Instant::now() < deadline {
-        if let Some(status) = child.try_wait()? {
-            let out = std::fs::read_to_string(&log).unwrap_or_default();
+    let spawned = std::fs::File::create(&log)
+        .context("creating scrcpy's log")
+        .and_then(|err| {
+            Command::new(&prog)
+                .args(&args)
+                .envs(scrcpy_env())
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(err)
+                .spawn()
+                .context("starting scrcpy")
+        });
+    let mut child = match spawned {
+        Ok(c) => c,
+        Err(e) => {
+            forget_window(id);
             let _ = std::fs::remove_file(&log);
-            if status.success() {
-                return Ok(json!(true));
+            return Err(e);
+        }
+    };
+    let (done_tx, done_rx) = oneshot::channel::<(bool, String)>();
+    tokio::spawn(async move {
+        let status = tokio::select! {
+            s = child.wait() => s.ok(),
+            _ = close_rx => {
+                let _ = child.kill().await;
+                None
             }
+        };
+        forget_window(id);
+        let out = std::fs::read_to_string(&log).unwrap_or_default();
+        let _ = std::fs::remove_file(&log);
+        let ok = status.is_none_or(|s| s.success());
+        // Nobody waits any more once the window was up for a while: log it instead.
+        if let Err((false, out)) = done_tx.send((ok, out)) {
+            warn!("scrcpy stopped: {}", scrcpy_error(&out));
+        }
+    });
+    match tokio::time::timeout(Duration::from_secs(4), done_rx).await {
+        Ok(Ok((false, out))) => {
             warn!("scrcpy exited: {}", out.lines().last().unwrap_or(""));
             bail!("{}", friendly_open_error(&out));
         }
-        tokio::time::sleep(Duration::from_millis(200)).await;
+        _ => Ok(json!({"opened": true, "sharedScreen": !own && package.is_some()})),
     }
-    // Still running: the window is up. Reap it in the background when it closes.
-    tokio::spawn(async move {
-        if let Ok(status) = child.wait().await {
-            if !status.success() {
-                let out = std::fs::read_to_string(&log).unwrap_or_default();
-                warn!("scrcpy stopped: {}", scrcpy_error(&out));
-            }
+}
+
+fn open_args(serial: &str, package: Option<&str>, own: bool, title: &str) -> Vec<String> {
+    let mut args = vec![
+        "-s".to_string(),
+        serial.to_string(),
+        format!("--window-title={title}"),
+    ];
+    match package {
+        Some(pkg) if own => {
+            args.push("--new-display".into());
+            args.push(format!("--start-app={pkg}"));
         }
-        let _ = std::fs::remove_file(&log);
+        Some(pkg) => {
+            args.push(format!("--start-app={pkg}"));
+            args.push("--stay-awake".into());
+        }
+        None => args.push("--stay-awake".into()),
+    }
+    args
+}
+
+/// Brings an app to the front of the phone's own screen (already shown in the "Phone screen"
+/// window). `monkey` with the launcher category starts an app the way tapping its icon does.
+async fn start_on_phone(serial: &str, package: &str) -> Result<()> {
+    let (ok, out) = adb(
+        &[
+            "-s",
+            serial,
+            "shell",
+            "monkey",
+            "-p",
+            package,
+            "-c",
+            "android.intent.category.LAUNCHER",
+            "1",
+        ],
+        Duration::from_secs(15),
+    )
+    .await?;
+    if !ok || out.contains("No activities found") {
+        bail!("The phone couldn't start this app.");
+    }
+    Ok(())
+}
+
+// ---- open app windows ----
+
+struct Window {
+    id: u64,
+    serial: String,
+    /// None: the whole phone screen.
+    package: Option<String>,
+    title: String,
+    close: Option<oneshot::Sender<()>>,
+}
+
+static WINDOWS: Mutex<Vec<Window>> = Mutex::new(Vec::new());
+
+fn open_windows() -> std::sync::MutexGuard<'static, Vec<Window>> {
+    WINDOWS.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+/// Claims the window for this app on this phone, checked and claimed under one lock so two opens at
+/// once (the window and `tether apps`) can't both start scrcpy. None: it's open already.
+fn reserve_window(
+    serial: &str,
+    package: Option<&str>,
+    title: &str,
+) -> Option<(u64, oneshot::Receiver<()>)> {
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+    let mut list = open_windows();
+    if list
+        .iter()
+        .any(|w| w.serial == serial && w.package.as_deref() == package)
+    {
+        return None;
+    }
+    let id = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let (close, closed) = oneshot::channel();
+    list.push(Window {
+        id,
+        serial: serial.to_string(),
+        package: package.map(str::to_string),
+        title: title.to_string(),
+        close: Some(close),
     });
-    Ok(json!(true))
+    Some((id, closed))
+}
+
+fn forget_window(id: u64) {
+    open_windows().retain(|w| w.id != id);
+}
+
+/// The app windows open now, for the Apps page.
+pub fn windows() -> Value {
+    json!(open_windows()
+        .iter()
+        .map(|w| json!({"package": w.package, "title": w.title}))
+        .collect::<Vec<_>>())
+}
+
+/// Closes the window of one app (`package`), or the phone screen window when it's None.
+pub fn close(package: Option<&str>) -> Value {
+    let mut closed = 0;
+    for w in open_windows()
+        .iter_mut()
+        .filter(|w| w.package.as_deref() == package)
+    {
+        if let Some(tx) = w.close.take() {
+            let _ = tx.send(());
+            closed += 1;
+        }
+    }
+    json!({"closed": closed})
+}
+
+// ---- the phone's Android version ----
+
+fn sdk_cache() -> std::sync::MutexGuard<'static, Option<(String, u32)>> {
+    static SDK: Mutex<Option<(String, u32)>> = Mutex::new(None);
+    SDK.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+/// The phone's Android API level, asked once per connection. None when the phone doesn't say; then
+/// Tether assumes a current phone and reports scrcpy's own error if that was wrong.
+async fn android_sdk(serial: &str) -> Option<u32> {
+    if let Some((s, v)) = &*sdk_cache() {
+        if s == serial {
+            return Some(*v);
+        }
+    }
+    let (ok, out) = adb(
+        &["-s", serial, "shell", "getprop", "ro.build.version.sdk"],
+        Duration::from_secs(10),
+    )
+    .await
+    .ok()?;
+    let v: u32 = out.trim().parse().ok().filter(|_| ok)?;
+    *sdk_cache() = Some((serial.to_string(), v));
+    Some(v)
+}
+
+fn own_windows(sdk: Option<u32>) -> bool {
+    sdk.is_none_or(|v| v >= VIRTUAL_DISPLAY_SDK)
+}
+
+/// The Android version people know ("9", "14") for an API level.
+fn android_release(sdk: u32) -> String {
+    match sdk {
+        0..=20 => "4".into(),
+        21 => "5.0".into(),
+        22 => "5.1".into(),
+        23 => "6".into(),
+        24 => "7.0".into(),
+        25 => "7.1".into(),
+        26 => "8.0".into(),
+        27 => "8.1".into(),
+        28 => "9".into(),
+        29..=31 => (sdk - 19).to_string(),
+        32 => "12".into(),
+        _ => (sdk - 20).to_string(),
+    }
+}
+
+// ---- installing the helpers ----
+
+/// A command that installs a new enough scrcpy and adb from this system's own packages, where its
+/// packages are new enough (scrcpy 3.0+). Debian and Ubuntu ship 1.x/2.x, so they get none and the
+/// download is offered instead. Inside a Flatpak the helpers are bundled and host packages are out
+/// of reach.
+fn install_hint() -> Option<&'static str> {
+    if Path::new("/.flatpak-info").exists() {
+        return None;
+    }
+    install_hint_for(&std::fs::read_to_string("/etc/os-release").unwrap_or_default())
+}
+
+fn install_hint_for(os_release: &str) -> Option<&'static str> {
+    let field = |key: &str| -> Vec<String> {
+        os_release
+            .lines()
+            .find_map(|l| l.strip_prefix(key))
+            .map(|v| {
+                v.trim_matches('"')
+                    .split_whitespace()
+                    .map(str::to_string)
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
+    let mut ids = field("ID=");
+    ids.extend(field("ID_LIKE="));
+    let has = |id: &str| ids.iter().any(|i| i == id);
+    if has("arch") {
+        Some("sudo pacman -S scrcpy android-tools")
+    } else if has("fedora") {
+        Some("sudo dnf copr enable zeno/scrcpy && sudo dnf install scrcpy android-tools")
+    } else if has("opensuse-tumbleweed") {
+        Some("sudo zypper install scrcpy android-tools")
+    } else {
+        None
+    }
 }
 
 fn friendly_open_error(out: &str) -> String {
@@ -1278,6 +1528,69 @@ mod tests {
         assert!(e.contains(" apps com.spotify.music\n"));
         assert!(!valid_package("a b"));
         assert!(!valid_package(""));
+    }
+
+    #[test]
+    fn android_versions() {
+        assert_eq!(android_release(28), "9");
+        assert_eq!(android_release(29), "10");
+        assert_eq!(android_release(31), "12");
+        assert_eq!(android_release(33), "13");
+        assert_eq!(android_release(35), "15");
+        assert!(!own_windows(Some(28)));
+        assert!(own_windows(Some(29)));
+        assert!(own_windows(None));
+    }
+
+    #[test]
+    fn open_arguments() {
+        let own = open_args("s1", Some("com.whatsapp"), true, "WhatsApp");
+        assert_eq!(
+            own,
+            [
+                "-s",
+                "s1",
+                "--window-title=WhatsApp",
+                "--new-display",
+                "--start-app=com.whatsapp"
+            ]
+        );
+        let shared = open_args("s1", Some("com.whatsapp"), false, "Phone screen");
+        assert!(shared.contains(&"--start-app=com.whatsapp".to_string()));
+        assert!(!shared.contains(&"--new-display".to_string()));
+        assert!(!open_args("s1", None, true, "Phone screen").contains(&"--new-display".to_string()));
+    }
+
+    #[test]
+    fn one_window_per_app() {
+        let (id, mut closed) = reserve_window("unit-a", Some("com.x"), "X").unwrap();
+        assert!(reserve_window("unit-a", Some("com.x"), "X").is_none());
+        let (other, _) = reserve_window("unit-b", Some("com.x"), "X").unwrap();
+        let (screen, _) = reserve_window("unit-a", None, "Phone screen").unwrap();
+        assert!(closed.try_recv().is_err());
+        assert!(close(Some("com.x"))["closed"].as_u64() >= Some(2));
+        assert!(closed.try_recv().is_ok());
+        for i in [id, other, screen] {
+            forget_window(i);
+        }
+        let (again, _) = reserve_window("unit-a", Some("com.x"), "X").unwrap();
+        forget_window(again);
+    }
+
+    #[test]
+    fn install_hints() {
+        let arch = "NAME=\"EndeavourOS\"\nID=endeavouros\nID_LIKE=arch\n";
+        assert_eq!(
+            install_hint_for(arch),
+            Some("sudo pacman -S scrcpy android-tools")
+        );
+        assert!(install_hint_for("ID=fedora\nVERSION_ID=41\n").is_some_and(|h| h.contains("dnf")));
+        assert!(
+            install_hint_for("ID=\"opensuse-tumbleweed\"\nID_LIKE=\"opensuse suse\"\n")
+                .is_some_and(|h| h.contains("zypper"))
+        );
+        assert_eq!(install_hint_for("ID=ubuntu\nID_LIKE=debian\n"), None);
+        assert_eq!(install_hint_for(""), None);
     }
 
     #[test]
