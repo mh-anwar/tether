@@ -29,4 +29,6 @@ uuid.workspace = true
 # Phone apps: bind our own port 5353 next to avahi (SO_REUSEADDR) to ask the phone directly.
 socket2.workspace = true
 # Tray icon on bars with the older XEmbed tray (i3bar, polybar). Already built for arboard.
-x11rb = "0.13"
+x11rb = { version = "0.13", features = ["xtest"] }
+futures-util = { version = "0.3", default-features = false, features = ["std", "async-await"] }
+url = "2"

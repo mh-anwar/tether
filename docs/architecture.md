@@ -106,3 +106,34 @@ Contacts groups synced numbers by name and starts Messages with the selected num
 Keyboard sends ordered `keyboard {device,key?,specialKey?,shift?,ctrl?,alt?,super?}` calls;
 core stores keyboard availability and emits keyboard_state/keyboard_echo updates. `tether type TEXT`
 uses the same API. Native GTK file selection adds rfd with only its gtk3 backend.
+
+## Desktop media and incoming shares
+- `desktopmedia` watches session-bus MPRIS names, PropertiesChanged and Seeked. It excludes the
+  `org.mpris.MediaPlayer2.tether` phone proxy. Phone requests reach it as authenticated `DesktopRequest`
+  updates; the core never depends on D-Bus. Calls pause only playing desktop players and restore those
+  players, or their saved per-player volume when mute-instead is enabled.
+- `sendnotifications` uses a dedicated BecomeMonitor connection (eavesdrop fallback). Notify replies
+  provide the actual notification IDs for phone dismissals. It is off by default; mirrored notifications
+  carry `x-tether-mirrored` to prevent loops. An app-name blocklist is in Settings.
+- `received` owns shared text's clipboard and handles file notifications and xdg-open with the window
+  closed. The window keeps recent transfers in a "Received from your phone" section at the top of its notifications column (progress while receiving or sending); `received_list` recovers the
+  daemon's recent completed files when reopening it. `share_files` sends one batch sequentially.
+## Phone controls for this computer
+
+`plugins/{runcommand,mousepad,presenter,lock,systemvolume,battery,findmyphone}.rs` contain wire
+parsers/builders. Paired requests become `Update::Computer` and `computer.rs` performs desktop effects;
+`remoteinput.rs` uses XTest on X11, dotool/ydotool on Wayland (wtype for keyboard-only use).
+`computer.rs` polls lock, volume, command configuration and local battery every three seconds, pushing
+changed state and sending a full snapshot on connect. Settings permissions are checked for every incoming
+request; disabled requests are ignored and logged, including already-connected phones. Commands are
+stored as `commands: [{id,name,command}]`; `commands_get` / `commands_set` and settings_get/settings_set
+share validation. Commands execute as the logged-in user, without shell interpolation of packet fields.
+`computer_status` restores the ring banner or pending commands-settings navigation in a new window;
+`computer_ring_stop` stops ringing. Notification actions and a second phone request also stop it.
+
+## Protocol simulator
+
+`tether_core::sim::Simulator` owns a real TLS phone link, packet/payload history and a Unix JSON-lines
+control socket. `sim/scenario.rs` holds the seeded Android-style request responses; `examples/fake_phone`
+is the reconnecting screenshot wrapper. Daemon integration tests share a short-path XDG/process/API
+fixture in `crates/tether/tests/support`; `TETHER_PORT` isolates daemon TCP and UDP listeners.

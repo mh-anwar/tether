@@ -28,6 +28,7 @@ const state = {
   battery: null,
   signal: {},
   notifications: {},
+  transfers: [],
   threads: new Map(), // thread_id -> Map(message id -> message)
   contacts: [], // [{name, number}] numbers are digits only
   selected: null, // thread id, or 'new'
@@ -261,6 +262,7 @@ async function loadAll() {
     state.threads.clear();
     state.selected = null;
   }
+  api('computer_status').then((c) => { state.computerRinging = c.ringing; if (c.commands) openCommandsSettings(); renderRail(); }).catch(() => {});
   loadUpdate();
   api('seen_set', { seen: state.seen }).catch(() => {});
   if (state.view === 'settings') loadSettings();
@@ -275,6 +277,8 @@ async function loadDevice() {
       api('device_data', { device: id }), api('threads', { device: id }), api('contacts', { device: id }),
     ]);
     if (state.deviceId !== id) return; // another phone was picked meanwhile
+    const received = await api('received_list');
+    state.transfers = [...state.transfers.filter((t) => !t.path), ...received];
     state.battery = data.battery;
     state.signal = data.signal || {};
     state.notifications = data.notifications || {};
@@ -368,6 +372,10 @@ function renderRail() {
     ...state.devices.filter((x) => x.pair === 'requested_by_peer').map((x) => h('div', { class: 'contact-card' },
       h('b', { text: `${x.name} wants to pair` }), h('span', { text: `Check this code on your phone: ${x.verification_key || ''}` }),
       toolButton('Accept', () => pairAction('accept', x.id)), toolButton('Decline', () => pairAction('reject', x.id)))),
+    state.computerRinging ? h('div', { class: 'call finding', role: 'status' },
+      icon('ring', 'pulse'),
+      h('b', { text: 'Your phone is finding this computer' }),
+      h('button', { class: 'btn primary small', onclick: () => api('computer_ring_stop').catch((e) => toast(String(e), 'error')) }, 'Stop')) : null,
     mediaCard(),
     h('nav', { class: 'nav' },
       h('button', { 'aria-current': state.view === 'messages' ? 'page' : null, onclick: () => showView('messages') }, icon('message'), h('span', { class: 'label', text: 'Messages' }),
@@ -808,11 +816,17 @@ function openAttachment(a) {
 }
 
 // ---------- settings ----------
-const settings = { data: null, error: '', forgetting: false, saving: false };
+const settings = { data: null, error: '', forgetting: false, saving: false, openCommands: false };
+
+function openCommandsSettings() { settings.openCommands = true; showView('settings'); }
 
 async function loadSettings() {
   try { settings.data = await api('settings_get'); settings.error = ''; } catch (e) { settings.error = e.message || String(e); }
   renderSettings();
+  if (settings.openCommands && document.getElementById('run-commands')) {
+    settings.openCommands = false;
+    document.getElementById('run-commands').scrollIntoView();
+  }
 }
 
 // Saves one or more settings. Some need the background service to restart; it comes back by itself.
@@ -836,11 +850,37 @@ function settingSwitch(key, label, hint) {
   return h('label', { class: 'setting check' }, input, h('span', {}, h('b', { text: label }), hint ? h('small', { text: hint }) : null));
 }
 
-function settingText(key, label, hint, button = 'Save') {
-  const input = h('input', { type: 'text', 'data-key': `set-${key}`, value: settings.data[key], 'aria-label': label });
-  return h('form', { class: 'setting', onsubmit: (e) => { e.preventDefault(); if (input.value.trim() !== String(settings.data[key])) saveSettings({ [key]: input.value.trim() }); } },
+// `list`: the setting is a list of names, shown and edited as comma-separated text.
+function settingText(key, label, hint, button = 'Save', list = false) {
+  const current = list ? (settings.data[key] || []).join(', ') : String(settings.data[key]);
+  const input = h('input', { type: 'text', 'data-key': `set-${key}`, value: current, 'aria-label': label, placeholder: list ? 'App names, separated by commas' : null });
+  return h('form', { class: 'setting', onsubmit: (e) => {
+    e.preventDefault();
+    const value = list ? input.value.split(',').map((v) => v.trim()).filter(Boolean) : input.value.trim();
+    if (list || value !== current) saveSettings({ [key]: value });
+  } },
     h('label', {}, h('b', { text: label }), hint ? h('small', { text: hint }) : null),
     h('div', { class: 'field-row' }, input, h('button', { class: 'btn', type: 'submit' }, button)));
+}
+
+function commandsEditor(commands) {
+  const row = (command, index) => {
+    const name = h('input', { type: 'text', 'aria-label': 'Command name', value: command.name, required: true });
+    const shell = h('input', { type: 'text', 'aria-label': 'Shell command', value: command.command, required: true });
+    return h('form', { class: 'setting command-editor', 'data-key': `command-${command.id || 'new'}`, onsubmit: (e) => {
+      e.preventDefault();
+      const entry = { id: command.id || crypto.randomUUID(), name: name.value.trim(), command: shell.value.trim() };
+      if (!entry.name || !entry.command) return;
+      const next = [...commands]; if (index < 0) next.push(entry); else next[index] = entry;
+      saveSettings({ commands: next });
+    } }, h('label', {}, h('b', { text: index < 0 ? 'New command' : command.name }), h('small', { text: 'Name' }), name),
+      h('label', {}, h('small', { text: 'Shell command' }), shell),
+      h('div', { class: 'field-row' }, h('button', { class: 'btn', type: 'submit' }, index < 0 ? 'Add command' : 'Save command'),
+        index >= 0 ? h('button', { class: 'btn', type: 'button', onclick: () => saveSettings({ commands: commands.filter((_, i) => i !== index) }) }, 'Remove command') : null));
+  };
+  return h('section', { id: 'run-commands' }, h('h2', { text: 'Commands your phone can run' }),
+    h('p', { class: 'sub', text: 'Commands run on this computer with your account. Only add commands you want your paired phone to run.' }),
+    commands.length ? commands.map(row) : h('p', { class: 'none', text: 'No commands yet.' }), row({ name: '', command: '' }, -1));
 }
 
 function renderSettings() {
@@ -858,12 +898,25 @@ function renderSettings() {
       h('section', {}, h('h2', { text: 'This computer' }),
         settingText('device_name', 'Name', 'What your phone calls this computer.'),
         settingSwitch('autostart', 'Start Tether when I log in', 'Texts, notifications and the clipboard keep working with the window closed.'),
+        settingSwitch('send_notifications', "Send this computer's notifications to the phone", 'Off until you turn it on. Tether notifications are excluded.'),
+        settingText('notification_blocklist', 'Apps that stay on this computer', 'Notifications from these apps are not sent to the phone.', 'Save', true),
+        h('div', { class: 'setting' }, h('label', { for: 'pause-media' }, h('b', { text: 'During phone calls' }), h('small', { text: 'Desktop players you were listening to.' })),
+          h('select', { id: 'pause-media', 'aria-label': 'Pause media during calls', onchange: (e) => saveSettings({ pause_media: e.target.value }) },
+            [['ringing', 'Pause when the phone rings'], ['talking', 'Pause when the call is answered'], ['off', 'Keep playing']].map(([value, label]) => h('option', { value, selected: s.pause_media === value }, label)))),
+        settingSwitch('mute_media', 'Mute instead of pausing', 'Restores each playing player’s volume when the call ends.'),
         settingSwitch('auto_update', 'Install new versions by themselves', 'Off: Tether still tells you when there is one.'),
         h('div', { class: 'setting' }, h('button', { class: 'btn', onclick: checkForUpdates }, icon('refresh', 'sm'), 'Check for updates'))),
       h('section', {}, h('h2', { text: 'From your phone' }),
         settingSwitch('mirror_notifications', 'Show phone notifications on this computer', 'They always show in the Tether window.'),
         settingSwitch('clipboard_sync', 'Share the clipboard', 'What you copy on one is ready to paste on the other.'),
         settingText('downloads_dir', 'Save files from the phone in', 'The whole path of a folder.')),
+      h('section', {}, h('h2', { text: 'What your phone can do on this computer' }),
+        settingSwitch('allow_commands', 'Run commands'),
+        settingSwitch('allow_input', 'Control the mouse and keyboard'),
+        settingSwitch('allow_lock', 'Lock the screen'),
+        settingSwitch('allow_volume', 'Change the volume'),
+        settingSwitch('allow_ring', 'Ring this computer')),
+      commandsEditor(s.commands || []),
       h('section', {}, h('h2', { text: 'Finding your phone' }),
         h('p', { class: 'sub', text: "Tether finds your phone by itself on the same Wi-Fi. On a network where it can't (a VPN, some office or guest Wi-Fi), add the phone's address. It is in the phone's Wi-Fi settings, under the network's details." }),
         s.addresses.length ? h('ul', { class: 'addr-list' }, s.addresses.map((a) => h('li', {}, h('span', { text: a }),
@@ -1359,8 +1412,70 @@ function renderFeed() {
         h('div', { class: 'from' }, icon('key', 'sm'), `Code from ${code.from}`),
         h('div', { class: 'row' }, h('span', { class: 'digits', text: code.code }),
           h('button', { class: 'btn primary', onclick: () => copy(code.code, 'Code copied') }, icon('copy', 'sm'), 'Copy'))) : null,
+      receivedPanel(),
       notes.length ? notes.map(noteCard) : h('div', { class: 'empty' }, icon('bell'), h('p', { text: 'No notifications on your phone.' }))),
   ]);
+}
+
+function fileSize(n) {
+  if (!(n >= 0)) return '';
+  if (n < 1024) return `${n} B`;
+  const units = ['KB', 'MB', 'GB'];
+  let v = n / 1024, i = 0;
+  while (v >= 1024 && i < units.length - 1) { v /= 1024; i++; }
+  return `${v < 10 ? v.toFixed(1) : Math.round(v)} ${units[i]}`;
+}
+
+function transferRow(t) {
+  const files = t.number_of_files > 1 ? ` · ${t.number_of_files} files` : '';
+  const row = h('article', { class: 'transfer', 'aria-label': t.name },
+    h('div', { class: 'top' }, icon(t.sending ? 'upload' : 'download', 'sm'), h('span', { class: 'name', title: t.name, text: t.name })));
+  if (t.error) {
+    row.append(h('div', { class: 'status error', role: 'alert', text: t.error }));
+  } else if (t.path) {
+    row.append(h('div', { class: 'acts' },
+      h('button', { class: 'btn', onclick: () => api('received_open', { path: t.path }).catch((e) => toast(String(e), 'error')) }, 'Open'),
+      h('button', { class: 'btn ghost', onclick: () => api('received_show', { path: t.path }).catch((e) => toast(String(e), 'error')) }, 'Show in folder')));
+  } else if (t.done) {
+    row.append(h('div', { class: 'status', text: `Sent${files}` }));
+  } else {
+    const known = t.total > 0;
+    row.append(
+      h('div', { class: 'status', text: `${t.sending ? 'Sending' : 'Receiving'}${known ? ` · ${fileSize(t.bytes)} of ${fileSize(t.total)}` : ''}${files}` }),
+      h('progress', { max: Math.max(1, t.total), ...(known ? { value: t.bytes } : {}), 'aria-label': `${t.sending ? 'Sending' : 'Receiving'} ${t.name}` }));
+  }
+  return row;
+}
+
+function receivedPanel() {
+  return h('section', { class: 'received-panel', 'aria-label': 'Received from your phone' },
+    h('h3', { text: 'Received from your phone' }),
+    state.transfers.length ? state.transfers.slice(0, 20).map(transferRow)
+      : h('p', { class: 'quiet', text: 'Files you receive appear here. Drop files in this window to send them.' }));
+}
+function transferProgress(u) {
+  if (!u.name) {
+    for (const t of state.transfers) if (!t.sending && !t.path && !t.error) Object.assign(t, { number_of_files: u.number_of_files, total_payload_size: u.total_payload_size });
+    invalidate('feed'); return;
+  }
+  let t = state.transfers.find((t) => t.name === u.name && t.sending === u.sending && !t.path && !t.done && !t.error);
+  if (!t) { t = {}; state.transfers.unshift(t); }
+  Object.assign(t, u, { done: u.sending && u.total >= 0 && u.bytes >= u.total });
+  state.transfers = state.transfers.slice(0, 100);
+  invalidate('feed');
+}
+function sendTextOrLink() {
+  const root = $('#palette-root');
+  const text = h('textarea', { 'aria-label': 'Text or link', rows: 5, required: true });
+  const send = h('button', { class: 'btn primary', type: 'submit' }, 'Send');
+  root.replaceChildren(h('div', { class: 'palette-backdrop', onclick: (e) => { if (e.target === e.currentTarget) root.replaceChildren(); } },
+    h('form', { class: 'palette', role: 'dialog', 'aria-label': 'Send text or link', onsubmit: async (e) => {
+      e.preventDefault(); const value = text.value.trim(); if (!value) return; send.disabled = true;
+      const isUrl = /^https?:\/\/\S+$/i.test(value);
+      try { await api(isUrl ? 'share_url' : 'share_text', { device: state.deviceId, [isUrl ? 'url' : 'text']: value }); root.replaceChildren(); toast('Sent to your phone'); }
+      catch (e) { toast(String(e), 'error'); send.disabled = false; }
+    } }, h('h2', { text: 'Send text or link' }), text, send, h('button', { class: 'btn ghost', type: 'button', onclick: () => root.replaceChildren() }, 'Cancel'))));
+  text.focus();
 }
 
 function appBadge(n) {
@@ -1514,6 +1629,7 @@ function commands() {
   const player = activePlayer();
   const cmds = [
     { label: 'New message', sub: 'Ctrl+N', icon: 'plus', run: () => openNew() },
+    live && { label: 'Send text or link', icon: 'send', run: sendTextOrLink },
     live && { label: 'Ring my phone', icon: 'ring', run: ringPhone },
     live && { label: 'Ping my phone', icon: 'bolt', run: () => quick('ping', 'Ping sent') },
     live && player && { label: player.is_playing ? `Pause ${player.title}` : `Play ${player.title}`, sub: player.name, icon: player.is_playing ? 'pause' : 'play', run: () => mediaAction(player, 'PlayPause') },
@@ -1588,26 +1704,21 @@ async function setupDrop() {
     } else if (t === 'drop') {
       overlay.hidden = true;
       if (!(d && d.connected)) return toast('Your phone is out of reach', 'error');
-      for (const path of e.payload.paths || []) { if (state.view === 'files') await uploadFile(path); else sendFile(path, d); }
+      if (state.view === 'files') { for (const path of e.payload.paths || []) await uploadFile(path); } else sendFiles(e.payload.paths || [], d);
     }
   });
 }
 
-async function sendFile(path, d) {
-  const name = path.split('/').pop();
-  const t = toast(`Sending ${name}`, 'progress', 600000);
-  try {
-    await api('share_file', { device: d.id, path });
-    t.remove();
-    toast(`${name} is on ${d.name}`);
-  } catch (e) {
-    t.remove();
-    toast(`${name} didn't send: ${e}`, 'error');
-  }
+async function sendFiles(paths, d) {
+  if (!paths.length) return;
+  try { await api('share_files', { device: d.id, paths }); toast(`${paths.length} ${paths.length === 1 ? 'file sent' : 'files sent'} to ${d.name}`); }
+  catch (e) { toast(`Files didn't send: ${e}`, 'error'); }
 }
 
 // ---------- events ----------
 function onEvent(ev) {
+  if (ev.event === 'computer_settings') { openCommandsSettings(); return; }
+  if (ev.event === 'computer_ring') { state.computerRinging = ev.ringing; renderRail(); return; }
   if (ev.event === 'device') {
     const i = state.devices.findIndex((d) => d.id === ev.id);
     const before = i >= 0 ? state.devices[i] : null;
@@ -1655,10 +1766,16 @@ function onEvent(ev) {
     case 'call_ended': state.call = null; renderRail(); break;
     case 'ping': toast(u.message ? `Phone: ${u.message}` : 'Ping from your phone'); break;
     case 'clipboard': phoneClipboard(u.content); break;
-    case 'shared_text': copy(u.text, 'Text from your phone copied'); break;
-    case 'shared_url': copy(u.url, 'Link from your phone copied'); break;
-    case 'file_received': toast(`Saved ${u.path.split('/').pop()} to Downloads`); break;
-    case 'transfer_failed': toast(`${u.name} didn't arrive: ${u.reason}`, 'error'); break;
+    case 'shared_text': toast('Text from your phone copied'); break;
+    case 'shared_url': toast('Opening the link from your phone'); break;
+    case 'transfer_progress': transferProgress(u); break;
+    case 'file_received': {
+      const name = u.path.split('/').pop();
+      const t = state.transfers.find((t) => !t.sending && !t.path && !t.error && (t.name === name || name.startsWith(t.name.replace(/(\.[^.]+)?$/, ' ('))));
+      if (t) t.path = u.path; else state.transfers.unshift({ name, path: u.path });
+      invalidate('feed'); toast(`Received ${name}`); break;
+    }
+    case 'transfer_failed': { const t = state.transfers.find((t) => t.name === u.name && !t.path && !t.done); if (t) t.error = u.reason; invalidate('feed'); } toast(`${u.name} didn't arrive: ${u.reason}`, 'error'); break;
   }
 }
 

@@ -32,7 +32,17 @@ pub async fn serve<R: AsyncRead + Unpin>(
     listener: TcpListener,
     tls: &TlsContext,
     peer_cert: &[u8],
+    data: R,
+) -> Result<u64> {
+    serve_with_progress(listener, tls, peer_cert, data, |_| {}).await
+}
+
+pub async fn serve_with_progress<R: AsyncRead + Unpin>(
+    listener: TcpListener,
+    tls: &TlsContext,
+    peer_cert: &[u8],
     mut data: R,
+    progress: impl FnMut(u64),
 ) -> Result<u64> {
     let (tcp, _) = timeout(ACCEPT_TIMEOUT, listener.accept()).await??;
     let mut stream = timeout(
@@ -51,7 +61,7 @@ pub async fn serve<R: AsyncRead + Unpin>(
             "payload peer is not the paired device".into(),
         ));
     }
-    let n = copy_with_idle_timeout(&mut data, &mut stream, None).await?;
+    let n = copy_with_idle_timeout(&mut data, &mut stream, None, progress).await?;
     stream.shutdown().await.ok();
     Ok(n)
 }
@@ -63,6 +73,17 @@ pub async fn fetch<W: AsyncWrite + Unpin>(
     peer_cert: &[u8],
     size: i64,
     out: &mut W,
+) -> Result<u64> {
+    fetch_with_progress(addr, tls, peer_cert, size, out, |_| {}).await
+}
+
+pub async fn fetch_with_progress<W: AsyncWrite + Unpin>(
+    addr: SocketAddr,
+    tls: &TlsContext,
+    peer_cert: &[u8],
+    size: i64,
+    out: &mut W,
+    progress: impl FnMut(u64),
 ) -> Result<u64> {
     let tcp = timeout(IO_TIMEOUT, TcpStream::connect(addr)).await??;
     let mut stream = timeout(
@@ -82,7 +103,7 @@ pub async fn fetch<W: AsyncWrite + Unpin>(
         ));
     }
     let limit = u64::try_from(size).ok();
-    let n = copy_with_idle_timeout(&mut stream, out, limit).await?;
+    let n = copy_with_idle_timeout(&mut stream, out, limit, progress).await?;
     if let Some(expected) = limit {
         if n != expected {
             return Err(Error::Protocol(format!(
@@ -95,7 +116,12 @@ pub async fn fetch<W: AsyncWrite + Unpin>(
 }
 
 /// Like `tokio::io::copy`, but a transfer that stalls for `IO_TIMEOUT` fails instead of hanging.
-async fn copy_with_idle_timeout<R, W>(r: &mut R, w: &mut W, limit: Option<u64>) -> Result<u64>
+async fn copy_with_idle_timeout<R, W>(
+    r: &mut R,
+    w: &mut W,
+    limit: Option<u64>,
+    mut progress: impl FnMut(u64),
+) -> Result<u64>
 where
     R: AsyncRead + Unpin,
     W: AsyncWrite + Unpin,
@@ -119,6 +145,7 @@ where
         }
         timeout(IO_TIMEOUT, w.write_all(&buf[..n])).await??;
         total += n as u64;
+        progress(total);
     }
     Ok(total)
 }

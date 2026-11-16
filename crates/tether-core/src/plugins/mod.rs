@@ -1,8 +1,15 @@
-//! Plugin logic: turns packets from a paired device into state + typed updates, and builds the
-//! packets we send. Packet schemas: see docs/protocol.md.
+//! Plugin logic: turns packets from a paired device into typed updates and replies.
+//! Desktop effects are performed by the daemon after the service checks pairing.
+
+pub mod battery;
+pub mod findmyphone;
+pub mod lock;
+pub mod mousepad;
+pub mod presenter;
+pub mod runcommand;
+pub mod systemvolume;
 
 pub mod contacts;
-pub mod mousepad;
 pub mod mpris;
 pub mod notification;
 pub mod sftp;
@@ -31,11 +38,18 @@ pub const CONNECTIVITY: &str = "kdeconnect.connectivity_report";
 /// Packet types we accept. The phone enables a plugin only when our capabilities match its own.
 pub fn incoming_capabilities() -> Vec<String> {
     [
+        runcommand::REQUEST,
+        mousepad::REQUEST,
+        presenter::TYPE,
+        lock::REQUEST,
+        systemvolume::REQUEST,
+        FIND_PHONE,
         PING,
         BATTERY,
         CLIPBOARD,
         CLIPBOARD_CONNECT,
         SHARE,
+        SHARE_UPDATE,
         CONNECTIVITY,
         notification::NOTIFICATION,
         sms::MESSAGES,
@@ -44,6 +58,8 @@ pub fn incoming_capabilities() -> Vec<String> {
         contacts::RESPONSE_UIDS,
         contacts::RESPONSE_VCARDS,
         mpris::MPRIS,
+        mpris::REQUEST,
+        notification::REQUEST,
         sftp::SFTP,
         mousepad::STATE,
         mousepad::ECHO,
@@ -55,10 +71,17 @@ pub fn incoming_capabilities() -> Vec<String> {
 /// Packet types we send.
 pub fn outgoing_capabilities() -> Vec<String> {
     [
+        runcommand::TYPE,
+        mousepad::STATE,
+        mousepad::ECHO,
+        lock::TYPE,
+        systemvolume::TYPE,
+        BATTERY,
         PING,
         CLIPBOARD,
         CLIPBOARD_CONNECT,
         SHARE,
+        SHARE_UPDATE,
         FIND_PHONE,
         notification::REQUEST,
         notification::REPLY,
@@ -71,6 +94,8 @@ pub fn outgoing_capabilities() -> Vec<String> {
         contacts::REQUEST_UIDS,
         contacts::REQUEST_VCARDS,
         mpris::REQUEST,
+        mpris::MPRIS,
+        notification::NOTIFICATION,
         sftp::REQUEST,
         mousepad::REQUEST,
     ]
@@ -98,6 +123,10 @@ pub struct Signal {
 pub struct DeviceData {
     pub keyboard_active: Option<bool>,
     pub battery: Option<Battery>,
+    #[serde(skip)]
+    pub share_count: Option<i64>,
+    #[serde(skip)]
+    pub share_total: Option<i64>,
     pub signal: BTreeMap<String, Signal>,
     pub notifications: BTreeMap<String, Notification>,
     /// thread id -> message id -> message.
@@ -119,6 +148,9 @@ pub enum Update {
     KeyboardEcho {
         key: String,
         special_key: Option<i64>,
+    },
+    Computer {
+        packet: Packet,
     },
     Battery(Battery),
     Signal {
@@ -147,6 +179,18 @@ pub enum Update {
     },
     FileReceived {
         path: String,
+        open: bool,
+    },
+    TransferProgress {
+        name: String,
+        sending: bool,
+        bytes: u64,
+        total: i64,
+        number_of_files: i64,
+        total_payload_size: i64,
+    },
+    DesktopRequest {
+        packet: Packet,
     },
     TransferFailed {
         name: String,
@@ -202,6 +246,12 @@ pub fn handle(data: &mut DeviceData, p: &Packet) -> Outcome {
                 });
             }
         }
+        runcommand::REQUEST
+        | mousepad::REQUEST
+        | presenter::TYPE
+        | lock::REQUEST
+        | systemvolume::REQUEST
+        | FIND_PHONE => out.updates.push(Update::Computer { packet: p.clone() }),
         PING => out.updates.push(Update::Ping {
             message: p.str("message").map(String::from),
         }),
@@ -281,9 +331,76 @@ pub fn share_url(url: &str) -> Packet {
     Packet::new(SHARE, json!({"url": url}))
 }
 
+pub const SHARE_UPDATE: &str = "kdeconnect.share.request.update";
+
+/// Announces a batch before its files (Android SharePlugin shows one progress for the lot).
+pub fn share_batch(count: usize, total: u64) -> Packet {
+    Packet::new(
+        SHARE_UPDATE,
+        json!({"numberOfFiles": count, "totalPayloadSize": total}),
+    )
+}
+
+/// One file of a batch; the payload size and port are added when it is sent.
+pub fn share_file_packet(name: &str, count: usize, total: u64) -> Packet {
+    Packet::new(
+        SHARE,
+        json!({"filename": name, "open": false, "numberOfFiles": count, "totalPayloadSize": total}),
+    )
+}
+
 /// Name lookup for a phone number, used to label threads and calls.
 pub fn contact_name(data: &DeviceData, number: &str) -> Option<String> {
     data.contacts.name_for(number)
 }
 
 pub type ContactMap = HashMap<String, String>;
+
+#[cfg(test)]
+mod media_share_tests {
+    use super::*;
+    #[test]
+    fn desktop_plugins_negotiate_both_directions() {
+        for kind in [
+            mpris::MPRIS,
+            mpris::REQUEST,
+            notification::NOTIFICATION,
+            notification::REQUEST,
+            SHARE,
+            SHARE_UPDATE,
+        ] {
+            assert!(incoming_capabilities().iter().any(|k| k == kind));
+            assert!(outgoing_capabilities().iter().any(|k| k == kind));
+        }
+    }
+    #[test]
+    fn batch_packets_carry_count_and_total() {
+        let batch = share_batch(3, 9000);
+        assert_eq!(batch.kind, "kdeconnect.share.request.update");
+        assert_eq!(
+            (batch.i64("numberOfFiles"), batch.i64("totalPayloadSize")),
+            (Some(3), Some(9000))
+        );
+        let file = share_file_packet("a.jpg", 3, 9000);
+        assert_eq!(file.kind, SHARE);
+        assert_eq!(file.str("filename"), Some("a.jpg"));
+        assert_eq!(file.bool("open"), Some(false));
+        assert_eq!(
+            (file.i64("numberOfFiles"), file.i64("totalPayloadSize")),
+            (Some(3), Some(9000))
+        );
+    }
+    #[test]
+    fn shared_text_and_url_parse_without_becoming_clipboard_sync() {
+        let mut data = DeviceData::default();
+        let text = handle(&mut data, &share_text("hello"));
+        assert!(matches!(&text.updates[..], [Update::SharedText { text }] if text == "hello"));
+        let url = handle(&mut data, &share_url("https://example.org"));
+        assert!(
+            matches!(&url.updates[..], [Update::SharedUrl { url }] if url == "https://example.org")
+        );
+        assert!(handle(&mut data, &Packet::new(SHARE, json!({"text": 12})))
+            .updates
+            .is_empty());
+    }
+}

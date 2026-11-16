@@ -350,3 +350,49 @@ Sources checked 2026-11-16: Android `plugins/remotekeyboard/RemoteKeyboardPlugin
 `plugins/remotekeyboardime/RemoteKeyboardIMEPlugin.kt`; KDE
 `plugins/mousepad/x11remoteinput.cpp`, `SpecialKeysMap` (Backspace=1, Tab=2,
 arrows=4–7, Home=10, End=11, Return=12, Delete=13, Escape=14, F1–F12=21–32).
+
+## Desktop MPRIS, notifications and share batches
+- Both MPRIS packet types are advertised in both directions. Desktop player list includes
+  `supportAlbumArtPayload`; metadata uses ms for `length`/`pos`/`SetPosition`, while relative `Seek`
+  remains MPRIS microseconds. Loop/shuffle use `loopStatus`, `shuffle`, `setLoopStatus`, `setShuffle`.
+  Art payloads require an exact match to the current local `albumArtUrl` and `transferringAlbumArt: true`.
+  References: K:plugins/mpriscontrol/mpriscontrolplugin.cpp;
+  A:src/main/java/org/kde/kdeconnect/plugins/mpris/MprisPlugin.kt.
+- Desktop notification IDs are namespaced `tether-desktop:<real desktop id>`. Phone `cancel` requests
+  close only IDs this daemon forwarded. Notification fields follow
+  K:plugins/sendnotifications/dbusnotificationslistener.cpp; icon payloads include `payloadHash`.
+- Share batches advertise `numberOfFiles` and `totalPayloadSize` on each file and
+  `kdeconnect.share.request.update` (incoming and outgoing capabilities). Each file retains its own
+  authenticated payload connection. Incoming updates announce revised batch totals, not a file payload.
+  Reference: K:plugins/share/kdeconnect_share.json and Android SharePlugin.
+## Phone controls this computer
+
+Reference: kdeconnect-kde `plugins/runcommand/runcommandplugin.cpp`,
+`plugins/mousepad/x11remoteinput.cpp`, `plugins/remotekeyboard/README`,
+`plugins/systemvolume/systemvolumeplugin-pulse.cpp`, `plugins/lockdevice/lockdeviceplugin.cpp`,
+`plugins/battery/batteryplugin.cpp` (upstream shallow checkout, 2026-11-16).
+
+- `kdeconnect.runcommand.request`: requestCommandList, key (configured id), or setup.
+  `kdeconnect.runcommand`: commandList JSON string encoding an object keyed by id, each containing name and command;
+  canAddCommand true opens Settings in Tether rather than accepting a command from the network.
+- `kdeconnect.mousepad.request`: dx/dy, scroll, singleclick/doubleclick/middleclick/rightclick,
+  singlehold/singlerelease; key text or specialKey 1..32; ctrl/alt/shift/super; sendAck returns
+  `kdeconnect.mousepad.echo` with original body, isAck true, sendAck removed after successful injection.
+  `kdeconnect.mousepad.keyboardstate` reports state. `kdeconnect.presenter` moves the pointer; stop
+  ends movement (there is no persistent laser overlay). Special-key numbering is covered by unit tests.
+- `kdeconnect.lock.request`: requestLocked or setLocked; `kdeconnect.lock`: isLocked. GetActive on
+  org.freedesktop.ScreenSaver supplies the observed state; absent a provider, explicit requests return
+  false. Lock uses loginctl, xdg-screensaver, then ScreenSaver.Lock. Unlock uses loginctl.
+- `kdeconnect.systemvolume.request`: requestSinks or name plus volume/muted/enabled. Replies contain
+  sinkList with name/description/volume/muted/maxVolume/enabled. pactl JSON supplies per-sink state;
+  wpctl fallback exposes the default output. Enabling a sink selects it as the default output.
+- Incoming `kdeconnect.findmyphone.request` toggles the local ring; notification and window can stop it.
+- Outgoing `kdeconnect.battery` is sent only with a system battery (not a peripheral battery).
+  thresholdEvent is 1 at <=15% while discharging, otherwise 0.
+
+## Local protocol tests
+
+`tether_core::sim` exercises both TLS roles with the same link and payload code used by the daemon.
+The daemon's optional `TETHER_PORT` overrides its local TCP/UDP listeners and broadcast destination;
+it does not relax the standard advertised TCP port validation on incoming discovery identities.
+See `testing.md` for scripting, captured payloads and the integration-test fixture.

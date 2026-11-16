@@ -91,6 +91,13 @@ enum Pair {
     Paired,
 }
 
+struct IncomingShare {
+    name: String,
+    open: bool,
+    count: i64,
+    total: i64,
+}
+
 struct LinkHandle {
     gen: u64,
     tx: mpsc::Sender<Packet>,
@@ -449,15 +456,20 @@ impl Service {
         }
     }
 
-    /// Sends a file. Resolves once the phone has finished downloading it.
-    pub async fn share_file(&self, id: &str, path: &Path) -> Result<u64> {
+    /// Send any protocol payload using the paired link's certificate.
+    pub async fn send_payload(&self, id: &str, packet: Packet, path: &Path) -> Result<u64> {
+        self.send_payload_progress(id, packet, path, |_| {}).await
+    }
+
+    async fn send_payload_progress(
+        &self,
+        id: &str,
+        mut packet: Packet,
+        path: &Path,
+        progress: impl FnMut(u64),
+    ) -> Result<u64> {
         let file = tokio::fs::File::open(path).await?;
         let size = file.metadata().await?.len();
-        let name = path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("file")
-            .to_string();
         let cert = {
             let devs = self.inner.lock();
             let d = devs
@@ -469,16 +481,88 @@ impl Service {
                 .ok_or_else(|| Error::NotConnected(id.into()))?
         };
         let (listener, port) = payload::bind_payload_listener().await?;
-        let mut p = Packet::new(plugins::SHARE, json!({"filename": name, "open": false}));
-        p.payload_size = Some(size as i64);
-        p.payload_transfer_info = Some(
+        packet.payload_size = Some(size as i64);
+        packet.payload_transfer_info = Some(
             json!({"port": port})
                 .as_object()
                 .cloned()
                 .unwrap_or_default(),
         );
-        self.send(id, p)?;
-        payload::serve(listener, &self.inner.tls, &cert, file).await
+        self.send(id, packet)?;
+        payload::serve_with_progress(listener, &self.inner.tls, &cert, file, progress).await
+    }
+
+    pub async fn share_files(&self, id: &str, paths: &[PathBuf]) -> Result<u64> {
+        let mut total = 0u64;
+        for path in paths {
+            total = total.saturating_add(tokio::fs::metadata(path).await?.len());
+        }
+        self.send(id, plugins::share_batch(paths.len(), total))?;
+        let mut sent = 0;
+        for path in paths {
+            sent += self.share_file_batch(id, path, paths.len(), total).await?;
+        }
+        Ok(sent)
+    }
+
+    /// Sends a file. Resolves once the phone has finished downloading it.
+    pub async fn share_file(&self, id: &str, path: &Path) -> Result<u64> {
+        self.share_files(id, &[path.to_path_buf()]).await
+    }
+
+    async fn share_file_batch(
+        &self,
+        id: &str,
+        path: &Path,
+        count: usize,
+        total: u64,
+    ) -> Result<u64> {
+        let size = tokio::fs::metadata(path).await?.len();
+        let name = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("file")
+            .to_string();
+        let progress = |bytes| {
+            self.inner.emit(Event::Update {
+                device_id: id.into(),
+                update: Update::TransferProgress {
+                    name: name.clone(),
+                    sending: true,
+                    bytes,
+                    total: size as i64,
+                    number_of_files: count as i64,
+                    total_payload_size: total as i64,
+                },
+            })
+        };
+        progress(0);
+        let p = plugins::share_file_packet(&name, count, total);
+        let mut last = std::time::Instant::now();
+        match self
+            .send_payload_progress(id, p, path, |bytes| {
+                if last.elapsed() >= Duration::from_millis(150) || bytes == size {
+                    last = std::time::Instant::now();
+                    progress(bytes);
+                }
+            })
+            .await
+        {
+            Ok(n) => {
+                progress(n);
+                Ok(n)
+            }
+            Err(e) => {
+                self.inner.emit(Event::Update {
+                    device_id: id.into(),
+                    update: Update::TransferFailed {
+                        name,
+                        reason: e.to_string(),
+                    },
+                });
+                Err(e)
+            }
+        }
     }
 }
 
@@ -735,6 +819,30 @@ impl Inner {
             return;
         }
 
+        if p.kind == plugins::mpris::REQUEST || p.kind == plugins::notification::REQUEST {
+            drop(devs);
+            self.emit(Event::Update {
+                device_id: id.into(),
+                update: Update::DesktopRequest { packet: p },
+            });
+            return;
+        }
+        if p.kind == plugins::SHARE_UPDATE {
+            d.data.share_count = p.i64("numberOfFiles");
+            d.data.share_total = p.i64("totalPayloadSize");
+            self.emit(Event::Update {
+                device_id: id.into(),
+                update: Update::TransferProgress {
+                    name: String::new(),
+                    sending: false,
+                    bytes: 0,
+                    total: 0,
+                    number_of_files: p.i64("numberOfFiles").unwrap_or(1),
+                    total_payload_size: p.i64("totalPayloadSize").unwrap_or(-1),
+                },
+            });
+            return;
+        }
         let Some(link) = d.link.as_ref() else { return };
         let (addr, cert) = (link.addr, link.cert.clone());
 
@@ -754,12 +862,38 @@ impl Inner {
             match p.kind.as_str() {
                 plugins::SHARE => {
                     let name = p.str("filename").unwrap_or("file").to_string();
+                    let open = p.bool("open").unwrap_or(false);
+                    let count = p
+                        .i64("numberOfFiles")
+                        .or(d.data.share_count)
+                        .unwrap_or(1)
+                        .max(1);
+                    let total = p
+                        .i64("totalPayloadSize")
+                        .or(d.data.share_total)
+                        .unwrap_or(size);
+                    self.emit(Event::Update {
+                        device_id: id.into(),
+                        update: Update::TransferProgress {
+                            name: name.clone(),
+                            sending: false,
+                            bytes: 0,
+                            total: size,
+                            number_of_files: count,
+                            total_payload_size: total,
+                        },
+                    });
                     tokio::spawn(self.clone().receive_file(
                         id.to_string(),
                         target,
                         cert,
                         size,
-                        name,
+                        IncomingShare {
+                            name,
+                            open,
+                            count,
+                            total,
+                        },
                     ));
                     return;
                 }
@@ -920,8 +1054,14 @@ impl Inner {
         target: SocketAddr,
         cert: Vec<u8>,
         size: i64,
-        name: String,
+        share: IncomingShare,
     ) {
+        let IncomingShare {
+            name,
+            open,
+            count,
+            total,
+        } = share;
         let dir = self.config.downloads_dir.clone();
         let result: Result<PathBuf> = async {
             tokio::fs::create_dir_all(&dir).await?;
@@ -937,7 +1077,25 @@ impl Inner {
                     .create_new(true)
                     .open(&partial)
                     .await?;
-                payload::fetch(target, &self.tls, &cert, size, &mut f).await?;
+                let mut last = std::time::Instant::now();
+                payload::fetch_with_progress(target, &self.tls, &cert, size, &mut f, |bytes| {
+                    if last.elapsed() < Duration::from_millis(150) && bytes != size.max(0) as u64 {
+                        return;
+                    }
+                    last = std::time::Instant::now();
+                    self.emit(Event::Update {
+                        device_id: id.clone(),
+                        update: Update::TransferProgress {
+                            name: name.clone(),
+                            sending: false,
+                            bytes,
+                            total: size,
+                            number_of_files: count,
+                            total_payload_size: total,
+                        },
+                    });
+                })
+                .await?;
                 tokio::fs::rename(&partial, &path).await?;
                 Ok::<_, Error>(())
             }
@@ -955,6 +1113,7 @@ impl Inner {
         let update = match result {
             Ok(path) => Update::FileReceived {
                 path: path.to_string_lossy().into(),
+                open,
             },
             Err(e) => Update::TransferFailed {
                 name,
@@ -1260,6 +1419,10 @@ impl Inner {
 use plugins::Notification;
 
 async fn bind_tcp() -> Result<(TcpListener, u16)> {
+    if std::env::var_os("TETHER_PORT").is_some() {
+        let port = discovery::port()?;
+        return Ok((TcpListener::bind(("0.0.0.0", port)).await?, port));
+    }
     for port in MIN_TCP_PORT..=MAX_TCP_PORT {
         if let Ok(l) = TcpListener::bind(("0.0.0.0", port)).await {
             return Ok((l, port));

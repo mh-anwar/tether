@@ -151,6 +151,25 @@ async fn call(svc: &Service, method: &str, p: &Value) -> Result<Value> {
                 json!(crate::clipsync::ACTIVE.load(std::sync::atomic::Ordering::Relaxed));
             Ok(v)
         }
+        "received_list" => Ok(json!(crate::received::history())),
+        "received_open" | "received_show" => {
+            let path = std::path::PathBuf::from(s(p, "path")?);
+            let downloads = crate::config::Config::load()?
+                .core()
+                .downloads_dir
+                .canonicalize()?;
+            let path = path.canonicalize()?;
+            if !path.starts_with(downloads) {
+                anyhow::bail!("This file is outside the downloads folder");
+            }
+            let target = if method == "received_show" {
+                path.parent().context("no parent folder")?
+            } else {
+                &path
+            };
+            crate::received::open(&target.to_string_lossy())?;
+            ok()
+        }
         "devices" => Ok(serde_json::to_value(svc.devices())?),
         "refresh" => {
             svc.refresh();
@@ -192,6 +211,21 @@ async fn call(svc: &Service, method: &str, p: &Value) -> Result<Value> {
             );
             ok()
         }
+        "commands_get" => Ok(json!(crate::config::Config::load()?.commands)),
+        "commands_set" => {
+            crate::config::save_settings(
+                &json!({"commands":p.get("commands").context("missing commands")?}),
+            )?;
+            crate::computer::send_state(svc, None).await;
+            ok()
+        }
+        "computer_status" => Ok(
+            json!({"ringing":crate::computer::RINGING.load(std::sync::atomic::Ordering::SeqCst),"commands":crate::computer::OPEN_COMMANDS.swap(false,std::sync::atomic::Ordering::SeqCst)}),
+        ),
+        "computer_ring_stop" => {
+            crate::computer::stop_ring();
+            ok()
+        }
         "settings_get" => crate::config::settings(),
         "settings_set" => {
             let restart = crate::config::save_settings(p)?;
@@ -201,6 +235,10 @@ async fn call(svc: &Service, method: &str, p: &Value) -> Result<Value> {
             if let Some(on) = p.get("auto_update").and_then(Value::as_bool) {
                 crate::update::set_auto(on);
             }
+            if p.get("allow_ring") == Some(&json!(false)) {
+                crate::computer::stop_ring();
+            }
+            crate::computer::send_state(svc, None).await;
             if restart {
                 // The window starts a fresh service, which reads the new settings.
                 exit_soon();
@@ -360,6 +398,14 @@ async fn call(svc: &Service, method: &str, p: &Value) -> Result<Value> {
                 "screenshot_save" => {
                     let to = crate::phonefiles::save_screenshot(svc, dev).await?;
                     Ok(json!({"path": to.to_string_lossy()}))
+                }
+                "share_files" => {
+                    let paths: Vec<std::path::PathBuf> =
+                        serde_json::from_value(p.get("paths").cloned().context("missing paths")?)?;
+                    if paths.is_empty() || paths.len() > 256 {
+                        anyhow::bail!("Choose between 1 and 256 files");
+                    }
+                    Ok(json!({"bytes": svc.share_files(dev, &paths).await?}))
                 }
                 "share_file" => {
                     let n = svc.share_file(dev, Path::new(s(p, "path")?)).await?;

@@ -5,13 +5,18 @@ mod apps;
 mod autostart;
 mod client;
 mod clipsync;
+mod computer;
 mod config;
 mod daemon;
+mod desktopmedia;
 mod exec;
 mod mdns_probe;
 mod mprisd;
 mod notify;
 mod phonefiles;
+mod received;
+mod remoteinput;
+mod sendnotifications;
 mod tray;
 mod update;
 

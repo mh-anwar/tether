@@ -9,6 +9,12 @@ use serde_json::{json, Value};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Config {
+    pub commands: Vec<tether_core::plugins::runcommand::Command>,
+    pub allow_commands: bool,
+    pub allow_input: bool,
+    pub allow_lock: bool,
+    pub allow_volume: bool,
+    pub allow_ring: bool,
     pub device_name: String,
     /// Phones to reach directly by address (e.g. over a VPN where broadcast doesn't work).
     pub addresses: Vec<String>,
@@ -16,6 +22,10 @@ pub struct Config {
     pub mirror_notifications: bool,
     /// Keep the computer's and the phone's clipboards the same.
     pub clipboard_sync: bool,
+    pub send_notifications: bool,
+    pub notification_blocklist: Vec<String>,
+    pub pause_media: String,
+    pub mute_media: bool,
     pub downloads_dir: Option<PathBuf>,
     /// Install new versions by themselves where that needs no password (AppImage, no-admin install).
     /// Off: still check, and the window offers the update.
@@ -29,10 +39,20 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Config {
+            commands: vec![],
+            allow_commands: true,
+            allow_input: true,
+            allow_lock: true,
+            allow_volume: true,
+            allow_ring: true,
             device_name: hostname(),
             addresses: vec![],
             mirror_notifications: true,
             clipboard_sync: true,
+            send_notifications: false,
+            notification_blocklist: vec![],
+            pause_media: "ringing".into(),
+            mute_media: false,
             downloads_dir: None,
             auto_update: true,
             update_url: None,
@@ -88,10 +108,20 @@ fn config_path() -> Result<PathBuf> {
 pub fn settings() -> Result<Value> {
     let cfg = Config::load()?;
     Ok(json!({
+        "commands": cfg.commands,
+        "allow_commands": cfg.allow_commands,
+        "allow_input": cfg.allow_input,
+        "allow_lock": cfg.allow_lock,
+        "allow_volume": cfg.allow_volume,
+        "allow_ring": cfg.allow_ring,
         "device_name": tether_core::identity::sanitize_name(&cfg.device_name),
         "addresses": cfg.addresses,
         "mirror_notifications": cfg.mirror_notifications,
         "clipboard_sync": cfg.clipboard_sync,
+        "send_notifications": cfg.send_notifications,
+        "notification_blocklist": cfg.notification_blocklist,
+        "pause_media": cfg.pause_media,
+        "mute_media": cfg.mute_media,
         "downloads_dir": cfg.core().downloads_dir,
         "auto_update": cfg.auto_update,
         "autostart": crate::autostart::is_enabled(),
@@ -110,6 +140,25 @@ pub fn save_settings(changes: &Value) -> Result<bool> {
     let mut restart = false;
     for (key, value) in changes.as_object().context("settings must be an object")? {
         let value = match key.as_str() {
+            "commands" => {
+                let commands: Vec<tether_core::plugins::runcommand::Command> =
+                    serde_json::from_value(value.clone())
+                        .context("commands must have id, name and command")?;
+                let mut ids = std::collections::HashSet::new();
+                for c in &commands {
+                    if c.id.is_empty()
+                        || c.name.trim().is_empty()
+                        || c.command.trim().is_empty()
+                        || !ids.insert(&c.id)
+                    {
+                        bail!("Give each command a unique id, a name and a command.");
+                    }
+                }
+                json!(commands)
+            }
+            "allow_commands" | "allow_input" | "allow_lock" | "allow_volume" | "allow_ring" => {
+                json!(value.as_bool().context("must be on or off")?)
+            }
             "device_name" => {
                 let name = value.as_str().unwrap_or("").trim();
                 if name.is_empty() {
@@ -143,7 +192,21 @@ pub fn save_settings(changes: &Value) -> Result<bool> {
                     .as_bool()
                     .context("clipboard_sync must be on or off")?)
             }
-            "mirror_notifications" | "auto_update" => {
+            "pause_media" => {
+                let mode = value
+                    .as_str()
+                    .context("pause_media must be ringing, talking or off")?;
+                if !["ringing", "talking", "off"].contains(&mode) {
+                    bail!("Invalid call media setting");
+                }
+                json!(mode)
+            }
+            "notification_blocklist" => {
+                let names: Vec<String> = serde_json::from_value(value.clone())
+                    .context("blocklist must be a list of app names")?;
+                json!(names)
+            }
+            "mirror_notifications" | "auto_update" | "send_notifications" | "mute_media" => {
                 json!(value.as_bool().context("must be on or off")?)
             }
             "autostart" => {

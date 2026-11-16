@@ -13,12 +13,14 @@ from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.common.options import ArgOptions
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
+from selenium.common.exceptions import StaleElementReferenceException
 
 opts = ArgOptions()
 opts.set_capability("browserName", "wry")
 opts.set_capability("tauri:options", {"application": os.environ["TETHER_APP"]})
 d = webdriver.Remote(command_executor=os.environ["WD_URL"], options=opts)
-wait = WebDriverWait(d, 20)
+# The window redraws regions on every event, so a found element can go stale between steps.
+wait = WebDriverWait(d, 20, ignored_exceptions=(StaleElementReferenceException,))
 failures = []
 
 
@@ -38,6 +40,14 @@ def button(text):
         (By.XPATH, f"//button[normalize-space(.)='{text}' or .//span[normalize-space(.)='{text}']]")))
 
 
+def click(text):
+    # Find and click in one retried step: the button can be redrawn between the two.
+    def go(_):
+        button(text).click()
+        return True
+    wait.until(go)
+
+
 def text_shown(text):
     # The element whose own text holds it, so hidden text elsewhere on the page doesn't count.
     wait.until(EC.visibility_of_element_located(
@@ -49,7 +59,7 @@ try:
     import subprocess
     if not Path(os.environ["XDG_DATA_HOME"], "../phone/paired").resolve().exists():
         try:
-            button("Accept").click()
+            click("Accept")
         except Exception:
             pass
     check("window connects to the phone", lambda: text_shown("Connected"))
@@ -65,25 +75,25 @@ try:
     check("screenshot notification copies the picture", copy_screenshot)
 
     def photos_page():
-        button("Photos").click()
+        click("Photos")
         wait.until(lambda _: len(d.find_elements(By.CSS_SELECTOR, ".photo-tile img")) == 5)
         d.find_element(By.XPATH, "//button[@role='tab'][contains(., 'Screenshots')]").click()
         wait.until(lambda _: len(d.find_elements(By.CSS_SELECTOR, ".photo-tile img")) == 2)
         d.find_element(By.CSS_SELECTOR, ".photo-tile").click()
         wait.until(EC.visibility_of_element_located((By.CSS_SELECTOR, ".viewer-body img")))
-        button("Save to Downloads").click()
+        click("Save to Downloads")
         text_shown("Saved to")
         d.find_element(By.CSS_SELECTOR, ".viewer button[aria-label='Close']").click()
     check("Photos page shows the phone's pictures and saves one", photos_page)
 
     def files_page():
-        button("Files").click()
+        click("Files")
         wait.until(lambda _: not d.execute_script("return files.loading"))
         wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, ".storage-roots button"))).click()
         wait.until(EC.element_to_be_clickable((By.XPATH, "//button[@class='file-name' and text()='DCIM']"))).click()
         wait.until(EC.element_to_be_clickable((By.XPATH, "//button[@class='file-name' and text()='Camera']"))).click()
         wait.until(lambda _: len(d.find_elements(By.CSS_SELECTOR, ".file-row")) == 6)
-        button("New folder").click()
+        click("New folder")
         d.switch_to.active_element.send_keys("Window test", Keys.ENTER)
         wait.until(EC.element_to_be_clickable((By.XPATH, "//button[@class='file-name' and text()='Window test']")))
         row = d.find_element(By.XPATH, "//article[contains(@class,'file-row')][.//button[text()='Window test']]")
@@ -109,17 +119,17 @@ try:
     check("Files browse, create, rename, upload, save, delete", files_page)
 
     def contacts_page():
-        button("Contacts").click()
+        click("Contacts")
         wait.until(EC.visibility_of_element_located((By.CSS_SELECTOR, ".contact-card")))
         name = d.find_element(By.CSS_SELECTOR, ".contact-card h2").text
         d.find_element(By.CSS_SELECTOR, "[aria-label='Search contacts']").send_keys(name)
-        button("Text").click()
+        click("Text")
         wait.until(EC.visibility_of_element_located((By.CSS_SELECTOR, ".composer textarea")))
         assert d.execute_script("return state.newTo.length") == 1
     check("Contacts search and Text starts a conversation", contacts_page)
 
     def keyboard_page():
-        button("Keyboard").click()
+        click("Keyboard")
         text_shown("Pick KDE Connect Remote Keyboard")
         box = d.find_element(By.ID, "keyboard-box")
         box.send_keys("Hello", Keys.ARROW_LEFT, Keys.BACKSPACE, Keys.ENTER)
@@ -134,7 +144,7 @@ try:
     check("Keyboard streams text and special keys with acknowledgements", keyboard_page)
 
     def device_card():
-        button("Devices").click()
+        click("Devices")
         text_shown("Battery 82%")
         text_shown("5G signal")
         assert d.find_elements(By.XPATH, "//button[text()='Forget phone']")
@@ -162,13 +172,13 @@ try:
     check("new pages and narrow layouts screenshots", screenshots)
 
     def apps_page():
-        button("Apps").click()
+        click("Apps")
         text_shown("phone's apps")
     check("Apps page opens", apps_page)
 
     def code_form():
         Path(os.environ["FAKE_APPS_DIR"], "codeopen").touch()
-        button("Pair with a code instead").click()
+        click("Pair with a code instead")
         wait.until(EC.visibility_of_element_located((By.CSS_SELECTOR, "[data-key=apps-code]")))
         text_shown("Wi-Fi pairing code")
     check("code pairing form shows", code_form)
@@ -176,7 +186,7 @@ try:
     def pair_for_apps():
         wait.until(lambda _: d.execute_script("return apps.status?.pairingAddr"))
         d.find_element(By.CSS_SELECTOR, "[data-key=apps-code]").send_keys("123456")
-        button("Pair").click()
+        click("Pair")
         wait.until(EC.visibility_of_element_located((By.CSS_SELECTOR, ".app-tile")))
     check("pairing reaches the app grid", pair_for_apps)
 
@@ -202,7 +212,7 @@ try:
     check("Ctrl+K offers Check for updates", palette)
 
     def settings_page():
-        button("Settings").click()
+        click("Settings")
         box = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "[data-key=set-auto_update]")))
         was = box.is_selected()
         box.click()
@@ -213,14 +223,39 @@ try:
         wait.until(lambda _: f'"auto_update": {str(was).lower()}' in cfg.read_text())
     check("Settings page saves a switch", settings_page)
 
+    def commands_editor():
+        import json
+        click("Settings")
+        form = wait.until(EC.visibility_of_element_located((By.CSS_SELECTOR, "[data-key=command-new]")))
+        form.find_element(By.CSS_SELECTOR, "[aria-label='Command name']").send_keys("Test command")
+        form.find_element(By.CSS_SELECTOR, "[aria-label='Shell command']").send_keys("true")
+        click("Add command")
+        cfg = Path(os.environ["XDG_CONFIG_HOME"], "tether/config.json")
+        wait.until(lambda _: any(c["name"] == "Test command" for c in json.loads(cfg.read_text()).get("commands", [])))
+        saved = wait.until(EC.visibility_of_element_located((By.XPATH, "//form[.//b[text()='Test command']]")))
+        shell = saved.find_element(By.CSS_SELECTOR, "[aria-label='Shell command']")
+        shell.clear()
+        shell.send_keys("printf test")
+        saved.find_element(By.XPATH, ".//button[text()='Save command']").click()
+        wait.until(lambda _: any(c["command"] == "printf test" for c in json.loads(cfg.read_text()).get("commands", [])))
+        saved = wait.until(EC.visibility_of_element_located((By.XPATH, "//form[.//b[text()='Test command']]")))
+        saved.find_element(By.XPATH, ".//button[text()='Remove command']").click()
+        wait.until(lambda _: not any(c["name"] == "Test command" for c in json.loads(cfg.read_text()).get("commands", [])))
+    check("Commands editor adds, edits and removes", commands_editor)
+
     def rename_computer():
         # A new name restarts the background service; the window must come back by itself.
-        name = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "[data-key=set-device_name]")))
-        old = name.get_attribute("value")
+        field = (By.CSS_SELECTOR, "[data-key=set-device_name]")
+        old = wait.until(EC.element_to_be_clickable(field)).get_attribute("value")
         new = "Desk" if old != "Desk" else "Workstation"
-        name.clear()
-        name.send_keys(new, Keys.ENTER)
-        long = WebDriverWait(d, 40)
+
+        def type_name(_):
+            name = d.find_element(*field)
+            name.clear()
+            name.send_keys(new, Keys.ENTER)
+            return True
+        wait.until(type_name)
+        long = WebDriverWait(d, 40, ignored_exceptions=(StaleElementReferenceException,))
         long.until(lambda _: d.execute_script("return state.me && state.me.deviceName") == new)
         long.until(lambda _: d.execute_script("return !!(device() && device().connected)"))
         long.until(lambda _: d.find_element(By.CSS_SELECTOR, "[data-key=set-device_name]").get_attribute("value") == new)

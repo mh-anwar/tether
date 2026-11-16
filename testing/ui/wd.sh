@@ -38,7 +38,9 @@ if [ -f "$W/data/tether/key.der" ] && [ -x /usr/sbin/sshd ]; then
   "$ROOT/testing/phone-files/serve.sh" "$W" "$W/data" 2300 > "$W/sftp.out" & pids+=($!)
   sleep 1; export FAKE_SFTP=$(head -1 "$W/sftp.out")
 fi
-"$BIN/examples/fake_phone" "127.0.0.1:$DAEMON_PORT" "$W/phone" > "$W/phone.log" 2>&1 & pids+=($!)
+if [ "${TETHER_SKIP_PHONE:-0}" != 1 ]; then
+  "$BIN/examples/fake_phone" "${TETHER_PHONE_ADDRESS:-127.0.0.1:$DAEMON_PORT}" "$W/phone" > "$W/phone.log" 2>&1 & pids+=($!)
+fi
 "${TAURI_DRIVER:-$HOME/.cargo/bin/tauri-driver}" --port "$PORT" --native-port $((PORT + 1)) > "$W/wd.log" 2>&1 & pids+=($!)
 sleep 2
 # RUST_LOG changes uv's own logging; keep it out.

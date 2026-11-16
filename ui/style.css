@@ -283,6 +283,9 @@ h2 { font-size: 14px; }
   border-radius: var(--radius); background: var(--bg-raised); border: 1px solid var(--border); box-shadow: var(--shadow);
 }
 .call .pulse { color: var(--ok); }
+/* In the narrow sidebar: one tight row, shown in every view. */
+.call.finding { padding: 8px 10px; gap: 8px; font-size: 13px; background: var(--accent-soft); border-color: var(--accent); }
+.call.finding .pulse { color: var(--accent); animation: wait-pulse 1.2s ease-in-out infinite; }
 .call b { display: block; }
 .call span { color: var(--text-3); font-size: 12.5px; }
 
@@ -312,6 +315,18 @@ h2 { font-size: 14px; }
 .note-card:hover .x, .note-card:focus-within .x { opacity: 1; }
 .note-card:hover .app-row time, .note-card:focus-within .app-row time { visibility: hidden; }
 .note-card .acts { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px; }
+.received-panel { display: grid; gap: 6px; }
+.received-panel h3 { margin: 4px 4px 0; font-size: 12px; font-weight: 600; color: var(--text-3); }
+.received-panel .quiet { margin: 0 4px 4px; font-size: 12.5px; color: var(--text-3); }
+.transfer { background: var(--bg-raised); border: 1px solid var(--border); border-radius: var(--radius); padding: 8px 12px; display: grid; gap: 6px; }
+.transfer .top { display: flex; align-items: center; gap: 8px; min-width: 0; color: var(--text-3); }
+.transfer .name { font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.transfer .status { font-size: 12.5px; color: var(--text-2); }
+.transfer .status.error { color: var(--danger); }
+.transfer .acts { display: flex; gap: 6px; }
+.transfer progress { width: 100%; height: 4px; appearance: none; border: 0; border-radius: 2px; background: var(--bg-sunken); overflow: hidden; }
+.transfer progress::-webkit-progress-bar { background: var(--bg-sunken); }
+.transfer progress::-webkit-progress-value { background: var(--accent); border-radius: 2px; }
 .reply-box { display: flex; gap: 6px; margin-top: 6px; }
 .reply-box input {
   flex: 1; min-width: 0; border: 1px solid var(--border); border-radius: var(--radius-sm);
@@ -395,8 +410,10 @@ h2 { font-size: 14px; }
 .setting.check { grid-template-columns: auto 1fr; gap: 10px; align-items: start; cursor: pointer; }
 .setting.check input { width: 16px; height: 16px; margin: 3px 0 0; accent-color: var(--accent); }
 .field-row { display: flex; gap: 8px; width: 100%; flex-wrap: wrap; }
-.field-row input { flex: 1; min-width: 180px; border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 6px 9px; background: var(--bg-raised); color: var(--text); font: inherit; }
-.field-row input:focus-visible { outline: none; border-color: var(--accent); box-shadow: var(--focus); }
+.field-row input, .command-editor input { flex: 1; min-width: 180px; border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 6px 9px; background: var(--bg-raised); color: var(--text); font: inherit; }
+.field-row input:focus-visible, .command-editor input:focus-visible { outline: none; border-color: var(--accent); box-shadow: var(--focus); }
+.setting select { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 6px 9px; background: var(--bg-raised); color: var(--text); font: inherit; }
+.setting select:focus-visible { outline: none; border-color: var(--accent); box-shadow: var(--focus); }
 .addr-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
 .addr-list li { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 2px 4px 2px 9px; border: 1px solid var(--border); border-radius: var(--radius-sm); font-variant-numeric: tabular-nums; }
 .btn.danger { background: var(--danger); border-color: var(--danger); color: #fff; }
@@ -476,6 +493,12 @@ h2 { font-size: 14px; }
   font: 12px/1.45 ui-monospace, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
 .apps-details pre:focus-visible { outline: none; border-color: var(--accent); box-shadow: var(--focus); }
 
+#run-commands { scroll-margin-top: 90px; }
+.command-editor { width: 100%; gap: 10px; padding: 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-sunken); }
+.command-editor label { display: grid; gap: 4px; width: 100%; }
+.command-editor input { width: 100%; box-sizing: border-box; font-family: inherit; }
+.command-editor label:has(input[aria-label="Shell command"]) input { font-family: ui-monospace, monospace; font-size: 12.5px; }
+#run-commands .none { margin: 0; color: var(--text-3); font-size: 13px; }
 .tools-page { display: none; }
 .app.view-tools .list, .app.view-tools .thread { display: none; }
 .app.view-tools .tools-page { display: flex; flex-direction: column; grid-column: 2 / span 2; min-width: 0; overflow: auto; background: var(--bg-raised); }
