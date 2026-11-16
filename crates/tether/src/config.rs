@@ -33,6 +33,8 @@ pub struct Config {
     pub auto_update: bool,
     /// Where to look for releases (GitHub's "latest release" API). For forks and tests.
     pub update_url: Option<String>,
+    /// The window's note about GNOME having no tray was read and closed.
+    pub tray_note_dismissed: bool,
     #[serde(skip)]
     pub data_dir: PathBuf,
 }
@@ -58,6 +60,7 @@ impl Default for Config {
             downloads_dir: None,
             auto_update: true,
             update_url: None,
+            tray_note_dismissed: false,
             data_dir: PathBuf::new(),
         }
     }
@@ -129,6 +132,8 @@ pub fn settings() -> Result<Value> {
         "downloads_dir": cfg.core().downloads_dir,
         "auto_update": cfg.auto_update,
         "autostart": crate::autostart::is_enabled(),
+        "tray_missing": crate::tray::missing(),
+        "tray_note_dismissed": cfg.tray_note_dismissed,
         "version": env!("CARGO_PKG_VERSION"),
     }))
 }
@@ -208,7 +213,11 @@ pub fn save_settings(changes: &Value) -> Result<bool> {
                     .context("blocklist must be a list of app names")?;
                 json!(names)
             }
-            "mirror_notifications" | "auto_update" | "send_notifications" | "mute_media" => {
+            "mirror_notifications"
+            | "auto_update"
+            | "send_notifications"
+            | "mute_media"
+            | "tray_note_dismissed" => {
                 json!(value.as_bool().context("must be on or off")?)
             }
             "autostart" => {

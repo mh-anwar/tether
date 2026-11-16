@@ -1,6 +1,6 @@
 # Drives a virtual X display with synthetic input (python-xlib XTEST).
 # Run: uv run --no-project --with python-xlib python testing/ui/drive.py :57 click X Y type "hi" key Return key ctrl+k sleep 1
-# Usage: drive.py :57 click X Y | type "text" | key Return | key ctrl+k
+# Usage: drive.py :57 click X Y | rclick X Y | move X Y | type "text" | key Return | key ctrl+k
 import sys, time
 from Xlib import X, XK, display
 from Xlib.ext import xtest
@@ -18,10 +18,12 @@ def press(code, shift=False):
 args = sys.argv[2:]
 while args:
     cmd = args.pop(0)
-    if cmd == 'click':
+    if cmd in ('click', 'rclick', 'move'):
         x, y = int(args.pop(0)), int(args.pop(0))
         xtest.fake_input(d, X.MotionNotify, x=x, y=y); d.sync(); time.sleep(0.05)
-        xtest.fake_input(d, X.ButtonPress, 1); xtest.fake_input(d, X.ButtonRelease, 1); d.sync()
+        if cmd != 'move':
+            button = 3 if cmd == 'rclick' else 1
+            xtest.fake_input(d, X.ButtonPress, button); xtest.fake_input(d, X.ButtonRelease, button); d.sync()
     elif cmd == 'type':
         for ch in args.pop(0):
             name = {' ': 'space', '!': 'exclam', ',': 'comma', '.': 'period', '?': 'question', "'": 'apostrophe', ':': 'colon'}.get(ch, ch)

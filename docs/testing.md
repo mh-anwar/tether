@@ -42,11 +42,24 @@ Setup on a new machine: `cargo install tauri-driver --locked`; WebKitWebDriver i
 `test_window.py` for every new screen or flow. Screenshots (below) are still how to judge looks.
 
 ## Tray icon
-`testing/ui/trayhost.py :57` is a stand-in bar tray (XEmbed): start it next to `run.sh start`, the icon docks
-within 5 s at the top right of the virtual screen; click it with `drive.py :57 click 1230 30`.
-`testing/ui/sniwatcher.py` is a stand-in desktop tray (StatusNotifierWatcher): run it with the service's
-`DBUS_SESSION_BUS_ADDRESS` (from `/proc/<service pid>/environ`); it prints the title and icon sizes, calls
-Activate, and the XEmbed icon leaves the bar while it runs.
+`testing/ui/tray_e2e.sh` checks the D-Bus tray as on a Wayland KDE desktop (private session bus, no X display):
+`sniwatcher.py --check` plays the desktop's tray, reads the tooltip, status, themed icon and the menu over
+dbusmenu, clicks "Ring my phone" (the fake phone must receive `kdeconnect.findmyphone.request`), ticks the
+pause, checks the launcher badge, and clicks "Quit Tether" (the service must exit).
+`testing/ui/tray_xembed.sh` checks the X11 bar tray: the icon docks into `trayhost.py`, a right-click opens
+the menu, Down Down Enter rings the phone, Escape and a click outside close it. It saves screenshots of the
+bar and the open menu; look at them. Both take `TETHER_UI_DIR` and `TETHER_PORT` (and `WD_DISPLAY` for the
+X one) so they can run next to other tests:
+```sh
+box heavy -- cargo build -p tether && box heavy -- cargo build -p tether-core --example fake_phone
+TETHER_UI_DIR=/tmp/tw-tray TETHER_PORT=14840 testing/ui/tray_e2e.sh
+TETHER_UI_DIR=/tmp/tw-tray TETHER_PORT=14840 WD_DISPLAY=:82 testing/ui/tray_xembed.sh
+```
+By hand: `testing/ui/trayhost.py :57` is a stand-in bar tray next to `run.sh start`; click the icon with
+`drive.py :57 click 1230 30` (`rclick` for the menu). `sniwatcher.py` without `--check`, run with the
+service's `DBUS_SESSION_BUS_ADDRESS` (from `/proc/<service pid>/environ`), prints the title and icon sizes and
+calls Activate. `wd.sh` gives the window its own session bus and `XDG_CURRENT_DESKTOP=GNOME`, so Settings
+shows the "no tray" note, which `test_window.py` checks.
 
 ## Window speed
 `testing/ui/wd.sh testing/ui/perf_window.py` fills the window with 500 conversations and 1500 contacts and

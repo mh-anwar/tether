@@ -99,6 +99,11 @@ async fn connection_loop(app: tauri::AppHandle) {
                 tauri::async_runtime::spawn(async move {
                     let _ = call(app.state::<Daemon>(), "window_shown".into(), json!({})).await;
                 });
+            } else if v.get("event").and_then(Value::as_str) == Some("quit") {
+                // "Quit Tether" in the tray: the service is stopping; staying open would only
+                // start it again.
+                app.exit(0);
+                return;
             } else if v.get("event").is_some() {
                 let _ = app.emit("tether", v);
             }
@@ -202,10 +207,10 @@ async fn relaunch(app: tauri::AppHandle, daemon: State<'_, Daemon>) -> Result<()
 }
 
 #[tauri::command]
-async fn choose_files() -> Result<Vec<String>, String> {
-    tauri::async_runtime::spawn_blocking(|| {
+async fn choose_files(title: Option<String>) -> Result<Vec<String>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
         rfd::FileDialog::new()
-            .set_title("Upload to phone")
+            .set_title(title.as_deref().unwrap_or("Upload to phone"))
             .pick_files()
             .unwrap_or_default()
             .into_iter()
