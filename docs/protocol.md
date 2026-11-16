@@ -355,3 +355,10 @@ Direction: P->D = phone sends, D->P = desktop (us) sends. Android files under `A
   `kdeconnect.share.request.update` (incoming and outgoing capabilities). Each file retains its own
   authenticated payload connection. Incoming updates announce revised batch totals, not a file payload.
   Reference: K:plugins/share/kdeconnect_share.json and Android SharePlugin.
+
+## Local protocol tests
+
+`tether_core::sim` exercises both TLS roles with the same link and payload code used by the daemon.
+The daemon's optional `TETHER_PORT` overrides its local TCP/UDP listeners and broadcast destination;
+it does not relax the standard advertised TCP port validation on incoming discovery identities.
+See `testing.md` for scripting, captured payloads and the integration-test fixture.

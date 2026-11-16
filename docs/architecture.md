@@ -109,3 +109,10 @@ Request `{"id","method","params"}`, reply `{"id","result"|"error"}`, events push
 - `received` owns shared text's clipboard and handles file notifications and xdg-open with the window
   closed. The window keeps recent transfers in a "Received from your phone" section at the top of its notifications column (progress while receiving or sending); `received_list` recovers the
   daemon's recent completed files when reopening it. `share_files` sends one batch sequentially.
+
+## Protocol simulator
+
+`tether_core::sim::Simulator` owns a real TLS phone link, packet/payload history and a Unix JSON-lines
+control socket. `sim/scenario.rs` holds the seeded Android-style request responses; `examples/fake_phone`
+is the reconnecting screenshot wrapper. Daemon integration tests share a short-path XDG/process/API
+fixture in `crates/tether/tests/support`; `TETHER_PORT` isolates daemon TCP and UDP listeners.

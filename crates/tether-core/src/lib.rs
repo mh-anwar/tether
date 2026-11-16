@@ -21,3 +21,5 @@ pub use error::{Error, Result};
 pub use identity::Identity;
 pub use packet::Packet;
 pub use service::{Config, DeviceSummary, Event, PairState, Service};
+
+pub mod sim;

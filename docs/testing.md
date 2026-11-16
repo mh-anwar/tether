@@ -112,3 +112,83 @@ text or link") on its own display (`:72`), its own daemon port and `TETHER_UI_DI
 daemon owns UDP/TCP 1716 and other tauri-drivers run (`WD_PORT`, `MEDIA_DISPLAY` override the defaults).
 `xdg-open` is faked by a script in the e2e's PATH; clicking Open / Show in folder on the desktop
 notification itself (needs a notification server that emits ActionInvoked) is not automated.
+
+## Scriptable protocol peer and daemon integration tests
+
+`cargo test --workspace` includes `crates/tether/tests/protocol_e2e.rs`: real daemon processes with
+independent `/tmp/ts-*` XDG directories, random `TETHER_PORT` TCP/UDP ports, real TLS and real payload
+sockets. No physical phone, display, D-Bus session, or Docker is required. Each daemon is killed and
+reaped even when a test fails. Clipboard sync and desktop notification popups are disabled; incoming
+clipboard content is asserted through API events. The suite includes the real 30-second pairing timeout
+and normally takes around 40 seconds after compilation. Run just it with:
+
+```sh
+box heavy -- cargo test -p tether --test protocol_e2e -- --nocapture
+```
+
+On another machine omit `box heavy --`. `TETHER_PORT` must be a nonzero u16;
+when set the daemon binds that exact TCP and UDP port, with no silent fallback. Normal installations
+retain the standard ports. Discovery still accepts only protocol-standard advertised peer TCP ports.
+The simulator temporarily uses a free loopback listener in 1717–1738 for discovery and the standard
+1739–1764 payload range. Tests run concurrently without binding the host's standard discovery port.
+
+Coverage: identity, UDP identity delivery and `connect` announcements, pairing in both directions,
+rejection, expiration, unpair, ignoring untrusted traffic, certificate pin changes, ping, battery/signal,
+notification list/reply/action/dismiss/icons, SMS threads/thread/send/attachment download, contacts,
+clipboard API in both directions, share text/URL/files in both directions, ringing/mute, phone MPRIS
+controls/album art, and dropped-link reconnect. UDP identity delivery is unicast to loopback because
+broadcast does not loop back on some hosts; actual Wi-Fi discovery still needs a network compatibility
+check. SFTP starts `testing/phone-files/serve.sh` and checks listing/download when user-level `sshd` and
+`sftp` work; otherwise it prints a clear `SKIP` with the reason (`--nocapture` shows it). Hardware clipboard
+ownership and Android permissions are covered separately above. New feature branches should add cases
+for their new API methods when merged.
+
+The old screenshot command and seeded responses still work:
+
+```sh
+cargo run -p tether-core --example fake_phone -- 127.0.0.1:1716 /tmp/phone /tmp/phone-control.sock
+```
+
+The optional third argument opens a Unix socket. Connect using a JSON-lines client (e.g. `socat -
+UNIX-CONNECT:/tmp/phone-control.sock`). Each command gets `{"result":...}` or `{"error":"..."}`:
+
+```json
+{"command":"send","packet":{"type":"kdeconnect.battery","body":{"currentCharge":42,"isCharging":true}}}
+{"command":"send_payload","packet":{"type":"kdeconnect.share.request","body":{"filename":"hello.txt"}},"bytes":[72,105]}
+{"command":"wait_for","type":"kdeconnect.ping","match":{},"after":0,"timeout":5000}
+{"command":"received"}
+{"command":"pair"}
+{"command":"accept"}
+{"command":"reject"}
+{"command":"unpair"}
+{"command":"disconnect"}
+{"command":"reconnect"}
+```
+
+`timeout` is milliseconds; `after` is a zero-based history offset. `match` compares body keys exactly
+(a shallow subset). `received` keeps history across reconnects and returns `packet`, `payload` (byte
+array), and `payload_error`. `identity`, `connect {address}`, and `discover {address}` are also supported.
+Use a fresh directory to reset device identity/certificate and pairing. Socket paths must be short.
+The screenshot wrapper automatically redials; use the Rust API for deterministic disconnect tests.
+
+To add a case, copy `plugins_and_payloads` and use `tests/support/mod.rs`:
+
+```rust,ignore
+let api = start_daemon().await?;
+let sim = api.paired().await?;
+let after = sim.received().len();
+api.device_call(&sim, "ring", json!({})).await?;
+sim.wait_for("kdeconnect.findmyphone.request", json!({}), after, WAIT).await?;
+sim.send(Packet::new("kdeconnect.battery", json!({"currentCharge":42}))).await?;
+api.until("device_data", json!({"device":sim.identity().device_id}),
+    |data| data["battery"]["charge"] == 42).await?;
+```
+
+`Simulator` lives in `tether_core::sim`; Android-style seeded request handlers live separately in
+`sim/scenario.rs`, so new plugins can add responses without changing connection/control code.
+Prefer `until`/`wait_for` with an observable assertion over fixed sleeps. Snapshot `received().len()`
+before a command so old packets cannot satisfy a new assertion. Every API call has a deadline.
+
+CI (`.github/workflows/ci.yml`) checks formatting, all-target clippy, and all workspace tests on Ubuntu
+22.04. A separate non-blocking WebDriver job installs tauri-driver/WebKitWebDriver, seeds pairing and
+runs `testing/ui/wd.sh` under Xvfb and a private D-Bus session; its logs are uploaded on failure.

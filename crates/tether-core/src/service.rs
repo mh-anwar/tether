@@ -1409,6 +1409,10 @@ impl Inner {
 use plugins::Notification;
 
 async fn bind_tcp() -> Result<(TcpListener, u16)> {
+    if std::env::var_os("TETHER_PORT").is_some() {
+        let port = discovery::port()?;
+        return Ok((TcpListener::bind(("0.0.0.0", port)).await?, port));
+    }
     for port in MIN_TCP_PORT..=MAX_TCP_PORT {
         if let Ok(l) = TcpListener::bind(("0.0.0.0", port)).await {
             return Ok((l, port));
