@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 
 from selenium import webdriver
+from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.common.options import ArgOptions
@@ -151,23 +152,34 @@ try:
     check("Devices page shows battery, signal and forget", device_card)
 
     def screenshots():
-        import subprocess
-        output = Path("/home/pippin/tether-wt/shots")
-        output.mkdir(exist_ok=True)
+        # The window's own pixels (no desktop around it); $TETHER_SHOTS picks the folder.
+        output = Path(os.environ.get("TETHER_SHOTS") or Path(os.environ["XDG_CONFIG_HOME"]).parent / "shots")
+        output.mkdir(parents=True, exist_ok=True)
         d.execute_script("contactsQuery = ''; state.selected = 1; document.querySelectorAll('.toast').forEach((t) => t.remove())")
+        d.set_window_size(1280, 800)
+        views = [("messages", "messages"), ("files", "files-page"), ("contacts", "contacts-page"), ("keyboard", "keyboard"),
+                 ("devices", "device-card"), ("photos", "photos-page"), ("settings", "settings-page")]
         for theme in ["light", "dark"]:
             d.execute_script("document.documentElement.dataset.theme = arguments[0]", theme)
-            for view, name in [("files", "files-page"), ("contacts", "contacts-page"), ("keyboard", "keyboard"), ("devices", "device-card")]:
+            for view, name in views:
                 d.execute_script("showView(arguments[0])", view)
                 wait.until(lambda _: d.execute_script("return state.view !== 'files' || !files.loading"))
-                subprocess.run(["uv", "run", "-q", "--no-project", "--with", "pillow", "python", "testing/ui/shot.py", os.environ["DISPLAY"], str(output / f"{name}{'-dark' if theme == 'dark' else ''}.png")], check=True)
+                # Park the pointer on the page title so no nav item shows its hover colour.
+                titles = d.find_elements(By.CSS_SELECTOR, "h1")
+                visible = [t for t in titles if t.is_displayed()]
+                if visible:
+                    ActionChains(d).move_to_element(visible[0]).perform()
+                if view == "photos":
+                    __import__("time").sleep(3)  # previews arrive a few at a time
+                d.save_screenshot(str(output / f"{name}{'-dark' if theme == 'dark' else ''}.png"))
+        d.execute_script("delete document.documentElement.dataset.theme")
         for width in [720, 1000]:
             d.set_window_size(width, 780)
             for view, name in [("messages", "narrow"), ("files", "narrow-files"), ("devices", "narrow-devices")]:
                 d.execute_script("showView(arguments[0])", view)
                 wait.until(lambda _: d.execute_script("return state.view !== 'files' || !files.loading"))
                 assert d.execute_script("return document.documentElement.scrollWidth <= innerWidth"), (view, width)
-                subprocess.run(["uv", "run", "-q", "--no-project", "--with", "pillow", "python", "testing/ui/shot.py", os.environ["DISPLAY"], str(output / f"{name}-{width}.png")], check=True)
+                d.save_screenshot(str(output / f"{name}-{width}.png"))
         d.set_window_size(1200, 780)
     check("new pages and narrow layouts screenshots", screenshots)
 
@@ -206,7 +218,7 @@ try:
 
     def palette():
         d.find_element(By.TAG_NAME, "body").send_keys(Keys.CONTROL, "k")
-        wait.until(EC.visibility_of_element_located((By.XPATH, "//*[normalize-space(.)='Check for updates']")))
+        wait.until(EC.visibility_of_element_located((By.XPATH, "//*[contains(@class, 'palette')]//*[normalize-space(.)='Check for updates']")))
         d.switch_to.active_element.send_keys(Keys.ESCAPE)
         wait.until(lambda _: not d.find_elements(By.CSS_SELECTOR, ".palette-backdrop"))
     check("Ctrl+K offers Check for updates", palette)

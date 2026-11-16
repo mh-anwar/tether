@@ -136,6 +136,8 @@ button { cursor: pointer; }
 .media-controls { display: flex; justify-content: center; align-items: center; gap: 10px; }
 .media-controls .play { width: 36px; height: 36px; }
 .hint { color: var(--text-3); font-size: 12px; display: flex; align-items: center; gap: 6px; padding: 0 4px; }
+/* The nav comes first on short screens; the same hints are in Ctrl+K and the drop overlay. */
+@media (max-height: 860px) { .rail .hint { display: none; } }
 kbd {
   display: inline-block; font: 600 11px/1 inherit; font-family: inherit; padding: 3px 6px; border-radius: 4px;
   border: 1px solid var(--border); background: var(--bg-raised); color: var(--text-2);

@@ -1448,10 +1448,11 @@ function transferRow(t) {
 }
 
 function receivedPanel() {
+  // Only once something arrived: the notifications column stays about the phone until then.
+  if (!state.transfers.length) return null;
   return h('section', { class: 'received-panel', 'aria-label': 'Received from your phone' },
     h('h3', { text: 'Received from your phone' }),
-    state.transfers.length ? state.transfers.slice(0, 20).map(transferRow)
-      : h('p', { class: 'quiet', text: 'Files you receive appear here. Drop files in this window to send them.' }));
+    state.transfers.slice(0, 20).map(transferRow));
 }
 function transferProgress(u) {
   if (!u.name) {

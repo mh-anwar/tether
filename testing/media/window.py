@@ -26,9 +26,9 @@ try:
             break
         if phone_log.exists() and 'connected to' in phone_log.read_text(): break
         time.sleep(.1)
-    w.until(lambda _: d.find_elements(By.CSS_SELECTOR, '.received-panel'))
-    assert 'Files you receive appear here' in d.find_element(By.CSS_SELECTOR,'.received-panel').text
-    print('ok received files empty state')
+    w.until(lambda _: d.execute_script("return !!device()"))
+    assert not d.find_elements(By.CSS_SELECTOR, '.received-panel')
+    print('ok received list stays hidden until something arrives')
     # Phone shares two files and a third is mid-transfer, as the window shows it.
     control = Path(os.environ['TETHER_UI_DIR']) / 'control'
     src = control.parent / 'photo-src'
