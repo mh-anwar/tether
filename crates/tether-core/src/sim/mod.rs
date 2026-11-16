@@ -149,6 +149,9 @@ impl Simulator {
         {
             let mut state = self.0.state.lock().unwrap_or_else(|e| e.into_inner());
             state.peer_cert = l.peer_cert.clone();
+            if let Some(port) = l.peer.tcp_port {
+                state.address = Some(SocketAddr::new(l.addr.ip(), port));
+            }
             state.received.push(Received {
                 packet: l.peer.to_packet(),
                 payload: vec![],
