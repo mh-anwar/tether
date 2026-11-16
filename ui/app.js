@@ -865,7 +865,7 @@ function settingText(key, label, hint, button = 'Save', list = false) {
     h('div', { class: 'field-row' }, input, h('button', { class: 'btn', type: 'submit' }, button)));
 }
 
-function commandsEditor(commands) {
+function commandsEditor(commands, flatpak) {
   const row = (command, index) => {
     const name = h('input', { type: 'text', 'aria-label': 'Command name', value: command.name, required: true });
     const shell = h('input', { type: 'text', 'aria-label': 'Shell command', value: command.command, required: true });
@@ -881,7 +881,9 @@ function commandsEditor(commands) {
         index >= 0 ? h('button', { class: 'btn', type: 'button', onclick: () => saveSettings({ commands: commands.filter((_, i) => i !== index) }) }, 'Remove command') : null));
   };
   return h('section', { id: 'run-commands' }, h('h2', { text: 'Commands your phone can run' }),
-    h('p', { class: 'sub', text: 'Commands run on this computer with your account. Only add commands you want your paired phone to run.' }),
+    h('p', { class: 'sub', text: flatpak
+      ? "Commands run inside Tether's Flatpak sandbox, so most of your system's programs aren't there. Only add commands you want your paired phone to run."
+      : 'Commands run on this computer with your account. Only add commands you want your paired phone to run.' }),
     commands.length ? commands.map(row) : h('p', { class: 'none', text: 'No commands yet.' }), row({ name: '', command: '' }, -1));
 }
 
@@ -895,30 +897,32 @@ function renderSettings() {
     if (settings.error) return [head, h('div', { class: 'empty' }, icon('alert'), h('p', { text: settings.error }),
       h('button', { class: 'btn', onclick: loadSettings }, icon('refresh', 'sm'), 'Try again'))];
     if (!s) return [head, h('div', { class: 'empty' }, h('div', { class: 'spinner' }), h('p', { text: 'Loading settings' }))];
+    const flatpak = !!state.me?.flatpak;
     const addr = h('input', { type: 'text', 'data-key': 'set-address', placeholder: '192.168.1.20', 'aria-label': "Phone's address" });
     return [head, h('div', { class: 'settings-body' },
       h('section', {}, h('h2', { text: 'This computer' }),
         settingText('device_name', 'Name', 'What your phone calls this computer.'),
         settingSwitch('autostart', 'Start Tether when I log in', 'Texts, notifications and the clipboard keep working with the window closed.'),
-        settingSwitch('send_notifications', "Send this computer's notifications to the phone", 'Off until you turn it on. Tether notifications are excluded.'),
-        settingText('notification_blocklist', 'Apps that stay on this computer', 'Notifications from these apps are not sent to the phone.', 'Save', true),
+        // The sandbox's filtered session bus can't watch other apps' notifications.
+        flatpak ? null : settingSwitch('send_notifications', "Send this computer's notifications to the phone", 'Off until you turn it on. Tether notifications are excluded.'),
+        flatpak ? null : settingText('notification_blocklist', 'Apps that stay on this computer', 'Notifications from these apps are not sent to the phone.', 'Save', true),
         h('div', { class: 'setting' }, h('label', { for: 'pause-media' }, h('b', { text: 'During phone calls' }), h('small', { text: 'Desktop players you were listening to.' })),
           h('select', { id: 'pause-media', 'aria-label': 'Pause media during calls', onchange: (e) => saveSettings({ pause_media: e.target.value }) },
             [['ringing', 'Pause when the phone rings'], ['talking', 'Pause when the call is answered'], ['off', 'Keep playing']].map(([value, label]) => h('option', { value, selected: s.pause_media === value }, label)))),
         settingSwitch('mute_media', 'Mute instead of pausing', 'Restores each playing player’s volume when the call ends.'),
-        settingSwitch('auto_update', 'Install new versions by themselves', 'Off: Tether still tells you when there is one.'),
-        h('div', { class: 'setting' }, h('button', { class: 'btn', onclick: checkForUpdates }, icon('refresh', 'sm'), 'Check for updates'))),
+        flatpak ? null : settingSwitch('auto_update', 'Install new versions by themselves', 'Off: Tether still tells you when there is one.'),
+        state.update?.kind === 'store' ? null : h('div', { class: 'setting' }, h('button', { class: 'btn', onclick: checkForUpdates }, icon('refresh', 'sm'), 'Check for updates'))),
       h('section', {}, h('h2', { text: 'From your phone' }),
         settingSwitch('mirror_notifications', 'Show phone notifications on this computer', 'They always show in the Tether window.'),
         settingSwitch('clipboard_sync', 'Share the clipboard', 'What you copy on one is ready to paste on the other.'),
-        settingText('downloads_dir', 'Save files from the phone in', 'The whole path of a folder.')),
+        settingText('downloads_dir', 'Save files from the phone in', flatpak ? 'The whole path of a folder inside Downloads.' : 'The whole path of a folder.')),
       h('section', {}, h('h2', { text: 'What your phone can do on this computer' }),
         settingSwitch('allow_commands', 'Run commands'),
         settingSwitch('allow_input', 'Control the mouse and keyboard'),
         settingSwitch('allow_lock', 'Lock the screen'),
         settingSwitch('allow_volume', 'Change the volume'),
         settingSwitch('allow_ring', 'Ring this computer')),
-      commandsEditor(s.commands || []),
+      commandsEditor(s.commands || [], flatpak),
       h('section', {}, h('h2', { text: 'Finding your phone' }),
         settingSwitch('mdns', 'Find phones with mDNS', 'Helps find phones on networks that block broadcast discovery.'),
         h('p', { class: 'sub', text: "Tether finds your phone by itself on the same Wi-Fi. On a network where it can't (a VPN, some office or guest Wi-Fi), add the phone's address. It is in the phone's Wi-Fi settings, under the network's details." }),
@@ -1357,7 +1361,8 @@ function appTile(a) {
       opening ? h('div', { class: 'avatar' }, h('span', { class: 'spinner sm', 'aria-hidden': 'true' })) : appIcon(a),
       h('span', { class: 'name', text: opening ? 'Opening' : a.name }),
       isOpen && !opening ? h('span', { class: 'open-mark', text: 'Open' }) : null),
-    h('button', { class: `pin ${inMenu ? 'on' : ''}`, 'data-key': `pin-${a.package}`,
+    // The Flatpak can't write menu entries the desktop sees (see flatpak.rs).
+    state.me?.flatpak ? null : h('button', { class: `pin ${inMenu ? 'on' : ''}`, 'data-key': `pin-${a.package}`,
       title: inMenu ? `Remove ${a.name} from this computer's app menu` : `Add ${a.name} to this computer's app menu`,
       'aria-label': inMenu ? `Remove ${a.name} from the app menu` : `Add ${a.name} to the app menu`,
       'aria-pressed': inMenu ? 'true' : 'false', onclick: () => toggleMenuEntry(a) }, icon('pin', 'sm')));
@@ -1393,7 +1398,7 @@ function appsGrid(st) {
   return [
     h('div', { class: 'apps-head' },
       h('div', { class: 'row' },
-        h('div', {}, h('h1', { text: 'Apps' }), h('p', { class: 'sub', text: `From ${device()?.name || st.device.model || 'your phone'}. Pin an app to add it to this computer's app menu.` })),
+        h('div', {}, h('h1', { text: 'Apps' }), h('p', { class: 'sub', text: `From ${device()?.name || st.device.model || 'your phone'}.${state.me?.flatpak ? '' : " Pin an app to add it to this computer's app menu."}` })),
         h('button', { class: 'btn', 'data-key': 'apps-screen', disabled: !!apps.opening, onclick: () => openApp(null) },
           apps.opening === 'screen' ? h('span', { class: 'spinner sm', 'aria-hidden': 'true' }) : icon('phone', 'sm'), 'Phone screen')),
       h('label', { class: 'search' }, icon('search', 'sm'),

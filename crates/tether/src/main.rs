@@ -10,6 +10,7 @@ mod config;
 mod daemon;
 mod desktopmedia;
 mod exec;
+mod flatpak;
 mod mdns_probe;
 mod mprisd;
 mod notify;
@@ -158,7 +159,12 @@ async fn run(cli: Cli) -> Result<()> {
     result
 }
 
+/// Each `flatpak run` gets a private `/run/user/<uid>`; only `app/<app id>` inside it is shared
+/// between instances, so the window and a daemon started at login meet there. tether-app mirrors this.
 pub fn socket_path() -> PathBuf {
     let base = dirs::runtime_dir().unwrap_or_else(std::env::temp_dir);
-    base.join("tether").join("tether.sock")
+    match std::env::var("FLATPAK_ID").ok().filter(|id| !id.is_empty()) {
+        Some(id) => base.join("app").join(id).join("tether.sock"),
+        None => base.join("tether").join("tether.sock"),
+    }
 }

@@ -147,6 +147,8 @@ async fn call(svc: &Service, method: &str, p: &Value) -> Result<Value> {
             // from before an upgrade.
             v["version"] = json!(env!("CARGO_PKG_VERSION"));
             v["discoveryListening"] = json!(svc.discovery_listening());
+            // The window hides what the sandbox can't do (menu entries, sending notifications).
+            v["flatpak"] = json!(crate::flatpak::active());
             v["clipboardSync"] =
                 json!(crate::clipsync::ACTIVE.load(std::sync::atomic::Ordering::Relaxed));
             Ok(v)
@@ -228,7 +230,12 @@ async fn call(svc: &Service, method: &str, p: &Value) -> Result<Value> {
         }
         "settings_get" => crate::config::settings(),
         "settings_set" => {
-            let restart = crate::config::save_settings(p)?;
+            // Turning on start at login in the Flatpak waits for the desktop's permission dialog,
+            // so keep it off the runtime's worker threads.
+            let changes = p.clone();
+            let restart =
+                tokio::task::spawn_blocking(move || crate::config::save_settings(&changes))
+                    .await??;
             if let Some(on) = p.get("mirror_notifications").and_then(Value::as_bool) {
                 crate::notify::ENABLED.store(on, std::sync::atomic::Ordering::Relaxed);
             }

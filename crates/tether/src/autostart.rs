@@ -1,11 +1,11 @@
 //! Start the background service at login, so the phone stays linked without the window open.
 //!
 //! A systemd user unit where systemd runs the session (most distros, including i3 setups, which
-//! skip XDG autostart), otherwise an XDG autostart entry.
+//! skip XDG autostart), otherwise an XDG autostart entry. Inside a Flatpak, the Background portal.
 
 use std::{path::PathBuf, process::Command};
 
-use anyhow::{Context, Result};
+use anyhow::{anyhow, Context, Result};
 
 const UNIT: &str = "tether.service";
 
@@ -15,6 +15,25 @@ fn unit_path() -> Option<PathBuf> {
 
 fn desktop_path() -> Option<PathBuf> {
     dirs::config_dir().map(|d| d.join("autostart/tether.desktop"))
+}
+
+/// The portal writes its entry on the host, out of the sandbox's sight, so this file remembers that
+/// it said yes. The window checks the same path (`sync_autostart` in tether-app).
+fn portal_marker() -> Option<PathBuf> {
+    dirs::config_dir().map(|d| d.join("tether/autostart-portal"))
+}
+
+/// Callers are synchronous and some run on the daemon's runtime, so the portal call gets a thread
+/// and a runtime of its own.
+fn portal(on: bool) -> Result<()> {
+    std::thread::spawn(move || {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()?
+            .block_on(crate::flatpak::request_background(on))
+    })
+    .join()
+    .map_err(|_| anyhow!("the start-at-login request failed"))?
 }
 
 /// The program and argument that start the daemon. Inside an AppImage the binaries live in a mount
@@ -93,6 +112,13 @@ fn has_systemd_user() -> bool {
 }
 
 pub fn enable() -> Result<&'static str> {
+    if crate::flatpak::active() {
+        portal(true)?;
+        let marker = portal_marker().context("no config directory")?;
+        std::fs::create_dir_all(marker.parent().context("bad config path")?)?;
+        std::fs::write(&marker, b"")?;
+        return Ok("portal");
+    }
     let (prog, arg) = daemon_command()?;
     if prog.contains(['\n', '\r']) {
         anyhow::bail!("Tether's path contains a line break; move it somewhere else first.");
@@ -132,6 +158,12 @@ pub fn enable() -> Result<&'static str> {
 }
 
 pub fn disable() -> Result<()> {
+    if crate::flatpak::active() {
+        if let Some(p) = portal_marker().filter(|p| p.exists()) {
+            std::fs::remove_file(p)?;
+        }
+        return portal(false);
+    }
     if let Some(p) = unit_path().filter(|p| p.exists()) {
         systemctl(&["disable", UNIT]);
         std::fs::remove_file(p)?;
@@ -144,6 +176,9 @@ pub fn disable() -> Result<()> {
 }
 
 pub fn is_enabled() -> bool {
+    if crate::flatpak::active() {
+        return portal_marker().is_some_and(|p| p.exists());
+    }
     unit_path().is_some_and(|p| p.exists()) || desktop_path().is_some_and(|p| p.exists())
 }
 
