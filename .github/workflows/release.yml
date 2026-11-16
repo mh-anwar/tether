@@ -71,8 +71,23 @@ jobs:
     # Flathub's builder image: flatpak-builder plus the GNOME runtime and SDK the manifest names.
     container:
       image: ghcr.io/flathub-infra/flatpak-github-actions:gnome-50
-      options: --privileged
+      # The host's preinstalled toolchains are mounted so the first step can delete them: the image,
+      # the GNOME SDK and a release build of the Tauri app don't fit in the runner's free space.
+      options: >-
+        --privileged
+        -v /usr/share/dotnet:/hostfree/dotnet
+        -v /usr/local/lib/android:/hostfree/android
+        -v /usr/local/.ghcup:/hostfree/ghcup
+        -v /opt/hostedtoolcache:/hostfree/toolcache
+        -v /usr/local/share/boost:/hostfree/boost
+        -v /usr/share/swift:/hostfree/swift
     steps:
+      - name: Free disk space
+        run: |
+          df -h /__w
+          find /hostfree -mindepth 2 -maxdepth 2 -exec rm -rf {} +
+          df -h /__w
+
       - uses: actions/checkout@v4
 
       - uses: astral-sh/setup-uv@v6
