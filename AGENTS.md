@@ -105,7 +105,8 @@ review the full diff and remove unrelated changes.
 
 - Commit with an area prefix (`core:`, `app:`, `plugin(<name>):`, `docs:`), staging only your own files by
   path (`git add <paths>`, not `git add .`): another thread may be working in the same checkout.
-- Git identity is set globally; leave git config as is. Push only when the owner asks.
+- Git identity is set globally; leave git config as is. Work on a branch and open a PR (`gh pr create`); merge
+  it (squash) once CI is green. Tags and releases go from `main`.
 - Keep secrets, keys, certificates and real phone data out of commits; treat logs with message contents as
   sensitive.
 - Keep it publishable: no hardcoded hostnames, usernames or device ids; configuration lives in config files.
