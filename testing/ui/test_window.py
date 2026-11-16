@@ -329,7 +329,10 @@ try:
 
         # Toasts from earlier steps can sit over the button for a moment; retry until they go.
         def close(_):
-            d.find_element(By.CSS_SELECTOR, "[data-key=tray-note-close]").click()
+            close_button = d.find_element(By.CSS_SELECTOR, "[data-key=tray-note-close]")
+            # WebKit can leave Settings at its previous scroll offset after redraw.
+            d.execute_script("arguments[0].scrollIntoView({block: 'center'})", close_button)
+            close_button.click()
             return True
         WebDriverWait(d, 20, ignored_exceptions=(StaleElementReferenceException, ElementClickInterceptedException)).until(close)
         cfg = Path(os.environ["XDG_CONFIG_HOME"], "tether/config.json")
