@@ -71,6 +71,14 @@ Traps that already cost time. Add new ones here with the symptom first.
 ## Tray
 - **No tray icon on GNOME**: GNOME has no tray without the "AppIndicator and KStatusNotifierItem Support"
   extension. With it the icon appears within 10 s (the service looks for the watcher on that interval).
+  Without it, Settings shows a note once and the unread count still goes on the dock icon (Dash to Dock,
+  Ubuntu's dock).
+- **Unread badge missing on KDE or GNOME panels**: a host that finds `IconName` ignores the pixmaps, and the
+  badge only exists as pixels. Keep `IconName` empty while there are unread texts.
+- **A symbolic tray icon turns into solid blocks on GNOME**: GTK fills every shape of a `-symbolic` icon, so
+  outlines drawn with `stroke` fill in. Draw the symbolic SVG with filled paths only (even-odd holes).
+- **"..." shows as a box in the i3bar/polybar menu**: the core X font "fixed" is often Latin-1 only. The
+  XEmbed menu swaps the ellipsis for three dots when the font has no characters past 255.
 - **Icon with a black square on a transparent bar**: a tray that draws with transparency must publish
   `_NET_SYSTEM_TRAY_VISUAL` (a 32-bit visual); without it the icon is mixed with the bar colour read
   from the screen, which a compositor can get wrong.
