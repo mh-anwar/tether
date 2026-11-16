@@ -231,6 +231,7 @@ CI (`.github/workflows/ci.yml`) checks formatting, all-target clippy, and all wo
 22.04. A separate non-blocking WebDriver job installs tauri-driver/WebKitWebDriver, seeds pairing and
 runs `testing/ui/wd.sh` under Xvfb and a private D-Bus session; its logs are uploaded on failure.
 
+Readiness: `Simulator::with_capabilities(dir, incoming, outgoing)` supplies phone-perspective capability lists. `FAKE_PHONE_OMIT_CAPABILITIES=kdeconnect.sms.messages` removes comma-separated types in the demo peer. The protocol integration suite checks missing SMS through both APIs. `test_window.py` checks the checklist and shared missing-capability hints and saves `readiness.png` / `readiness-dark.png` with `d.save_screenshot`. Use `WD_DISPLAY`, `WD_PORT`, `TETHER_UI_DIR`, and `TETHER_SHOTS` for isolation. Android plugin switches and permissions still need a real phone check.
 mDNS codec/malformed-packet and two-socket loopback coverage lives in `tether_core::mdns`.
 `protocol_e2e` additionally queries the real daemon's DNS-SD responder, advertises a simulator over
 mDNS alone, and pairs it over TLS. Other daemon fixtures disable mDNS to keep discovery isolated.

@@ -151,6 +151,36 @@ try:
         assert d.find_elements(By.XPATH, "//button[text()='Forget phone']")
     check("Devices page shows battery, signal and forget", device_card)
 
+    def readiness_checklist():
+        click("Devices")
+        text_shown("On your phone")
+        text_shown("needs its switch on")
+        text_shown("Battery > Unrestricted")
+        rows = d.find_elements(By.CSS_SELECTOR, ".readiness-list li")
+        assert len(rows) == 17
+        texts = d.find_element(By.CSS_SELECTOR, '[data-feature="texts"]')
+        if "kdeconnect.sms.messages" in os.environ.get("FAKE_PHONE_OMIT_CAPABILITIES", ""):
+            assert "Not on this phone" in texts.text
+        else:
+            # The stand-in phone has sent conversations, so texts are proven to work.
+            assert "Working" in texts.text
+            # The stand-in phone also reported its battery, so that must not wait.
+            assert "Working" in d.find_element(By.CSS_SELECTOR, '[data-feature="battery"]').text
+        assert texts.find_elements(By.CSS_SELECTOR, "svg")
+        # With nothing received yet, each page points at the right switch on the phone.
+        d.execute_script("window.savedContacts = state.contacts; window.savedThreads = state.threads; window.savedKeyboard = state.keyboardActive; state.threads = new Map(); state.keyboardActive = false; renderList()")
+        try:
+            for view, feature in [("messages", "Send SMS"), ("contacts", "Contacts Synchronizer"), ("keyboard", "Keyboard receiver")]:
+                d.execute_script("showView(arguments[0])", view)
+                if view == "contacts":
+                    d.execute_script("state.contacts = []; contactsQuery = ''; renderTools()")
+                text_shown(feature)
+            d.execute_script("window.clickSftp = device().readiness.find(f => f.id === 'sftp'); clickSftp.ready = false; showView('files')")
+            text_shown("does not have this")
+        finally:
+            d.execute_script("clickSftp.ready = true; state.keyboardActive = savedKeyboard; state.threads = savedThreads; state.contacts = savedContacts; showView('devices')")
+    check("phone capability checklist and shared setup hints", readiness_checklist)
+
     def screenshots():
         # The window's own pixels (no desktop around it); $TETHER_SHOTS picks the folder.
         output = Path(os.environ.get("TETHER_SHOTS") or Path(os.environ["XDG_CONFIG_HOME"]).parent / "shots")
@@ -172,6 +202,8 @@ try:
                 if view == "photos":
                     __import__("time").sleep(3)  # previews arrive a few at a time
                 d.save_screenshot(str(output / f"{name}{'-dark' if theme == 'dark' else ''}.png"))
+                if view == "devices":
+                    d.save_screenshot(str(output / ("readiness-dark.png" if theme == "dark" else "readiness.png")))
         d.execute_script("delete document.documentElement.dataset.theme")
         for width in [720, 1000]:
             d.set_window_size(width, 780)

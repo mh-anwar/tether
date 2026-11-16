@@ -1,5 +1,7 @@
 // Inline SVG icons (stroke style, 24px grid). Never font glyphs: they render as boxes on some systems.
 const ICONS = {
+  check: '<path d="m5 12 4 4L19 6"/>',
+  dot: '<circle cx="12" cy="12" r="2.5"/>',
   apps: '<rect x="4" y="4" width="6.5" height="6.5" rx="1.5"/><rect x="13.5" y="4" width="6.5" height="6.5" rx="1.5"/><rect x="4" y="13.5" width="6.5" height="6.5" rx="1.5"/><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.5"/>',
   pin: '<path d="M9 4h6l-1 6 3 3v2H7v-2l3-3-1-6Z"/><path d="M12 15v5"/>',
   search: '<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>',
