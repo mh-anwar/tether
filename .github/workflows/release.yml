@@ -51,7 +51,7 @@ jobs:
         run: |
           STAGE=tether-linux-x86_64
           mkdir -p "$STAGE"
-          cp target/release/tether target/release/tether-app packaging/install.sh crates/tether-app/icons/icon.png "$STAGE"/
+          cp target/release/tether target/release/tether-app packaging/install.sh crates/tether-app/icons/icon.png crates/tether-app/icons/icon.svg "$STAGE"/
           tar -czf tether-linux-x86_64.tar.gz "$STAGE"
 
       - name: Collect files

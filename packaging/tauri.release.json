@@ -13,7 +13,9 @@
     "shortDescription": "Your phone on your Linux desktop",
     "longDescription": "Texts, notifications, files and clipboard from your Android phone, using the KDE Connect app.",
     "icon": [
-      "icons/icon.png"
+      "icons/icon.png",
+      "icons/128x128.png",
+      "icons/32x32.png"
     ]
   }
 }

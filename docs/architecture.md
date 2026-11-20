@@ -65,7 +65,7 @@
   works the same on Wayland. `xembed.rs`: otherwise an XEmbed icon (x11rb) docked into
   `_NET_SYSTEM_TRAY_S<n>` (i3bar, polybar), only in X11 sessions (no DISPLAY, `XDG_SESSION_TYPE=wayland` or a
   `WAYLAND_DISPLAY` without a session type means no X11 calls at all, so Xwayland isn't woken). Never both:
-  KDE proxies XEmbed icons itself. The icon is the app icon plus a red badge drawn in code (3x5 digits);
+  KDE proxies XEmbed icons itself. The icon is the tray cut of the app icon (`icons/tray.png`, see `docs/logo/`) plus a red badge drawn in code (3x5 digits);
   pixmaps at 16-64 px. With nothing unread, `IconName` is `tether-tray-symbolic` on GNOME and KDE (a
   one-colour SVG the panel recolours for light and dark themes) and the installed app icon elsewhere, both
   served from `data/tether/tray-icons` through `IconThemePath`; with unread texts `IconName` is empty so the
