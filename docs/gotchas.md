@@ -150,3 +150,7 @@ Traps that already cost time. Add new ones here with the symptom first.
   watcher.
 - **zbus turns `org.freedesktop.DBus.Error.Failed` into `Error::FDO`, not `MethodError`**: read the
   message from both, or the phone's AT error is lost.
+- **`wd.sh` window says "Tether's background service isn't running" and every check times out**: the
+  daemon log says `path must be shorter than SUN_LEN`. `TETHER_UI_DIR` was a long path (an agent's
+  scratch folder) and the socket under `run/` is over Linux's 108-byte limit. Use a short folder such as
+  `/tmp/tw<n>`, and set `WD_DISPLAY`/`WD_PORT` to free values when another thread may be testing too.
