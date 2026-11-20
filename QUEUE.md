@@ -12,8 +12,6 @@ Status marks: `[ ]` open, `[~]` in progress (say who/which branch), `[x]` done (
   video, then posts.
 - Q17a **Make the GitHub repo public**: owner said not yet (2026-11-12). Flathub and auto-update (Q29) wait on
   it: a private repo's releases can't be seen by installed copies.
-- Q2 **Extra ideas to approve or drop**: schedule a text to send later; quiet mode (phone notifications
-  collected into one summary instead of popping up all day).
 
 ## Needs a real phone
 
@@ -40,6 +38,11 @@ check on a real Android phone with the stock KDE Connect app (the owner's Samsun
   work with "Filesystem expose" on the Samsung.
 - [~] Q10 **Tray icon** on the owner's i3 and on KDE/GNOME (checked with stand-in trays). Done when: the
   menu, tooltip and badge look right on a real KDE panel, GNOME with the AppIndicator extension, and i3bar.
+- [~] Q2 **Scheduled texts and quiet mode** (2026-11-19, branch `t3/scheduled-messages-quiet-mode`): Send
+  later in the composer (service sends at the time, waits for the phone if it's away), quiet mode summary
+  pop-ups. Checked with unit tests and the fake phone in the WebDriver test. Done when: a text scheduled
+  for a few minutes ahead arrives from the owner's Samsung with the window closed, and a quiet-mode
+  summary shows on the owner's desktop and opens the notifications.
 - [~] Q29 **Auto-update** goes live once the repo is public (Q17a).
 
 ## Next

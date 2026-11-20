@@ -76,13 +76,25 @@
   `window_shown` within 0.7 s, the service starts `tether-app`. Menu (`menu.rs`, one model for both):
   Open Tether, Ring my phone (one row per phone when several are connected), Send files... (opens the window's
   file picker; a window started for it fetches the request with `ui_pending`), Pause notification pop-ups
-  (in memory until unticked or a restart; calls still pop up), Quit Tether (`quit` event closes windows, then
+  (in memory until unticked or a restart; calls still pop up), Quiet mode (the setting), Quit Tether (`quit` event closes windows, then
   the service exits 0, so systemd's Restart=on-failure leaves it stopped). SNI hosts get it over
   `com.canonical.dbusmenu` at `/MenuBar` (`LayoutUpdated` on change); XEmbed bars get an override-redirect
   window drawn with core X fonts, with pointer and keyboard grabs (arrows, Enter, Escape). The unread count
   also goes to docks as `com.canonical.Unity.LauncherEntry.Update` for each desktop entry that starts
   `tether-app` (resent every minute while non-zero). On GNOME with no tray at all, `settings_get` says
   `tray_missing` and the window's Settings shows a note until `tray_note_dismissed`.
+- `schedule`: texts to send later. The service holds them in `data/tether/scheduled.json` (0600) and
+  checks every 5 s and on each device event; a due text goes out through the same `sms::send` packet as
+  `sms_send` once its phone is connected (`waiting` in the list while it isn't). Never twice: each text is
+  saved as `sending` before it is handed to the link and removed after; one found as `sending` at start
+  becomes `unsure` and only goes out again when the person picks Send again (edits it).
+- Quiet mode (`notify.rs`, `quiet_mode`/`quiet_interval` in config): phone notifications are held instead
+  of popping up; once the first held one has waited the interval (30/60/120/240 min) one summary pop-up
+  ("12 notifications from WhatsApp, Gmail and 4 others") replaces the previous summary, and a click opens
+  the window's notifications (`show_notifications` event, or `ui_pending` for a newly started window).
+  Calls, pairing requests and notifications with a sign-in code (`has_code`, like the window's
+  `findCode`) still pop up at once. Dismissed on the phone before the summary: not counted. Tray row
+  "Quiet mode" and the palette write the setting through `save_settings` and send a `settings` event.
 - `autostart`: `tether autostart on|off` writes a systemd user unit (XDG autostart fallback); inside a
   Flatpak it asks the Background portal instead. The window turns it on at first launch and rewrites it
   each launch while on (follows a moved AppImage).
@@ -104,7 +116,10 @@ Request `{"id","method","params"}`, reply `{"id","result"|"error"}`, events push
   `update_install` (all return the update status: current, latest, kind, phase idle/checking/downloading/
   ready/installer, error, noReleases, installer path and command), `shutdown` (the window's restart after an
   update: the daemon exits, the window starts a fresh copy of itself, which starts the new daemon), `apps_download`, `apps_list`, `apps_open {package?, title}` (no package:
-  the whole screen), `apps_menu` (pinned packages), `photos_list {device}` (`folders: [{name, items: [phone path]}]`), `photos_thumbs {device, paths}` (phone path -> local preview or null), `photo_get|photo_copy|photo_save {device, path}`, `seen_set {seen: {thread id: date}}`, `window_shown` (tray click handshake), `ui_pending` (what the tray asked a newly started window to do, or null), `tray_extension_open` (opens the GNOME AppIndicator extension's page), `settings_get` / `settings_set {..}` (config.json keys `device_name`, `addresses`, `mirror_notifications`, `clipboard_sync`, `downloads_dir`, `auto_update`, `tray_note_dismissed`, plus `autostart`; other keys in the file are kept; returns `restart: true` when the service exits to reread them, the window starts it again), `screenshot_copy {device}`, `screenshot_save {device}` (returns `path`), `apps_menu_set {package, name, icon?, on}` (icon: a file from the
+  the whole screen), `apps_menu` (pinned packages), `photos_list {device}` (`folders: [{name, items: [phone path]}]`), `photos_thumbs {device, paths}` (phone path -> local preview or null), `photo_get|photo_copy|photo_save {device, path}`, `seen_set {seen: {thread id: date}}`, `window_shown` (tray click handshake), `ui_pending` (what the tray asked a newly started window to do, or null), `tray_extension_open` (opens the GNOME AppIndicator extension's page), `scheduled_list` (all phones; each `{id, device, thread_id, addresses, body, at (ms), state
+  scheduled|sending|unsure, waiting}`), `schedule_add {device, addresses, body, at, thread_id?, sub_id?}`,
+  `schedule_edit {id, body?, at?}`, `schedule_cancel {id}`; changes go out as the `scheduled {items}` event.
+  `settings_get` / `settings_set {..}` (config.json keys `device_name`, `addresses`, `mirror_notifications`, `quiet_mode`, `quiet_interval`, `clipboard_sync`, `downloads_dir`, `auto_update`, `tray_note_dismissed`, plus `autostart`; other keys in the file are kept; returns `restart: true` when the service exits to reread them, the window starts it again), `screenshot_copy {device}`, `screenshot_save {device}` (returns `path`), `apps_menu_set {package, name, icon?, on}` (icon: a file from the
   notification-icon cache, copied to `tether/menu-icons/`) (writes
   `$XDG_DATA_HOME/applications/tether-app-<package>.desktop` running `tether apps <package>`; the daemon
   rewrites their Exec at start so a moved AppImage still works, via `Tether.AppImage --tether ...`). The window polls `apps_status` while the Apps page is open.

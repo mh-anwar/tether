@@ -283,6 +283,57 @@ try:
         wait.until(lambda _: not d.find_elements(By.CSS_SELECTOR, ".palette-backdrop"))
     check("Ctrl+K offers Check for updates", palette)
 
+    def shots_dir():
+        output = Path(os.environ.get("TETHER_SHOTS") or Path(os.environ["XDG_CONFIG_HOME"]).parent / "shots")
+        output.mkdir(parents=True, exist_ok=True)
+        return output
+
+    def schedule_text():
+        import json
+        d.execute_script("showView('messages')")
+        wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, ".threads .thread-item"))).click()
+        box = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, ".composer textarea")))
+        box.send_keys("Scheduled from the window test")
+        d.find_element(By.CSS_SELECTOR, "button[aria-label='Send later']").click()
+        wait.until(EC.visibility_of_element_located((By.CSS_SELECTOR, ".schedule-dialog .later-choice")))
+        d.save_screenshot(str(shots_dir() / "schedule-dialog.png"))
+        # Two hours ahead by the custom field, set the way the page reads it.
+        d.execute_script(
+            "const f = document.getElementById('later-at');"
+            "f.value = localInputValue(Date.now() + 2 * 3600e3);")
+        d.find_element(By.XPATH, "//form[contains(@class,'schedule-dialog')]//button[normalize-space(.)='Schedule']").click()
+        row = wait.until(EC.visibility_of_element_located(
+            (By.XPATH, "//div[contains(@class,'scheduled')][.//div[text()='Scheduled from the window test']]")))
+        assert "Sends today" in row.text or "Sends tomorrow" in row.text, row.text
+        assert box.get_attribute("value") == "", "composer not cleared"
+        saved = Path(os.environ["XDG_DATA_HOME"], "tether/scheduled.json")
+        items = json.loads(saved.read_text())
+        assert [i["body"] for i in items] == ["Scheduled from the window test"], items
+        d.save_screenshot(str(shots_dir() / "schedule-thread.png"))
+        # A text due while the phone can't take it shows it is waiting, then Cancel removes it.
+        row.find_element(By.XPATH, ".//button[text()='Cancel']").click()
+        wait.until(lambda _: not d.find_elements(By.CSS_SELECTOR, ".bubble-row.scheduled"))
+        wait.until(lambda _: json.loads(saved.read_text()) == [])
+        # How a due text looks while the phone is away (drawn only, the service isn't asked).
+        d.execute_script(
+            "scheduled.items = [{ id: 'look', device: state.deviceId, thread_id: state.selected, addresses: [],"
+            " body: 'Waiting look', at: Date.now() - 60e3, state: 'scheduled', waiting: true }]; invalidate('thread')")
+        text_shown("Waiting for your phone")
+        d.save_screenshot(str(shots_dir() / "schedule-waiting.png"))
+        d.execute_script("scheduled.items = []; invalidate('thread')")
+    check("schedule a text, see it in the thread, cancel it", schedule_text)
+
+    def scheduled_text_sends():
+        # Due in a moment: the service sends it through the phone, which echoes it into the thread.
+        d.execute_script(
+            "const t = state.selected; const a = threadMessages(t)[0].addresses.map((x) => x.address);"
+            "return api('schedule_add', { device: state.deviceId, thread_id: t, addresses: a,"
+            " body: 'Sent later by the window test', at: Date.now() })")
+        WebDriverWait(d, 30, ignored_exceptions=(StaleElementReferenceException,)).until(lambda _: d.execute_script(
+            "return threadMessages(state.selected).some((m) => m.type === 2 && m.body === 'Sent later by the window test')"
+            " && !scheduled.items.length"))
+    check("a due scheduled text is sent once", scheduled_text_sends)
+
     def notification_icons():
         # The fake phone sends WhatsApp's and Spotify's icons as payloads; other apps keep a letter.
         wait.until(lambda _: d.execute_script(
@@ -331,6 +382,23 @@ try:
         wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "[data-key=set-auto_update]"))).click()
         wait.until(lambda _: f'"auto_update": {str(was).lower()}' in cfg.read_text())
     check("Settings page saves a switch", settings_page)
+
+    def quiet_mode():
+        click("Settings")
+        box = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "[data-key=set-quiet_mode]")))
+        assert not box.is_selected(), "quiet mode is off by default"
+        box.click()
+        cfg = Path(os.environ["XDG_CONFIG_HOME"], "tether/config.json")
+        wait.until(lambda _: '"quiet_mode": true' in cfg.read_text())
+        interval = wait.until(EC.element_to_be_clickable((By.ID, "quiet-interval")))
+        d.execute_script("arguments[0].value = '120'; arguments[0].dispatchEvent(new Event('change'))", interval)
+        wait.until(lambda _: '"quiet_interval": 120' in cfg.read_text())
+        d.execute_script("document.getElementById('quiet-interval').scrollIntoView({block: 'center'})")
+        d.save_screenshot(str(shots_dir() / "settings-quiet-mode.png"))
+        wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "[data-key=set-quiet_mode]"))).click()
+        wait.until(lambda _: '"quiet_mode": false' in cfg.read_text())
+        wait.until(lambda _: not d.find_elements(By.ID, "quiet-interval"))
+    check("quiet mode switch and summary interval save", quiet_mode)
 
     def commands_editor():
         import json
