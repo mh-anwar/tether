@@ -648,3 +648,28 @@ details[open] > summary .chev { transform: rotate(90deg); }
 .readiness-status { margin-left: auto; color: var(--text-2); font-size: 12px; }
 .readiness-hint { color: var(--text-2); line-height: 1.5; }
 @media (max-width: 850px) { .readiness-list { grid-template-columns: 1fr; } }
+
+/* Calls through this computer: floats over every view, bottom right like a phone's call pop-up. */
+.call-root { position: fixed; right: 16px; bottom: 16px; display: grid; gap: 8px; z-index: 65; width: min(340px, calc(100vw - 32px)); }
+.call-root:empty { display: none; }
+.call-card { display: grid; gap: 10px; padding: 12px 14px; border-radius: var(--radius); background: var(--bg-raised); border: 1px solid var(--border); box-shadow: var(--shadow); }
+.call-card .who { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.call-card .grow { min-width: 0; }
+.call-card b { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.call-card .sub { display: flex; flex-wrap: wrap; gap: 0 8px; color: var(--text-3); font-size: 12.5px; }
+.call-card .call-timer { font-variant-numeric: tabular-nums; color: var(--text-2); }
+.call-card .acts { display: flex; gap: 8px; align-items: center; justify-content: flex-end; color: var(--text-2); font-size: 13px; }
+/* Fixed shades, not the theme's: the dark theme's lighter green and red are too pale under white text. */
+.btn.answer { background: #1f8a4c; border-color: #1f8a4c; color: #fff; }
+.btn.hangup { background: #c4302b; border-color: #c4302b; color: #fff; }
+.btn.answer:hover, .btn.hangup:hover { filter: brightness(1.08); }
+.call-dialog { padding: 18px 20px; display: grid; gap: 12px; }
+.call-dialog h2 { margin: 0; font-size: 17px; }
+.call-dialog p { margin: 0; color: var(--text-2); }
+.call-dialog .muted { color: var(--text-3); font-size: 12.5px; }
+.call-dialog form { display: grid; gap: 12px; }
+.call-dialog input { font: inherit; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg); color: var(--text); }
+.call-dialog .row { display: flex; gap: 8px; }
+/* The dialog borrows the palette's frame; its list items are steps, not palette rows. */
+.call-dialog .steps { gap: 6px; line-height: 1.45; }
+.call-dialog .steps li { display: list-item; padding: 0; cursor: auto; border-radius: 0; color: var(--text-2); }

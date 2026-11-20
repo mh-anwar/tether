@@ -47,7 +47,11 @@ check on a real Android phone with the stock KDE Connect app (the owner's Samsun
 - [ ] Q4 **Calls on the PC**: Bluetooth hands-free (BlueZ + PipeWire HFP, the computer as the headset) for
   audio, answer, decline, hang up and dial; call banner in the window. KDE Connect only reports calls, so
   this is a separate channel (see docs/decisions.md). Done when: a call to the phone is answered and heard
-  on the laptop.
+  on the laptop. Status 2026-11-19: built on PipeWire 1.4's `org.pipewire.Telephony` (calls.rs, call
+  banner, Call buttons, Ctrl+K "Call a number", setup steps); passes a fake telephony service in unit
+  and window tests (`testing/ui/test_calls.py`). Waits on the owner: pair the phone with the laptop over
+  Bluetooth and try a real call (sound both ways, answer, decline, dial). No mute yet (the API has none;
+  next: mute the laptop microphone through PipeWire).
 - [ ] Q17 **Flathub**: the Flatpak builds and ships with releases; left: source from a tag, bundled adb +
   scrcpy, Dynamic Launcher for pinned apps, screenshots, lint, then the Flathub PR (docs/flathub.md, "Work
   left"). Needs Q17a.

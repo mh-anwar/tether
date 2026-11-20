@@ -270,6 +270,7 @@ async function loadAll() {
     state.threads.clear();
     state.selected = null;
   }
+  loadCalls();
   api('computer_status').then((c) => { state.computerRinging = c.ringing; if (c.commands) openCommandsSettings(); renderRail(); }).catch(() => {});
   loadUpdate();
   api('seen_set', { seen: state.seen }).catch(() => {});
@@ -435,7 +436,7 @@ function renderRail() {
       h('div', { class: 'card-actions' },
         h('button', { class: 'btn', disabled: !(d && d.connected), onclick: ringPhone, title: 'Ring the phone at full volume' }, icon('ring', 'sm'), 'Ring'),
         h('button', { class: 'btn', disabled: !(d && d.connected), onclick: () => quick('ping', 'Ping sent'), title: 'Send a ping' }, icon('bolt', 'sm'), 'Ping'))),
-    state.call && state.call.state === 'ringing' ? h('div', { class: 'call' },
+    state.call && state.call.state === 'ringing' && !btCallsLive() ? h('div', { class: 'call' },
       icon('call', 'pulse'),
       h('div', {}, h('b', { text: state.call.name || prettyNumber(state.call.number || '') || 'Unknown caller' }), h('span', { text: 'Incoming call' })),
       h('button', { class: 'btn', onclick: () => quick('mute', 'Ringer muted') }, icon('mute', 'sm'), 'Mute')) : null,
@@ -630,6 +631,7 @@ function renderThreadPane(rebuild) {
     avatar(title, addrs.length > 1),
     h('div', { class: 'title' }, h('b', { text: title }), subtitle(title, addrs)),
     h('div', { class: 'actions' },
+      addrs.length === 1 ? callButton(addrs[0].address, title) : null,
       h('button', { class: 'btn ghost icon-only feed-toggle', title: 'Notifications', 'aria-label': 'Notifications', onclick: toggleFeed }, icon('bell'))),
   ]);
   const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 40;
@@ -1851,6 +1853,7 @@ function commands() {
     { label: 'Check for updates', icon: 'download', run: checkForUpdates },
     recentCode() && { label: `Copy code ${recentCode().code}`, sub: recentCode().from, icon: 'key', run: () => copy(recentCode().code, 'Code copied') },
   ].filter(Boolean);
+  cmds.unshift(...activeCallCommands());
   cmds.push({ label: 'Show phone apps', icon: 'apps', run: () => showView('apps') });
   cmds.push({ label: 'Show phone photos', icon: 'image', run: () => showView('photos') });
   // After the everyday commands: the palette shows nine before anything is typed.
@@ -1865,6 +1868,7 @@ function commands() {
   }
   for (const m of heads()) cmds.push({ label: threadTitle(m.addresses), sub: 'Conversation', icon: 'message', run: () => selectThread(m.thread_id) });
   for (const c of state.contacts) cmds.push({ label: `Text ${c.name}`, sub: prettyNumber(c.number), icon: 'send', run: () => openNew(c) });
+  cmds.push(...dialCommands());
   return cmds;
 }
 
@@ -1951,6 +1955,7 @@ function onEvent(ev) {
   if (ev.event === 'computer_settings') { openCommandsSettings(); return; }
   if (ev.event === 'send_files') { pickAndSendFiles(); return; }
   if (ev.event === 'computer_ring') { state.computerRinging = ev.ringing; renderRail(); return; }
+  if (ev.event === 'calls') { onCalls(ev); return; }
   if (ev.event === 'device') {
     const i = state.devices.findIndex((d) => d.id === ev.id);
     const before = i >= 0 ? state.devices[i] : null;
@@ -2173,7 +2178,7 @@ function renderTools() {
         !groups.size ? h('div', { class: 'empty' }, icon('user'), h('p', { text: query ? 'No matching contacts.' : 'No contacts shared yet.' }),
           !query ? (readinessHint('contacts') || h('p', { text: phoneSetup('contacts') })) : null) :
           [...groups].map(([name, numbers]) => h('article', { class: 'contact-card' }, h('h2', { text: name }), numbers.map((c) =>
-            h('div', { class: 'row' }, h('span', { class: 'grow', text: prettyNumber(c.number) }), toolButton('Text', () => openNew(c)), toolButton('Copy number', () => copy(c.number, 'Number copied'))))))) ]);
+            h('div', { class: 'row' }, h('span', { class: 'grow', text: prettyNumber(c.number) }), toolButton('Text', () => openNew(c)), toolButton('Call', () => dialNumber(c.number, c.name)), toolButton('Copy number', () => copy(c.number, 'Number copied'))))))) ]);
   } else if (state.view === 'keyboard') {
     swap(page, () => [toolHead('Keyboard', 'Type into the text field selected on your phone.'),
       h('div', { class: 'tools-body keyboard-body' }, readinessHint('keyboard'),
@@ -2261,4 +2266,175 @@ async function switchDevice(id) {
   photos.status = 'idle'; photos.folders = []; photos.thumbs.clear(); photos.tiles.clear();
   files.generation++; files.device = null; files.entries = []; files.path = '';
   await loadDevice(); render(); if (state.view === 'files') loadFiles();
+}
+
+// ---------- Calls through this computer (Bluetooth hands-free, crates/tether/src/calls.rs) ----------
+// The daemon pushes `calls` events with {blocker, phone, audio_here, calls}; the banner floats over
+// every view so a ringing call can be answered from anywhere.
+const calls = { status: null, busy: null, timer: null };
+
+const callSetup = {
+  service: { why: 'Calling from this computer needs PipeWire 1.4 or newer with its Bluetooth support.',
+    steps: ['Update your system. Ubuntu 25.04, Fedora 42 and newer already have it.', 'If it still doesn\'t work, install the PipeWire Bluetooth package (often called pipewire-bluetooth or libspa-0.2-bluetooth), then log out and back in.'] },
+  bluetooth: { why: 'Bluetooth isn\'t running on this computer, or it has no Bluetooth.',
+    steps: ['Turn on Bluetooth in your desktop\'s settings.', 'No Bluetooth on this computer? A small USB Bluetooth adapter works.'] },
+  adapter_off: { why: 'Bluetooth is off on this computer.', steps: ['Turn on Bluetooth in your desktop\'s settings.'] },
+  pair: { why: 'Your phone isn\'t paired with this computer over Bluetooth yet. Calls use Bluetooth, the way a car or headset does.',
+    steps: ['Open Bluetooth settings on this computer and pair it with your phone.', 'When the phone asks, allow Phone calls (and Contacts if you like) for this computer.'] },
+  connect: { why: 'Your phone is paired over Bluetooth but not connected for calls.',
+    steps: ['On the phone, open Settings, Connections, Bluetooth, then the gear next to this computer, and turn on Calls.', 'Or connect it from Bluetooth settings on this computer.'] },
+};
+
+function liveCalls() { return calls.status?.calls || []; }
+function btCallsLive() { return liveCalls().length > 0; }
+function callTitle(c) { return c.name || (c.number ? prettyNumber(c.number) : 'Unknown caller'); }
+
+function loadCalls() {
+  api('call_status').then(onCalls).catch(() => {});
+}
+
+function onCalls(status) {
+  const prev = calls.status;
+  calls.status = status;
+  // The pressed button waits until the phone acts: the call changes state or ends, or the sound moves.
+  const b = calls.busy;
+  if (b) {
+    const was = prev?.calls?.find((c) => c.id === b.id), now = liveCalls().find((c) => c.id === b.id);
+    if (b.id === null ? status.audio_here : (!now || !was || now.state !== was.state)) calls.busy = null;
+  }
+  renderCallBanner();
+  if ($('.rail')) renderRail();
+}
+
+function callStateText(c) {
+  return { incoming: 'Incoming call', waiting: 'Call waiting', dialing: 'Calling', alerting: 'Ringing', held: 'On hold' }[c.state] || '';
+}
+
+function callClock(since) {
+  const s = Math.max(0, Math.floor((Date.now() - since) / 1000));
+  const mm = String(Math.floor(s / 60) % 60).padStart(2, '0'), ss = String(s % 60).padStart(2, '0');
+  return s >= 3600 ? `${Math.floor(s / 3600)}:${mm}:${ss}` : `${mm}:${ss}`;
+}
+
+async function callAction(c, method, label) {
+  calls.busy = { id: c ? c.id : null, label };
+  renderCallBanner();
+  try {
+    await api(method, c ? { id: c.id } : {});
+  } catch (e) {
+    calls.busy = null;
+    renderCallBanner();
+    toast(String(e), 'error');
+  }
+  // The phone may take a moment; never leave the buttons stuck if nothing comes back.
+  setTimeout(() => { if (calls.busy?.label === label) { calls.busy = null; renderCallBanner(); } }, 8000);
+}
+
+function callCard(c) {
+  const busy = calls.busy && (calls.busy.id === c.id || calls.busy.id === null) ? calls.busy.label : null;
+  const ringing = c.state === 'incoming' || c.state === 'waiting';
+  const active = c.state === 'active';
+  const sub = active && c.since ? h('span', { class: 'call-timer', 'data-since': String(c.since), text: callClock(c.since) }) : h('span', { text: callStateText(c) });
+  const where = active ? h('span', { text: calls.status.audio_here ? 'Sound on this computer' : 'Sound on your phone' }) : null;
+  const title = callTitle(c);
+  const actions = busy ? [h('div', { class: 'spinner', 'aria-hidden': 'true' }), h('span', { text: busy })]
+    : ringing ? [
+      h('button', { class: 'btn answer', onclick: () => callAction(c, 'call_answer', 'Answering') }, icon('call', 'sm'), 'Answer'),
+      h('button', { class: 'btn hangup', onclick: () => callAction(c, 'call_hangup', 'Declining') }, icon('hangup', 'sm'), 'Decline')]
+    : [
+      active && !calls.status.audio_here ? h('button', { class: 'btn', onclick: () => callAction(null, 'call_audio_here', 'Moving the sound here') }, 'Use this computer') : null,
+      h('button', { class: 'btn hangup', onclick: () => callAction(c, 'call_hangup', 'Hanging up') }, icon('hangup', 'sm'), 'Hang up')];
+  return h('section', { class: 'call-card', 'aria-label': `${callStateText(c) || 'Call'}: ${title}` },
+    h('div', { class: 'who' }, avatar(title, false),
+      h('div', { class: 'grow' }, h('b', { text: title }),
+        h('div', { class: 'sub' }, sub, c.name && c.number ? h('span', { text: prettyNumber(c.number) }) : null, where))),
+    h('div', { class: 'acts' }, actions));
+}
+
+function renderCallBanner() {
+  let root = $('#call-root');
+  if (!root) {
+    root = h('div', { id: 'call-root', class: 'call-root', role: 'region', 'aria-label': 'Phone calls', 'aria-live': 'polite' });
+    document.body.append(root);
+  }
+  swap(root, () => liveCalls().map(callCard));
+  const ticking = liveCalls().some((c) => c.state === 'active' && c.since);
+  if (ticking && !calls.timer) {
+    calls.timer = setInterval(() => {
+      for (const el of document.querySelectorAll('.call-timer')) el.textContent = callClock(Number(el.dataset.since));
+    }, 1000);
+  } else if (!ticking && calls.timer) {
+    clearInterval(calls.timer);
+    calls.timer = null;
+  }
+}
+
+function closeDialog() { $('#palette-root').replaceChildren(); }
+
+function dialog(label, ...children) {
+  const root = $('#palette-root');
+  root.replaceChildren(h('div', { class: 'palette-backdrop', onclick: (e) => { if (e.target === e.currentTarget) closeDialog(); },
+    onkeydown: (e) => { if (e.key === 'Escape') closeDialog(); } },
+  h('div', { class: 'palette call-dialog', role: 'dialog', 'aria-modal': 'true', 'aria-label': label }, ...children)));
+  return root;
+}
+
+/** Explains what's missing for calls, with a way to check again once it's done. */
+function callSetupDialog(then) {
+  const s = calls.status || { blocker: 'service' };
+  const info = callSetup[s.blocker] || callSetup.service;
+  const again = h('button', { class: 'btn primary', onclick: async () => {
+    again.disabled = true;
+    again.replaceChildren(h('div', { class: 'spinner', 'aria-hidden': 'true' }), 'Checking');
+    try { onCalls(await api('call_status')); } catch { /* daemon restarting */ }
+    if (!calls.status?.blocker) { closeDialog(); if (then) then(); } else callSetupDialog(then);
+  } }, 'Check again');
+  dialog('Calls from this computer',
+    h('h2', { text: 'Calls from this computer' }),
+    h('p', { text: info.why }),
+    h('ol', { class: 'steps' }, info.steps.map((t) => h('li', { text: t }))),
+    s.phone && s.blocker === 'connect' ? h('p', { class: 'muted', text: `Your phone shows up in Bluetooth as ${s.phone}.` }) : null,
+    h('div', { class: 'row' }, again, h('button', { class: 'btn ghost', onclick: closeDialog }, 'Close')));
+  again.focus();
+}
+
+async function dialNumber(number, name) {
+  if (!calls.status) { try { calls.status = await api('call_status'); } catch { /* shown below */ } }
+  if (calls.status?.blocker) return callSetupDialog(() => dialNumber(number, name));
+  // Until the phone takes the number; then the call banner shows the call's progress.
+  const t = toast(`Calling ${name || prettyNumber(number)}`, 'progress', 8000);
+  try { await api('call_dial', { number }); } catch (e) { toast(String(e), 'error'); } finally { t.remove(); }
+}
+
+function dialDialog() {
+  if (calls.status?.blocker) return callSetupDialog(dialDialog);
+  const input = h('input', { type: 'tel', placeholder: 'Phone number', 'aria-label': 'Phone number', autocomplete: 'off' });
+  const go = h('button', { class: 'btn primary', type: 'submit' }, icon('call', 'sm'), 'Call');
+  dialog('Call a number',
+    h('form', { onsubmit: (e) => { e.preventDefault(); const n = input.value.trim(); if (!n) return input.focus(); closeDialog(); dialNumber(n); } },
+      h('h2', { text: 'Call a number' }), input,
+      h('div', { class: 'row' }, go, h('button', { class: 'btn ghost', type: 'button', onclick: closeDialog }, 'Cancel'))));
+  input.focus();
+}
+
+/** A Call button for a one-person conversation or contact. */
+function callButton(number, name) {
+  if (!number || !digits(number)) return null;
+  return h('button', { class: 'btn ghost icon-only', title: `Call ${name || prettyNumber(number)}`, 'aria-label': `Call ${name || prettyNumber(number)}`, onclick: () => dialNumber(number, name) }, icon('call'));
+}
+
+function activeCallCommands() {
+  return liveCalls().flatMap((c) => {
+    const who = callTitle(c);
+    if (c.state === 'incoming' || c.state === 'waiting') {
+      return [{ label: `Answer ${who}`, icon: 'call', run: () => callAction(c, 'call_answer', 'Answering') },
+        { label: `Decline ${who}`, icon: 'hangup', run: () => callAction(c, 'call_hangup', 'Declining') }];
+    }
+    return [{ label: `Hang up on ${who}`, icon: 'hangup', run: () => callAction(c, 'call_hangup', 'Hanging up') }];
+  });
+}
+
+function dialCommands() {
+  return [{ label: 'Call a number', icon: 'call', run: dialDialog },
+    ...state.contacts.map((c) => ({ label: `Call ${c.name}`, sub: prettyNumber(c.number), icon: 'call', run: () => dialNumber(c.number, c.name) }))];
 }

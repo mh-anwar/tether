@@ -121,6 +121,25 @@ Request `{"id","method","params"}`, reply `{"id","result"|"error"}`, events push
   clipboard, shared_text, shared_url, file_received, transfer_failed, contacts, photo_taken {path} (saved with
   received files), photo_cancelled.
 
+## Calls through this computer (crates/tether/src/calls.rs)
+Bluetooth hands-free with the computer as the headset. PipeWire 1.4+ (spa/plugins/bluez5/telephony.c)
+serves, on the session bus as `org.pipewire.Telephony`: an ObjectManager at `/org/pipewire/Telephony`
+listing each HFP-connected phone as `.../agN` with `org.pipewire.Telephony.AudioGateway1` (`Address`,
+`Dial(s)`, `HangupAll`, `HoldAndAnswer`, `SendTones`, volumes) and `...AudioGatewayTransport1` (`State`
+idle/pending/active/error = whether the call's sound is on the computer, `Activate` pulls it here with
+AT+BCC); each `agN` is an ObjectManager for its calls `.../agN/callM`, `...Call1` (`Answer`, `Hangup`,
+`LineIdentification` = number, `Name`, `State` active/held/dialing/alerting/incoming/waiting/
+disconnected). There is no mute in the API. BlueZ (system bus, `org.bluez` ObjectManager at `/`,
+`Device1` `Paired`/`Connected`/`UUIDs`, phones list the HFP AG UUID `0000111f-...`) only explains what's
+missing. The watcher re-reads both on any signal from either service and every 5 s, then pushes
+`{"event":"calls", blocker, phone, audio_here, calls: [{id, number, name, state, incoming, since}]}`.
+`blocker`: service, bluetooth, adapter_off, pair, connect, or null when ready. The phone among several
+gateways is the one whose Bluetooth name matches a KDE Connect phone's name. Names come from the KDE
+Connect contacts. API: `call_status`, `call_answer {id?}` (a waiting call is answered with HoldAndAnswer),
+`call_hangup {id?}` (no id: all), `call_dial {number}` (cleaned to `+0-9*#`, at most 30 characters, the
+limit of PipeWire's ATD parser), `call_audio_here`. The window's banner (`#call-root`) floats bottom right
+over every view; the rail's KDE Connect ringing banner hides while Bluetooth reports calls.
+
 ## Window (crates/tether-app, ui/)
 - Rust side: keeps one socket connection, forwards `call(method, params)`, emits `tether` (daemon events) and
   `daemon` (`{connected}`) to the page, starts the daemon if missing (retries every 10 s). `copy_text` holds
