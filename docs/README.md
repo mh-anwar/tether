@@ -14,4 +14,6 @@ when you learn something (one line on why is enough). The task list is `../QUEUE
 | [logo/](logo/README.md) | The app icon, tray and panel icons: the three concepts, where each file lives, how to regenerate |
 | [gotchas.md](gotchas.md) | Traps that cost time once; check before debugging something odd |
 
-Status of verified behaviour: `../HANDOFF.md`. House rules: `../AGENTS.md`.
+Status of verified behaviour: `../HANDOFF.md`. History of what was done and why: the merged pull requests
+(each follows `../.github/pull_request_template.md`; `gh pr list --state merged`, or `git log main`, where
+each squash commit carries the full description). House rules: `../AGENTS.md`.

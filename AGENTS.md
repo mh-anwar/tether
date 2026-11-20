@@ -107,6 +107,13 @@ review the full diff and remove unrelated changes.
   path (`git add <paths>`, not `git add .`): another thread may be working in the same checkout.
 - Git identity is set globally; leave git config as is. Work on a branch and open a PR (`gh pr create`); merge
   it (squash) once CI is green. Tags and releases go from `main`.
+- **PR descriptions are the project's record** (the owner reads them as the history of what was done and
+  why). Every PR fills every section of `.github/pull_request_template.md`: summary, new features, changed
+  behaviour, removed, why (decisions and alternatives), data/settings/interfaces table (config keys, files,
+  API methods, events, storage, protocol, permissions, migration), fixes, queue items, checked / not
+  checked, known problems, owner actions. Write "None" rather than dropping a section. Merge with
+  `gh pr merge --squash --body "$(gh pr view N --json body -q .body)"` so the full description lands in
+  the commit on `main` too. Update the description if the PR changes before merging.
 - Keep secrets, keys, certificates and real phone data out of commits; treat logs with message contents as
   sensitive.
 - Keep it publishable: no hardcoded hostnames, usernames or device ids; configuration lives in config files.
