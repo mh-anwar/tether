@@ -260,9 +260,7 @@ async fn run(service: &Service, action: Action) {
         }
         Action::Quit => {
             info!("tray: quitting");
-            // Open windows close too; otherwise they would start the service again.
-            crate::api::ui_event(json!({"event": "quit"}));
-            crate::api::exit_soon();
+            crate::api::quit_all();
         }
     }
 }

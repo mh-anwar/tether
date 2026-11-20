@@ -66,6 +66,32 @@ try:
     check("window connects to the phone", lambda: text_shown("Connected"))
     check("conversations load", lambda: wait.until(lambda _: d.find_elements(By.CSS_SELECTOR, ".threads > *")))
 
+    def notifications_panel():
+        # Closed until opened; the choice is remembered across windows (and across test runs, so start closed).
+        if d.execute_script("return state.feedOpen"):
+            d.execute_script("toggleFeed()")
+        assert not d.find_element(By.CSS_SELECTOR, ".feed").is_displayed()
+        click("Notifications")
+        wait.until(lambda _: d.find_element(By.CSS_SELECTOR, ".feed").is_displayed())
+        d.find_element(By.CSS_SELECTOR, "[data-key=feed-close]").click()
+        wait.until(lambda _: not d.find_element(By.CSS_SELECTOR, ".feed").is_displayed())
+        assert d.execute_script("return localStorage.getItem('tether.feedOpen')") == "false"
+        click("Notifications")  # later steps use the panel
+        wait.until(lambda _: d.find_element(By.CSS_SELECTOR, ".feed").is_displayed())
+    check("Notifications panel opens and closes", notifications_panel)
+
+    def column_widths():
+        handle = d.find_element(By.CSS_SELECTOR, ".resizer[data-part=rail]")
+        before = d.find_element(By.CSS_SELECTOR, ".rail").size["width"]
+        ActionChains(d).click_and_hold(handle).move_by_offset(60, 0).release().perform()
+        wait.until(lambda _: d.find_element(By.CSS_SELECTOR, ".rail").size["width"] >= before + 40)
+        # Keyboard works too, and the width is kept for next time.
+        handle.send_keys(Keys.ARROW_LEFT)
+        assert "rail" in d.execute_script("return localStorage.getItem('tether.widths')")
+        d.execute_script("resetWidths()")
+        wait.until(lambda _: abs(d.find_element(By.CSS_SELECTOR, ".rail").size["width"] - before) <= 1)
+    check("Columns resize by drag and keyboard, and reset", column_widths)
+
     def copy_screenshot():
         if not os.environ.get("FAKE_SFTP"):
             raise RuntimeError("no stand-in file server (FAKE_SFTP); run wd.sh once more")
@@ -153,19 +179,23 @@ try:
 
     def readiness_checklist():
         click("Devices")
-        text_shown("On your phone")
+        text_shown("Phone features")
+        # The full list is folded away; only what needs doing shows at first.
+        assert not d.find_element(By.CSS_SELECTOR, ".readiness-list").is_displayed()
+        d.find_element(By.CSS_SELECTOR, ".all-features summary").click()
         text_shown("needs its switch on")
         text_shown("Battery > Unrestricted")
         rows = d.find_elements(By.CSS_SELECTOR, ".readiness-list li")
         assert len(rows) == 17
-        texts = d.find_element(By.CSS_SELECTOR, '[data-feature="texts"]')
+        texts = d.find_element(By.CSS_SELECTOR, '.readiness-list [data-feature="texts"]')
         if "kdeconnect.sms.messages" in os.environ.get("FAKE_PHONE_OMIT_CAPABILITIES", ""):
             assert "Not on this phone" in texts.text
         else:
             # The stand-in phone has sent conversations, so texts are proven to work.
             assert "Working" in texts.text
             # The stand-in phone also reported its battery, so that must not wait.
-            assert "Working" in d.find_element(By.CSS_SELECTOR, '[data-feature="battery"]').text
+            assert "Working" in d.find_element(By.CSS_SELECTOR, '.readiness-list [data-feature="battery"]').text
+            assert "Texts" in d.find_element(By.CSS_SELECTOR, ".feature-chips").text
         assert texts.find_elements(By.CSS_SELECTOR, "svg")
         # With nothing received yet, each page points at the right switch on the phone.
         d.execute_script("window.savedContacts = state.contacts; window.savedThreads = state.threads; window.savedKeyboard = state.keyboardActive; state.threads = new Map(); state.keyboardActive = false; renderList()")
@@ -322,6 +352,15 @@ try:
 
     def settings_page():
         click("Settings")
+        # Tabs: arrow keys move between them, and each shows its own settings.
+        wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "[role=tab][data-tab=general]"))).click()
+        # Picking a tab redraws the page, so find it again before typing.
+        wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "[role=tab][data-tab=general]"))).send_keys(Keys.ARROW_RIGHT)
+        wait.until(lambda _: d.find_element(By.CSS_SELECTOR, "[data-tab=notifications]").get_attribute("aria-selected") == "true")
+        wait.until(EC.visibility_of_element_located((By.CSS_SELECTOR, "[data-key=set-mirror_notifications]")))
+        assert d.find_element(By.CSS_SELECTOR, "[data-tab=notifications]") == d.switch_to.active_element
+        d.find_element(By.CSS_SELECTOR, "[data-tab=general]").click()
+        wait.until(EC.visibility_of_element_located((By.CSS_SELECTOR, "[data-key=quit-tether]")))
         box = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "[data-key=set-auto_update]")))
         was = box.is_selected()
         box.click()
@@ -335,6 +374,7 @@ try:
     def commands_editor():
         import json
         click("Settings")
+        click("Phone access")
         form = wait.until(EC.visibility_of_element_located((By.CSS_SELECTOR, "[data-key=command-new]")))
         form.find_element(By.CSS_SELECTOR, "[aria-label='Command name']").send_keys("Test command")
         form.find_element(By.CSS_SELECTOR, "[aria-label='Shell command']").send_keys("true")
@@ -356,6 +396,7 @@ try:
         # wd.sh runs the service as on GNOME with no tray; Settings explains once, until closed.
         import json
         click("Settings")
+        click("General")
         d.execute_script("return api('settings_set', { tray_note_dismissed: false }).then(() => loadSettings())")
         note = wait.until(EC.visibility_of_element_located((By.CSS_SELECTOR, "[data-key=tray-note]")))
         assert "extensions.gnome.org/extension/615" in note.text, note.text

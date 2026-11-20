@@ -17,7 +17,7 @@ use tokio::{
     net::{UnixListener, UnixStream},
     sync::mpsc,
 };
-use tracing::{debug, warn};
+use tracing::{debug, info, warn};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Request {
@@ -151,6 +151,13 @@ pub(crate) fn exit_soon() {
     });
 }
 
+/// Quits Tether completely: open windows close first, since a window left open would start the
+/// service again.
+pub(crate) fn quit_all() {
+    ui_event(json!({"event": "quit"}));
+    exit_soon();
+}
+
 async fn call(svc: &Service, method: &str, p: &Value) -> Result<Value> {
     let ok = || Ok(json!(true));
     match method {
@@ -206,6 +213,11 @@ async fn call(svc: &Service, method: &str, p: &Value) -> Result<Value> {
         "update_install" => crate::update::install().await,
         "shutdown" => {
             exit_soon();
+            ok()
+        }
+        "quit" => {
+            info!("quitting at the window's request");
+            quit_all();
             ok()
         }
         "window_shown" => {

@@ -33,6 +33,21 @@
   with sound; rewriting that buys nothing. Tether owns the parts scrcpy lacks: QR pairing, finding the phone,
   the app list, errors in plain words. Helpers come from `TETHER_ADB`/`TETHER_SCRCPY`, our download, next to
   the binary, then PATH.
+- **Proposed, waiting on the owner (2026-11-19): phone apps without wireless debugging.** The owner finds
+  Developer options and Wireless debugging too much to ask. Options weighed:
+  - A small optional companion app, "Tether Screen" (recommended). MediaProjection streams the screen or
+    a single app (Android 14+ can share one app), an AccessibilityService taps and types, and launching an
+    app is an ordinary intent. It pairs through the existing KDE Connect trust (a QR from the Apps page), so
+    there's no Developer options and no reconnect after a reboot or network change. Costs: a second app on
+    the phone (KDE Connect stays as it is for everything else); Android 14+ asks "Start now" on the
+    phone each time a sharing session starts (Phone Link skips this only because Samsung preinstalls it
+    with system rights); and Play Store review of accessibility use, so F-Droid and a direct download first.
+    Keep adb + scrcpy as an "Advanced" path for people who already use it.
+  - Ruled out: Shizuku (needs wireless debugging or root to start), a USB cable once then `adb tcpip`
+    (still Developer options, lost on reboot), Samsung DeX or Link to Windows (closed, Windows only),
+    KDE Connect itself (its Android app has no screen sharing).
+  - Cheap stopgap if the owner wants it first: after the first pairing, keep adb listening on a fixed port
+    so Wireless debugging doesn't have to be switched on again until the phone reboots.
 - One window per app, and Android 9 still works. A second click on an open app doesn't start another
   virtual display (each costs the phone memory and its own encoder); it says the app is open. Phones
   without virtual displays (before Android 10) get the apps on the phone's own screen in one shared
