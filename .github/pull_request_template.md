@@ -2,6 +2,9 @@
 Every PR description is a permanent record of what changed and why: the squash merge copies it into the
 commit message, so `git log` and the closed PRs together are the project's history. Fill every section;
 write "None" rather than deleting one. Plain sentences, for someone who wasn't there.
+Keep people out of it: no names, emails, phone numbers, addresses or IPs, device names or models tied to a
+person, logins, tokens, or steps someone has to do on their own devices. Describe the software, not who
+uses it.
 -->
 
 ## Summary
@@ -56,7 +59,3 @@ Migration for existing installs: what happens to old data, or "None needed".
 ## Known problems and follow-ups
 
 - Anything left broken, risky or unfinished.
-
-## Owner actions
-
-1. Steps only the owner can do on their own devices, or "None".
