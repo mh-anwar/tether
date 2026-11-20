@@ -37,11 +37,22 @@ const state = {
   loadingThread: null,
   call: null,
   media: {}, // player name -> what it plays, from the phone
-  feedOverlay: false,
+  feedOpen: loadPref('tether.feedOpen', false), // the Notifications column; closed unless the person opens it
   newTo: [],
   seen: loadSeen(),
   view: 'messages', // or 'apps'
 };
+
+// Per-window conveniences (panel open, column widths); losing them only resets the layout.
+function loadPref(key, fallback) {
+  try { const v = localStorage.getItem(key); return v === null ? fallback : JSON.parse(v); } catch { return fallback; }
+}
+function savePref(key, value) {
+  try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* private mode */ }
+}
+
+// Texts the service will send later (scheduled_list), for every phone.
+const scheduled = { items: [] };
 
 function loadSeen() {
   try { return JSON.parse(localStorage.getItem('tether.seen') || '{}'); } catch { return {}; }
@@ -262,11 +273,13 @@ async function loadAll() {
     state.threads.clear();
     state.selected = null;
   }
+  loadCalls();
   api('computer_status').then((c) => { state.computerRinging = c.ringing; if (c.commands) openCommandsSettings(); renderRail(); }).catch(() => {});
   loadUpdate();
   api('seen_set', { seen: state.seen }).catch(() => {});
   if (state.view === 'settings') loadSettings();
   if (state.deviceId) await loadDevice();
+  loadScheduled();
   render();
   // A window started from the tray menu ("Send files...") picks up what it was opened for.
   api('ui_pending').then((ev) => { if (ev) onEvent(ev); }).catch(() => {});
@@ -308,7 +321,7 @@ function render() {
   }
   if (!state.deviceId) return renderPairPage(app);
   if (!$('.rail', app)) buildLayout(app);
-  app.className = `app ${['files', 'contacts', 'keyboard', 'devices'].includes(state.view) ? 'view-tools' : ''} ${state.feedOverlay ? 'feed-overlay' : ''} ${state.view === 'apps' ? 'view-apps' : ''} ${state.view === 'photos' ? 'view-photos' : ''} ${state.view === 'settings' ? 'view-settings' : ''}`;
+  app.className = `app ${['files', 'contacts', 'keyboard', 'devices'].includes(state.view) ? 'view-tools' : ''} ${state.feedOpen ? 'feed-open' : 'no-feed'} ${state.view === 'apps' ? 'view-apps' : ''} ${state.view === 'photos' ? 'view-photos' : ''} ${state.view === 'settings' ? 'view-settings' : ''}`;
   renderRail();
   if (state.view === 'apps') renderApps();
   else if (state.view === 'photos') renderPhotos();
@@ -337,7 +350,69 @@ function buildLayout(app) {
     h('main', { class: 'tools-page', 'aria-label': 'Phone tools' }),
     h('main', { class: 'settings-page', 'aria-label': 'Settings' }),
     h('aside', { class: 'feed', 'aria-label': 'Notifications' }),
+    resizer('rail', 'Resize the sidebar'),
+    resizer('list', 'Resize the conversation list'),
+    resizer('feed', 'Resize the notifications panel'),
   );
+  applyWidths();
+}
+
+// ---------- column widths ----------
+// Dragging a handle sets a CSS variable; the grid and the handles' positions both read it.
+const WIDTHS = { rail: [232, 180, 360], list: [300, 220, 520], feed: [320, 260, 520] }; // default, min, max
+const widths = loadPref('tether.widths', {});
+const clampWidth = (part, px) => Math.round(Math.min(WIDTHS[part][2], Math.max(WIDTHS[part][1], px)));
+function applyWidths() {
+  const app = $('#app');
+  for (const part of Object.keys(WIDTHS)) {
+    const px = clampWidth(part, Number(widths[part]) || WIDTHS[part][0]);
+    app.style.setProperty(`--${part}-w`, `${px}px`);
+    const handle = $(`.resizer[data-part="${part}"]`, app);
+    if (handle) handle.setAttribute('aria-valuenow', String(px));
+  }
+}
+function setWidth(part, px) {
+  if (px === null) delete widths[part]; else widths[part] = clampWidth(part, px);
+  savePref('tether.widths', widths);
+  applyWidths();
+}
+function resetWidths() {
+  for (const part of Object.keys(WIDTHS)) delete widths[part];
+  savePref('tether.widths', widths);
+  applyWidths();
+}
+const currentWidth = (part) => clampWidth(part, Number(widths[part]) || WIDTHS[part][0]);
+function resizer(part, label) {
+  const [, min, max] = WIDTHS[part];
+  // The feed sits on the right, so dragging left makes it wider.
+  const dir = part === 'feed' ? -1 : 1;
+  return h('div', { class: 'resizer', 'data-part': part, role: 'separator', tabindex: '0', 'aria-orientation': 'vertical',
+    'aria-label': label, title: `${label}. Double-click to reset.`, 'aria-valuemin': String(min), 'aria-valuemax': String(max),
+    ondblclick: () => setWidth(part, null),
+    onkeydown: (e) => {
+      const step = e.shiftKey ? 48 : 16;
+      if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') { e.preventDefault(); setWidth(part, currentWidth(part) + (e.key === 'ArrowRight' ? step : -step) * dir); }
+      else if (e.key === 'Home') { e.preventDefault(); setWidth(part, null); }
+    },
+    onpointerdown: (e) => {
+      if (e.button !== 0) return;
+      e.preventDefault();
+      const handle = e.currentTarget, startX = e.clientX, start = currentWidth(part);
+      handle.setPointerCapture(e.pointerId);
+      document.body.classList.add('resizing');
+      const move = (ev) => {
+        widths[part] = clampWidth(part, start + (ev.clientX - startX) * dir);
+        applyWidths();
+      };
+      const up = () => {
+        handle.removeEventListener('pointermove', move);
+        document.body.classList.remove('resizing');
+        savePref('tether.widths', widths);
+      };
+      handle.addEventListener('pointermove', move);
+      handle.addEventListener('pointerup', up, { once: true });
+      handle.addEventListener('pointercancel', up, { once: true });
+    } });
 }
 
 const lowBattery = () => !!state.battery && !state.battery.charging && (state.battery.low || state.battery.charge <= 15);
@@ -365,7 +440,7 @@ function renderRail() {
       h('div', { class: 'card-actions' },
         h('button', { class: 'btn', disabled: !(d && d.connected), onclick: ringPhone, title: 'Ring the phone at full volume' }, icon('ring', 'sm'), 'Ring'),
         h('button', { class: 'btn', disabled: !(d && d.connected), onclick: () => quick('ping', 'Ping sent'), title: 'Send a ping' }, icon('bolt', 'sm'), 'Ping'))),
-    state.call && state.call.state === 'ringing' ? h('div', { class: 'call' },
+    state.call && state.call.state === 'ringing' && !btCallsLive() ? h('div', { class: 'call' },
       icon('call', 'pulse'),
       h('div', {}, h('b', { text: state.call.name || prettyNumber(state.call.number || '') || 'Unknown caller' }), h('span', { text: 'Incoming call' })),
       h('button', { class: 'btn', onclick: () => quick('mute', 'Ringer muted') }, icon('mute', 'sm'), 'Mute')) : null,
@@ -386,7 +461,7 @@ function renderRail() {
       h('button', { 'aria-current': state.view === 'photos' ? 'page' : null, onclick: () => showView('photos') }, icon('image'), h('span', { class: 'label', text: 'Photos' })),
       ...[['files', 'Files', 'folder'], ['contacts', 'Contacts', 'user'], ['keyboard', 'Keyboard', 'keyboard'], ['devices', 'Devices', 'phone']].map(([view, label, glyph]) =>
         h('button', { title: label, 'aria-label': label, 'aria-current': state.view === view ? 'page' : null, onclick: () => showView(view) }, icon(glyph), h('span', { class: 'label', text: label }))),
-      h('button', { onclick: toggleFeed }, icon('bell'), h('span', { class: 'label', text: 'Notifications' }),
+      h('button', { 'data-key': 'nav-notifications', 'aria-pressed': String(state.feedOpen), title: state.feedOpen ? 'Hide notifications' : 'Show notifications', onclick: toggleFeed }, icon('bell'), h('span', { class: 'label', text: 'Notifications' }),
         notes ? h('span', { class: 'count label', text: String(notes) }) : null),
       h('button', { 'aria-current': state.view === 'settings' ? 'page' : null, onclick: () => showView('settings') }, icon('settings'), h('span', { class: 'label', text: 'Settings' }))),
     h('div', { class: 'spacer' }),
@@ -560,6 +635,7 @@ function renderThreadPane(rebuild) {
     avatar(title, addrs.length > 1),
     h('div', { class: 'title' }, h('b', { text: title }), subtitle(title, addrs)),
     h('div', { class: 'actions' },
+      addrs.length === 1 ? callButton(addrs[0].address, title) : null,
       h('button', { class: 'btn ghost icon-only feed-toggle', title: 'Notifications', 'aria-label': 'Notifications', onclick: toggleFeed }, icon('bell'))),
   ]);
   const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 40;
@@ -606,6 +682,7 @@ function messageNodes(id, msgs) {
     nodes.push(row);
     prev = m;
   });
+  nodes.push(...scheduledNodes(id, msgs));
   return nodes;
 }
 
@@ -617,6 +694,7 @@ function buildComposer() {
     onkeydown: (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(ta); } } });
   return h('div', { class: 'composer' },
     h('div', { class: 'composer-box' }, ta,
+      laterButton(ta, d),
       h('button', { class: 'btn primary icon-only', 'aria-label': 'Send', title: 'Send (Enter)', onclick: () => send(ta), disabled: !(d && d.connected) }, icon('send'))),
     h('div', { class: 'note' }, h('span', { text: 'Sent as a text from your phone' }), h('span', { text: 'Shift+Enter for a new line' })));
 }
@@ -654,7 +732,7 @@ function retry(m) {
   const i = state.pending.findIndex((p) => p.key === m.key);
   if (i >= 0) state.pending.splice(i, 1);
   const ta = $('.composer textarea');
-  if (ta) { ta.value = p.body; send(ta); }
+  if (ta) { ta.value = m.body; send(ta); }
 }
 
 // ---------- new message ----------
@@ -845,9 +923,9 @@ function openAttachment(a) {
 }
 
 // ---------- settings ----------
-const settings = { data: null, error: '', forgetting: false, saving: false, openCommands: false };
+const settings = { data: null, error: '', forgetting: false, saving: false, openCommands: false, tab: loadPref('tether.settingsTab', 'general') };
 
-function openCommandsSettings() { settings.openCommands = true; showView('settings'); }
+function openCommandsSettings() { settings.openCommands = true; settings.tab = 'access'; showView('settings'); }
 
 async function loadSettings() {
   try { settings.data = await api('settings_get'); settings.error = ''; } catch (e) { settings.error = e.message || String(e); }
@@ -874,9 +952,9 @@ async function saveSettings(changes, done = 'Saved') {
 }
 
 function settingSwitch(key, label, hint) {
-  const input = h('input', { type: 'checkbox', role: 'switch', 'data-key': `set-${key}`, checked: settings.data[key],
+  const input = h('input', { type: 'checkbox', role: 'switch', class: 'switch', 'data-key': `set-${key}`, checked: settings.data[key],
     onchange: (e) => saveSettings({ [key]: e.target.checked }) });
-  return h('label', { class: 'setting check' }, input, h('span', {}, h('b', { text: label }), hint ? h('small', { text: hint }) : null));
+  return h('label', { class: 'setting check' }, h('span', {}, h('b', { text: label }), hint ? h('small', { text: hint }) : null), input);
 }
 
 // `list`: the setting is a list of names, shown and edited as comma-separated text.
@@ -914,57 +992,108 @@ function commandsEditor(commands, flatpak) {
     commands.length ? commands.map(row) : h('p', { class: 'none', text: 'No commands yet.' }), row({ name: '', command: '' }, -1));
 }
 
-function renderSettings() {
-  const page = $('.settings-page');
-  if (!page || state.view !== 'settings') return;
-  const d = device();
-  const s = settings.data;
-  swap(page, () => {
-    const head = h('div', { class: 'apps-head' }, h('div', {}, h('h1', { text: 'Settings' }), s ? h('p', { class: 'sub', text: `Tether ${s.version}` }) : null));
-    if (settings.error) return [head, h('div', { class: 'empty' }, icon('alert'), h('p', { text: settings.error }),
-      h('button', { class: 'btn', onclick: loadSettings }, icon('refresh', 'sm'), 'Try again'))];
-    if (!s) return [head, h('div', { class: 'empty' }, h('div', { class: 'spinner' }), h('p', { text: 'Loading settings' }))];
-    const flatpak = !!state.me?.flatpak;
-    const addr = h('input', { type: 'text', 'data-key': 'set-address', placeholder: '192.168.1.20', 'aria-label': "Phone's address" });
-    return [head, h('div', { class: 'settings-body' },
-      s.tray_missing && !s.tray_note_dismissed ? trayNote() : null,
-      h('section', {}, h('h2', { text: 'This computer' }),
-        settingText('device_name', 'Name', 'What your phone calls this computer.'),
-        settingSwitch('autostart', 'Start Tether when I log in', 'Texts, notifications and the clipboard keep working with the window closed.'),
-        // The sandbox's filtered session bus can't watch other apps' notifications.
-        flatpak ? null : settingSwitch('send_notifications', "Send this computer's notifications to the phone", 'Off until you turn it on. Tether notifications are excluded.'),
-        flatpak ? null : settingText('notification_blocklist', 'Apps that stay on this computer', 'Notifications from these apps are not sent to the phone.', 'Save', true),
-        h('div', { class: 'setting' }, h('label', { for: 'pause-media' }, h('b', { text: 'During phone calls' }), h('small', { text: 'Desktop players you were listening to.' })),
+const SETTINGS_TABS = [['general', 'General'], ['notifications', 'Notifications'], ['calls', 'Calls'],
+  ['access', 'Phone access'], ['files', 'Sharing'], ['connection', 'Connection']];
+function settingsTabs() {
+  const pick = (id, focus) => {
+    settings.tab = id; savePref('tether.settingsTab', id); renderSettings();
+    if (focus) $(`.settings-tabs [data-tab="${id}"]`)?.focus();
+  };
+  return h('div', { class: 'settings-tabs', role: 'tablist', 'aria-label': 'Settings sections',
+    onkeydown: (e) => {
+      const i = SETTINGS_TABS.findIndex(([id]) => id === settings.tab);
+      const next = { ArrowRight: i + 1, ArrowLeft: i - 1, Home: 0, End: SETTINGS_TABS.length - 1 }[e.key];
+      if (next === undefined) return;
+      e.preventDefault();
+      pick(SETTINGS_TABS[(next + SETTINGS_TABS.length) % SETTINGS_TABS.length][0], true);
+    } },
+  SETTINGS_TABS.map(([id, label]) => h('button', { role: 'tab', id: `tab-${id}`, 'data-tab': id, 'aria-controls': 'settings-panel',
+    'aria-selected': String(settings.tab === id), tabindex: settings.tab === id ? '0' : '-1', onclick: () => pick(id) }, label)));
+}
+// A titled group of settings drawn as one card.
+const group = (title, sub, ...rows) => h('section', { class: 'settings-group' },
+  title ? h('h2', { text: title }) : null, sub ? h('p', { class: 'sub', text: sub }) : null,
+  h('div', { class: 'settings-card' }, ...rows));
+
+async function quitTether() {
+  try { await api('quit'); } catch (e) { toast(e.message || String(e), 'error'); }
+}
+
+function settingsPanel(s, d, flatpak) {
+  const addr = h('input', { type: 'text', 'data-key': 'set-address', placeholder: '192.168.1.20', 'aria-label': "Phone's address" });
+  switch (settings.tab) {
+    case 'notifications': return [
+      group('From your phone', '',
+        settingSwitch('mirror_notifications', 'Show phone notifications on this computer', 'They always show in the Tether window.'),
+        ...quietSettings()),
+      // The sandbox's filtered session bus can't watch other apps' notifications.
+      flatpak ? null : group('To your phone', '',
+        settingSwitch('send_notifications', "Send this computer's notifications to the phone", 'Off until you turn it on. Tether notifications are excluded.'),
+        settingText('notification_blocklist', 'Apps that stay on this computer', 'Notifications from these apps are not sent to the phone.', 'Save', true))];
+    case 'calls': return [
+      group('During phone calls', 'What happens to music and videos playing on this computer.',
+        h('div', { class: 'setting row-setting' }, h('label', { for: 'pause-media' }, h('b', { text: 'Desktop players' }), h('small', { text: 'Players you were listening to.' })),
           h('select', { id: 'pause-media', 'aria-label': 'Pause media during calls', onchange: (e) => saveSettings({ pause_media: e.target.value }) },
             [['ringing', 'Pause when the phone rings'], ['talking', 'Pause when the call is answered'], ['off', 'Keep playing']].map(([value, label]) => h('option', { value, selected: s.pause_media === value }, label)))),
-        settingSwitch('mute_media', 'Mute instead of pausing', 'Restores each playing player’s volume when the call ends.'),
-        flatpak ? null : settingSwitch('auto_update', 'Install new versions by themselves', 'Off: Tether still tells you when there is one.'),
-        state.update?.kind === 'store' ? null : h('div', { class: 'setting' }, h('button', { class: 'btn', onclick: checkForUpdates }, icon('refresh', 'sm'), 'Check for updates'))),
-      h('section', {}, h('h2', { text: 'From your phone' }),
-        settingSwitch('mirror_notifications', 'Show phone notifications on this computer', 'They always show in the Tether window.'),
-        settingSwitch('clipboard_sync', 'Share the clipboard', 'What you copy on one is ready to paste on the other.'),
-        settingText('downloads_dir', 'Save files from the phone in', flatpak ? 'The whole path of a folder inside Downloads.' : 'The whole path of a folder.')),
-      h('section', {}, h('h2', { text: 'What your phone can do on this computer' }),
+        settingSwitch('mute_media', 'Mute instead of pausing', 'Restores each playing player’s volume when the call ends.'))];
+    case 'access': return [
+      group('What your phone can do on this computer', 'Each one also needs its switch on in KDE Connect on the phone.',
         settingSwitch('allow_commands', 'Run commands'),
         settingSwitch('allow_input', 'Control the mouse and keyboard'),
         settingSwitch('allow_lock', 'Lock the screen'),
         settingSwitch('allow_volume', 'Change the volume'),
         settingSwitch('allow_ring', 'Ring this computer')),
-      commandsEditor(s.commands || [], flatpak),
-      h('section', {}, h('h2', { text: 'Finding your phone' }),
+      commandsEditor(s.commands || [], flatpak)];
+    case 'files': return [
+      group('Clipboard', '', settingSwitch('clipboard_sync', 'Share the clipboard', 'What you copy on one is ready to paste on the other.')),
+      group('Files', '', settingText('downloads_dir', 'Save files from the phone in', flatpak ? 'The whole path of a folder inside Downloads.' : 'The whole path of a folder.'))];
+    case 'connection': return [
+      group('Finding your phone', "Tether finds your phone by itself on the same Wi-Fi. On a network where it can't (a VPN, some office or guest Wi-Fi), add the phone's address. It is in the phone's Wi-Fi settings, under the network's details.",
         settingSwitch('mdns', 'Find phones with mDNS', 'Helps find phones on networks that block broadcast discovery.'),
-        h('p', { class: 'sub', text: "Tether finds your phone by itself on the same Wi-Fi. On a network where it can't (a VPN, some office or guest Wi-Fi), add the phone's address. It is in the phone's Wi-Fi settings, under the network's details." }),
         s.addresses.length ? h('ul', { class: 'addr-list' }, s.addresses.map((a) => h('li', {}, h('span', { text: a }),
           h('button', { class: 'btn ghost icon-only', 'aria-label': `Remove ${a}`, title: 'Remove', onclick: () => saveSettings({ addresses: s.addresses.filter((x) => x !== a) }, 'Removed') }, icon('trash', 'sm'))))) : null,
         h('form', { class: 'setting', onsubmit: (e) => { e.preventDefault(); const v = addr.value.trim(); if (v && !s.addresses.includes(v)) saveSettings({ addresses: [...s.addresses, v] }, 'Added'); } },
+          h('label', { for: 'set-address' }, h('b', { text: "Phone's address" })),
           h('div', { class: 'field-row' }, addr, h('button', { class: 'btn', type: 'submit' }, icon('plus', 'sm'), 'Add address')))),
-      d ? h('section', {}, h('h2', { text: d.name }),
+      d ? group(d.name, '',
         settings.forgetting
           ? h('div', { class: 'setting' }, h('p', { class: 'sub', text: `Forget ${d.name}? Its texts and notifications leave this computer, and you pair again to bring it back.` }),
             h('div', { class: 'field-row' },
               h('button', { class: 'btn danger', 'data-key': 'set-forget-yes', onclick: forgetPhone }, 'Forget this phone'),
               h('button', { class: 'btn', onclick: () => { settings.forgetting = false; renderSettings(); } }, 'Keep it')))
-          : h('div', { class: 'setting' }, h('button', { class: 'btn', 'data-key': 'set-forget', onclick: () => { settings.forgetting = true; renderSettings(); } }, icon('trash', 'sm'), 'Forget this phone'))) : null)];
+          : h('div', { class: 'setting row-setting' }, h('span', {}, h('b', { text: 'Forget this phone' }), h('small', { text: 'Unpairs it. Pair again to bring it back.' })),
+            h('button', { class: 'btn', 'data-key': 'set-forget', onclick: () => { settings.forgetting = true; renderSettings(); } }, icon('trash', 'sm'), 'Forget'))) : null];
+    default: return [
+      s.tray_missing && !s.tray_note_dismissed ? trayNote() : null,
+      group('This computer', '',
+        settingText('device_name', 'Name', 'What your phone calls this computer.'),
+        settingSwitch('autostart', 'Start Tether when I log in', 'Texts, notifications and the clipboard keep working with the window closed.')),
+      group('Updates', '',
+        flatpak ? null : settingSwitch('auto_update', 'Install new versions by themselves', 'Off: Tether still tells you when there is one.'),
+        state.update?.kind === 'store' ? h('p', { class: 'sub', text: 'Your software store keeps Tether up to date.' })
+          : h('div', { class: 'setting row-setting' }, h('span', {}, h('b', { text: `Tether ${s.version}` })),
+            h('button', { class: 'btn', onclick: checkForUpdates }, icon('refresh', 'sm'), 'Check for updates'))),
+      group('Window', '',
+        h('div', { class: 'setting row-setting' }, h('span', {}, h('b', { text: 'Column widths' }), h('small', { text: 'Drag the edge of a column to resize it.' })),
+          h('button', { class: 'btn', 'data-key': 'reset-widths', onclick: () => { resetWidths(); toast('Column widths reset'); } }, 'Reset')),
+        h('div', { class: 'setting row-setting' }, h('span', {}, h('b', { text: 'Quit Tether' }), h('small', { text: 'Stops texts, notifications and the clipboard until you open Tether again. The tray icon’s menu has this too.' })),
+          h('button', { class: 'btn', 'data-key': 'quit-tether', onclick: quitTether }, 'Quit')))];
+  }
+}
+
+function renderSettings() {
+  const page = $('.settings-page');
+  if (!page || state.view !== 'settings') return;
+  const d = device();
+  const s = settings.data;
+  if (!SETTINGS_TABS.some(([id]) => id === settings.tab)) settings.tab = 'general';
+  swap(page, () => {
+    const head = h('div', { class: 'apps-head settings-head' }, h('div', {}, h('h1', { text: 'Settings' })), s && !settings.error ? settingsTabs() : null);
+    if (settings.error) return [head, h('div', { class: 'empty' }, icon('alert'), h('p', { text: settings.error }),
+      h('button', { class: 'btn', onclick: loadSettings }, icon('refresh', 'sm'), 'Try again'))];
+    if (!s) return [head, h('div', { class: 'empty' }, h('div', { class: 'spinner' }), h('p', { text: 'Loading settings' }))];
+    return [head, h('div', { class: 'settings-body', id: 'settings-panel', role: 'tabpanel', 'aria-labelledby': `tab-${settings.tab}` },
+      ...settingsPanel(s, d, !!state.me?.flatpak))];
   });
 }
 
@@ -1464,9 +1593,11 @@ function openWindows(st) {
 
 // ---------- notifications ----------
 function toggleFeed() {
-  if (window.innerWidth > 1180) { $('.feed button, .feed input')?.focus(); return; }
-  state.feedOverlay = !state.feedOverlay;
-  $('#app').classList.toggle('feed-overlay', state.feedOverlay);
+  state.feedOpen = !state.feedOpen;
+  savePref('tether.feedOpen', state.feedOpen);
+  render();
+  if (state.feedOpen) $('.feed button, .feed input')?.focus();
+  else $('.nav [data-key="nav-notifications"]')?.focus();
 }
 
 function recentCode() {
@@ -1486,7 +1617,7 @@ function renderFeed() {
     h('div', { class: 'feed-head' }, h('h2', { text: 'Notifications' }),
       h('div', {},
         clearable.length ? h('button', { class: 'btn ghost', onclick: () => clearable.forEach((n) => dismiss(n)) }, 'Clear all') : null,
-        state.feedOverlay ? h('button', { class: 'btn ghost icon-only', 'aria-label': 'Close', onclick: toggleFeed }, icon('x')) : null)),
+        h('button', { class: 'btn ghost icon-only', 'data-key': 'feed-close', 'aria-label': 'Close notifications', title: 'Close notifications', onclick: toggleFeed }, icon('x')))),
     h('div', { class: 'feed-body' },
       code ? h('div', { class: 'code-card' },
         h('div', { class: 'from' }, icon('key', 'sm'), `Code from ${code.from}`),
@@ -1725,10 +1856,11 @@ function commands() {
     live && player && player.can_go_next && { label: 'Next song', sub: player.name, icon: 'next', run: () => mediaAction(player, 'Next') },
     state.call && { label: 'Mute the ringing call', icon: 'mute', run: () => quick('mute', 'Ringer muted') },
     { label: 'Look for my phone', icon: 'refresh', run: () => quick('refresh', 'Looking for your phone', true) },
-    { label: 'Show notifications', icon: 'bell', run: toggleFeed },
+    { label: state.feedOpen ? 'Hide notifications' : 'Show notifications', icon: 'bell', run: toggleFeed },
     { label: 'Check for updates', icon: 'download', run: checkForUpdates },
     recentCode() && { label: `Copy code ${recentCode().code}`, sub: recentCode().from, icon: 'key', run: () => copy(recentCode().code, 'Code copied') },
   ].filter(Boolean);
+  cmds.unshift(...activeCallCommands());
   cmds.push({ label: 'Show phone apps', icon: 'apps', run: () => showView('apps') });
   cmds.push({ label: 'Show phone photos', icon: 'image', run: () => showView('photos') });
   // After the everyday commands: the palette shows nine before anything is typed.
@@ -1736,12 +1868,15 @@ function commands() {
   for (const [view, label] of [['files', 'Browse phone files'], ['contacts', 'Show contacts'], ['keyboard', 'Keyboard'], ['devices', 'Manage phones']])
     cmds.push({ label, icon: view === 'keyboard' ? 'key' : 'phone', run: () => showView(view) });
   cmds.push({ label: 'Settings', icon: 'settings', run: () => showView('settings') });
+  cmds.push({ label: 'Quit Tether', sub: 'Stops it until you open it again', icon: 'x', run: quitTether });
+  const quietCmd = quietCommand(); if (quietCmd) cmds.push(quietCmd);
   if (apps.status?.device) {
     cmds.push({ label: 'Show phone screen', icon: 'phone', run: () => openApp(null) });
     for (const a of apps.list || []) cmds.push({ label: `Open ${a.name}`, sub: 'Phone app', icon: 'apps', run: () => openApp(a) });
   }
   for (const m of heads()) cmds.push({ label: threadTitle(m.addresses), sub: 'Conversation', icon: 'message', run: () => selectThread(m.thread_id) });
   for (const c of state.contacts) cmds.push({ label: `Text ${c.name}`, sub: prettyNumber(c.number), icon: 'send', run: () => openNew(c) });
+  cmds.push(...dialCommands());
   return cmds;
 }
 
@@ -1775,7 +1910,7 @@ document.addEventListener('keydown', (e) => {
   const mod = e.ctrlKey || e.metaKey;
   if (mod && (e.key === 'k' || e.key === 'p')) { e.preventDefault(); openPalette(); }
   else if (mod && e.key === 'n' && state.deviceId) { e.preventDefault(); openNew(); }
-  else if (e.key === 'Escape' && state.feedOverlay) toggleFeed();
+  else if (e.key === 'Escape' && state.feedOpen && window.innerWidth <= 1180) toggleFeed();
 });
 
 // ---------- drag and drop ----------
@@ -1827,7 +1962,11 @@ function receivedFile(path) {
 function onEvent(ev) {
   if (ev.event === 'computer_settings') { openCommandsSettings(); return; }
   if (ev.event === 'send_files') { pickAndSendFiles(); return; }
+  if (ev.event === 'scheduled') { scheduled.items = ev.items || []; invalidate('thread'); return; }
+  if (ev.event === 'show_notifications') { showNotifications(); return; }
+  if (ev.event === 'settings') { loadSettings(); return; }
   if (ev.event === 'computer_ring') { state.computerRinging = ev.ringing; renderRail(); return; }
+  if (ev.event === 'calls') { onCalls(ev); return; }
   if (ev.event === 'device') {
     const i = state.devices.findIndex((d) => d.id === ev.id);
     const before = i >= 0 ? state.devices[i] : null;
@@ -2005,17 +2144,32 @@ function readinessHint(feature) {
   if (status === 'missing') return h('p', { class: 'readiness-hint', text: 'Your version of KDE Connect on the phone does not have this. Updating the app may add it.' });
   return status === 'waiting' ? h('p', { class: 'readiness-hint', text: `If nothing comes, check this on the phone: ${phoneSetup(feature, d)}` }) : null;
 }
+// Leads with what needs doing; the full list (with every step) stays one click away.
 function phoneChecklist(d) {
   const items = (d.readiness || []).map((f) => ({ ...f, status: featureStatus(f, d) }));
+  const working = items.filter((f) => f.status === 'working');
+  const waiting = items.filter((f) => f.status === 'waiting');
+  const missing = items.filter((f) => f.status === 'missing');
+  const fix = (f) => h('details', { class: 'fix', 'data-feature': f.id },
+    h('summary', {}, icon('alert', 'sm'), h('b', { text: f.label }), h('span', { class: 'readiness-status', text: 'How to turn it on' }), icon('chevron', 'sm chev')),
+    h('p', { text: phoneSetup(f.id, d) }));
+  const summary = [working.length && `${working.length} working`, waiting.length && `${waiting.length} to set up`].filter(Boolean).join(' · ');
   return h('section', { class: 'phone-readiness', 'aria-label': 'On your phone' },
-    h('h2', { text: 'On your phone' }),
-    h('p', { class: 'sub', text: 'Each feature needs its switch on in the KDE Connect app, and some need a permission. If one does not work, follow its steps on the phone.' }),
-    !d.connected ? h('p', { text: 'Your phone is offline, so this shows what it had last time.' }) : null,
-    h('ul', { class: 'readiness-list' }, items.map((f) => h('li', { 'data-feature': f.id, 'data-status': f.status, 'data-ready': String(f.status === 'working') },
-      h('div', { class: 'row' }, icon(f.status === 'working' ? 'check' : f.status === 'unknown' ? 'dot' : 'alert', 'sm'), h('b', { text: f.label }),
-        STATUS_TEXT[f.status] ? h('span', { class: 'readiness-status', text: STATUS_TEXT[f.status] }) : null),
-      f.status === 'working' ? null : h('p', { text: f.status === 'missing' ? 'Not in this version of KDE Connect on the phone.' : phoneSetup(f.id, d) })))),
-    h('p', { class: 'sub', text: 'On Samsung phones, also set Settings > Apps > KDE Connect > Battery > Unrestricted, so the phone keeps the connection while it sleeps.' }));
+    h('div', { class: 'readiness-head' }, h('h2', { text: 'Phone features' }), summary ? h('span', { class: 'readiness-summary', text: summary }) : null),
+    !d.connected ? h('p', { class: 'sub', text: 'Your phone is offline, so this shows what it had last time.' }) : null,
+    working.length ? h('ul', { class: 'feature-chips', 'aria-label': 'Working' }, working.map((f) => h('li', {}, icon('check', 'sm'), f.label))) : null,
+    waiting.length ? h('div', { class: 'fix-list' },
+      h('p', { class: 'sub', text: waiting.length === 1 ? 'One feature has sent nothing yet. Its switch may be off in KDE Connect on the phone.' : `${waiting.length} features have sent nothing yet. Their switches may be off in KDE Connect on the phone.` }),
+      waiting.map(fix)) : null,
+    missing.length ? h('p', { class: 'sub', text: `Not in this version of KDE Connect on the phone: ${missing.map((f) => f.label).join(', ')}.` }) : null,
+    h('details', { class: 'all-features' },
+      h('summary', {}, icon('chevron', 'sm chev'), `Show all ${items.length} features and their switches`),
+      h('ul', { class: 'readiness-list' }, items.map((f) => h('li', { 'data-feature': f.id, 'data-status': f.status, 'data-ready': String(f.status === 'working') },
+        h('div', { class: 'row' }, icon(f.status === 'working' ? 'check' : f.status === 'unknown' ? 'dot' : 'alert', 'sm'), h('b', { text: f.label }),
+          STATUS_TEXT[f.status] ? h('span', { class: 'readiness-status', text: STATUS_TEXT[f.status] }) : null),
+        f.status === 'working' ? null : h('p', { text: f.status === 'missing' ? 'Not in this version of KDE Connect on the phone.' : phoneSetup(f.id, d) })))),
+      h('p', { class: 'sub', text: 'Each feature needs its switch on in the KDE Connect app, and some need a permission.' }),
+      h('p', { class: 'sub', text: 'On Samsung phones, also set Settings > Apps > KDE Connect > Battery > Unrestricted, so the phone keeps the connection while it sleeps.' })));
 }
 
 function renderTools() {
@@ -2035,7 +2189,7 @@ function renderTools() {
         !groups.size ? h('div', { class: 'empty' }, icon('user'), h('p', { text: query ? 'No matching contacts.' : 'No contacts shared yet.' }),
           !query ? (readinessHint('contacts') || h('p', { text: phoneSetup('contacts') })) : null) :
           [...groups].map(([name, numbers]) => h('article', { class: 'contact-card' }, h('h2', { text: name }), numbers.map((c) =>
-            h('div', { class: 'row' }, h('span', { class: 'grow', text: prettyNumber(c.number) }), toolButton('Text', () => openNew(c)), toolButton('Copy number', () => copy(c.number, 'Number copied'))))))) ]);
+            h('div', { class: 'row' }, h('span', { class: 'grow', text: prettyNumber(c.number) }), toolButton('Text', () => openNew(c)), toolButton('Call', () => dialNumber(c.number, c.name)), toolButton('Copy number', () => copy(c.number, 'Number copied'))))))) ]);
   } else if (state.view === 'keyboard') {
     swap(page, () => [toolHead('Keyboard', 'Type into the text field selected on your phone.'),
       h('div', { class: 'tools-body keyboard-body' }, readinessHint('keyboard'),
@@ -2051,10 +2205,15 @@ function renderTools() {
         h('div', { class: 'row' }, toolButton('Send Tab', () => sendKey({ specialKey: 2 })), toolButton('Send Enter', () => sendKey({ specialKey: 12 })), toolButton('Send Escape', () => sendKey({ specialKey: 14 }))))]);
   } else {
     swap(page, () => [toolHead('Devices', 'Pair, switch or forget a phone.', toolButton('Connect by address', connectByAddress)),
-      h('div', { class: 'tools-body' }, state.devices.map((d) => d.pair === 'paired' ? h('article', { class: 'contact-card' },
-        h('h2', { text: d.name }), phoneFacts(d) ? h('p', { text: phoneFacts(d) }) : null, h('p', { text: d.connected ? `Connected${d.address ? ` · ${d.address}` : ''}` : (d.last_seen ? `Last seen ${ago(d.last_seen)} · Reconnecting` : 'Offline · Tether keeps reconnecting') }),
-        h('div', { class: 'row' }, toolButton(d.id === state.deviceId ? 'Selected' : 'Use this phone', () => switchDevice(d.id), { disabled: d.id === state.deviceId }),
-          toolButton('Forget phone', () => askFile(`Forget ${d.name}?`, '', () => pairAction('unpair', d.id), true))), phoneChecklist(d)) : pairRow(d)),
+      h('div', { class: 'tools-body' }, state.devices.map((d) => d.pair === 'paired' ? h('article', { class: 'contact-card device-card' },
+        h('div', { class: 'device-head' },
+          h('div', { class: 'device-title' }, icon('phone'),
+            h('div', {}, h('h2', { text: d.name }),
+              h('p', {}, h('span', { class: `dot ${d.connected ? 'on' : 'wait'}` }),
+                [d.connected ? `Connected${d.address ? ` · ${d.address}` : ''}` : (d.last_seen ? `Last seen ${ago(d.last_seen)} · Reconnecting` : 'Offline · Tether keeps reconnecting'), phoneFacts(d)].filter(Boolean).join(' · ')))),
+          h('div', { class: 'row' }, d.id === state.deviceId ? null : toolButton('Use this phone', () => switchDevice(d.id)),
+            toolButton('Forget phone', () => askFile(`Forget ${d.name}?`, '', () => pairAction('unpair', d.id), true)))),
+        phoneChecklist(d)) : pairRow(d)),
       toolButton('Look for phones', () => quick('refresh', 'Looking for phones', true)))]);
   }
 }
@@ -2118,4 +2277,335 @@ async function switchDevice(id) {
   photos.status = 'idle'; photos.folders = []; photos.thumbs.clear(); photos.tiles.clear();
   files.generation++; files.device = null; files.entries = []; files.path = '';
   await loadDevice(); render(); if (state.view === 'files') loadFiles();
+}
+
+// ---------- Calls through this computer (Bluetooth hands-free, crates/tether/src/calls.rs) ----------
+// The daemon pushes `calls` events with {blocker, phone, audio_here, calls}; the banner floats over
+// every view so a ringing call can be answered from anywhere.
+const calls = { status: null, busy: null, timer: null };
+
+const callSetup = {
+  service: { why: 'Calling from this computer needs PipeWire 1.4 or newer with its Bluetooth support.',
+    steps: ['Update your system. Ubuntu 25.04, Fedora 42 and newer already have it.', 'If it still doesn\'t work, install the PipeWire Bluetooth package (often called pipewire-bluetooth or libspa-0.2-bluetooth), then log out and back in.'] },
+  bluetooth: { why: 'Bluetooth isn\'t running on this computer, or it has no Bluetooth.',
+    steps: ['Turn on Bluetooth in your desktop\'s settings.', 'No Bluetooth on this computer? A small USB Bluetooth adapter works.'] },
+  adapter_off: { why: 'Bluetooth is off on this computer.', steps: ['Turn on Bluetooth in your desktop\'s settings.'] },
+  pair: { why: 'Your phone isn\'t paired with this computer over Bluetooth yet. Calls use Bluetooth, the way a car or headset does.',
+    steps: ['Open Bluetooth settings on this computer and pair it with your phone.', 'When the phone asks, allow Phone calls (and Contacts if you like) for this computer.'] },
+  connect: { why: 'Your phone is paired over Bluetooth but not connected for calls.',
+    steps: ['On the phone, open Settings, Connections, Bluetooth, then the gear next to this computer, and turn on Calls.', 'Or connect it from Bluetooth settings on this computer.'] },
+};
+
+function liveCalls() { return calls.status?.calls || []; }
+function btCallsLive() { return liveCalls().length > 0; }
+function callTitle(c) { return c.name || (c.number ? prettyNumber(c.number) : 'Unknown caller'); }
+
+function loadCalls() {
+  api('call_status').then(onCalls).catch(() => {});
+}
+
+function onCalls(status) {
+  const prev = calls.status;
+  calls.status = status;
+  // The pressed button waits until the phone acts: the call changes state or ends, or the sound moves.
+  const b = calls.busy;
+  if (b) {
+    const was = prev?.calls?.find((c) => c.id === b.id), now = liveCalls().find((c) => c.id === b.id);
+    if (b.id === null ? status.audio_here : (!now || !was || now.state !== was.state)) calls.busy = null;
+  }
+  renderCallBanner();
+  if ($('.rail')) renderRail();
+}
+
+function callStateText(c) {
+  return { incoming: 'Incoming call', waiting: 'Call waiting', dialing: 'Calling', alerting: 'Ringing', held: 'On hold' }[c.state] || '';
+}
+
+function callClock(since) {
+  const s = Math.max(0, Math.floor((Date.now() - since) / 1000));
+  const mm = String(Math.floor(s / 60) % 60).padStart(2, '0'), ss = String(s % 60).padStart(2, '0');
+  return s >= 3600 ? `${Math.floor(s / 3600)}:${mm}:${ss}` : `${mm}:${ss}`;
+}
+
+async function callAction(c, method, label) {
+  calls.busy = { id: c ? c.id : null, label };
+  renderCallBanner();
+  try {
+    await api(method, c ? { id: c.id } : {});
+  } catch (e) {
+    calls.busy = null;
+    renderCallBanner();
+    toast(String(e), 'error');
+  }
+  // The phone may take a moment; never leave the buttons stuck if nothing comes back.
+  setTimeout(() => { if (calls.busy?.label === label) { calls.busy = null; renderCallBanner(); } }, 8000);
+}
+
+function callCard(c) {
+  const busy = calls.busy && (calls.busy.id === c.id || calls.busy.id === null) ? calls.busy.label : null;
+  const ringing = c.state === 'incoming' || c.state === 'waiting';
+  const active = c.state === 'active';
+  const sub = active && c.since ? h('span', { class: 'call-timer', 'data-since': String(c.since), text: callClock(c.since) }) : h('span', { text: callStateText(c) });
+  const where = active ? h('span', { text: calls.status.audio_here ? 'Sound on this computer' : 'Sound on your phone' }) : null;
+  const title = callTitle(c);
+  const actions = busy ? [h('div', { class: 'spinner', 'aria-hidden': 'true' }), h('span', { text: busy })]
+    : ringing ? [
+      h('button', { class: 'btn answer', onclick: () => callAction(c, 'call_answer', 'Answering') }, icon('call', 'sm'), 'Answer'),
+      h('button', { class: 'btn hangup', onclick: () => callAction(c, 'call_hangup', 'Declining') }, icon('hangup', 'sm'), 'Decline')]
+    : [
+      active && !calls.status.audio_here ? h('button', { class: 'btn', onclick: () => callAction(null, 'call_audio_here', 'Moving the sound here') }, 'Use this computer') : null,
+      h('button', { class: 'btn hangup', onclick: () => callAction(c, 'call_hangup', 'Hanging up') }, icon('hangup', 'sm'), 'Hang up')];
+  return h('section', { class: 'call-card', 'aria-label': `${callStateText(c) || 'Call'}: ${title}` },
+    h('div', { class: 'who' }, avatar(title, false),
+      h('div', { class: 'grow' }, h('b', { text: title }),
+        h('div', { class: 'sub' }, sub, c.name && c.number ? h('span', { text: prettyNumber(c.number) }) : null, where))),
+    h('div', { class: 'acts' }, actions));
+}
+
+function renderCallBanner() {
+  let root = $('#call-root');
+  if (!root) {
+    root = h('div', { id: 'call-root', class: 'call-root', role: 'region', 'aria-label': 'Phone calls', 'aria-live': 'polite' });
+    document.body.append(root);
+  }
+  swap(root, () => liveCalls().map(callCard));
+  const ticking = liveCalls().some((c) => c.state === 'active' && c.since);
+  if (ticking && !calls.timer) {
+    calls.timer = setInterval(() => {
+      for (const el of document.querySelectorAll('.call-timer')) el.textContent = callClock(Number(el.dataset.since));
+    }, 1000);
+  } else if (!ticking && calls.timer) {
+    clearInterval(calls.timer);
+    calls.timer = null;
+  }
+}
+
+function closeDialog() { $('#palette-root').replaceChildren(); }
+
+function dialog(label, ...children) {
+  const root = $('#palette-root');
+  root.replaceChildren(h('div', { class: 'palette-backdrop', onclick: (e) => { if (e.target === e.currentTarget) closeDialog(); },
+    onkeydown: (e) => { if (e.key === 'Escape') closeDialog(); } },
+  h('div', { class: 'palette call-dialog', role: 'dialog', 'aria-modal': 'true', 'aria-label': label }, ...children)));
+  return root;
+}
+
+/** Explains what's missing for calls, with a way to check again once it's done. */
+function callSetupDialog(then) {
+  const s = calls.status || { blocker: 'service' };
+  const info = callSetup[s.blocker] || callSetup.service;
+  const again = h('button', { class: 'btn primary', onclick: async () => {
+    again.disabled = true;
+    again.replaceChildren(h('div', { class: 'spinner', 'aria-hidden': 'true' }), 'Checking');
+    try { onCalls(await api('call_status')); } catch { /* daemon restarting */ }
+    if (!calls.status?.blocker) { closeDialog(); if (then) then(); } else callSetupDialog(then);
+  } }, 'Check again');
+  dialog('Calls from this computer',
+    h('h2', { text: 'Calls from this computer' }),
+    h('p', { text: info.why }),
+    h('ol', { class: 'steps' }, info.steps.map((t) => h('li', { text: t }))),
+    s.phone && s.blocker === 'connect' ? h('p', { class: 'muted', text: `Your phone shows up in Bluetooth as ${s.phone}.` }) : null,
+    h('div', { class: 'row' }, again, h('button', { class: 'btn ghost', onclick: closeDialog }, 'Close')));
+  again.focus();
+}
+
+async function dialNumber(number, name) {
+  if (!calls.status) { try { calls.status = await api('call_status'); } catch { /* shown below */ } }
+  if (calls.status?.blocker) return callSetupDialog(() => dialNumber(number, name));
+  // Until the phone takes the number; then the call banner shows the call's progress.
+  const t = toast(`Calling ${name || prettyNumber(number)}`, 'progress', 8000);
+  try { await api('call_dial', { number }); } catch (e) { toast(String(e), 'error'); } finally { t.remove(); }
+}
+
+function dialDialog() {
+  if (calls.status?.blocker) return callSetupDialog(dialDialog);
+  const input = h('input', { type: 'tel', placeholder: 'Phone number', 'aria-label': 'Phone number', autocomplete: 'off' });
+  const go = h('button', { class: 'btn primary', type: 'submit' }, icon('call', 'sm'), 'Call');
+  dialog('Call a number',
+    h('form', { onsubmit: (e) => { e.preventDefault(); const n = input.value.trim(); if (!n) return input.focus(); closeDialog(); dialNumber(n); } },
+      h('h2', { text: 'Call a number' }), input,
+      h('div', { class: 'row' }, go, h('button', { class: 'btn ghost', type: 'button', onclick: closeDialog }, 'Cancel'))));
+  input.focus();
+}
+
+/** A Call button for a one-person conversation or contact. */
+function callButton(number, name) {
+  if (!number || !digits(number)) return null;
+  return h('button', { class: 'btn ghost icon-only', title: `Call ${name || prettyNumber(number)}`, 'aria-label': `Call ${name || prettyNumber(number)}`, onclick: () => dialNumber(number, name) }, icon('call'));
+}
+
+function activeCallCommands() {
+  return liveCalls().flatMap((c) => {
+    const who = callTitle(c);
+    if (c.state === 'incoming' || c.state === 'waiting') {
+      return [{ label: `Answer ${who}`, icon: 'call', run: () => callAction(c, 'call_answer', 'Answering') },
+        { label: `Decline ${who}`, icon: 'hangup', run: () => callAction(c, 'call_hangup', 'Declining') }];
+    }
+    return [{ label: `Hang up on ${who}`, icon: 'hangup', run: () => callAction(c, 'call_hangup', 'Hanging up') }];
+  });
+}
+
+function dialCommands() {
+  return [{ label: 'Call a number', icon: 'call', run: dialDialog },
+    ...state.contacts.map((c) => ({ label: `Call ${c.name}`, sub: prettyNumber(c.number), icon: 'call', run: () => dialNumber(c.number, c.name) }))];
+}
+
+// ---------- texts sent later ----------
+// The service holds the schedule, so texts go out with the window closed; this is only the view.
+
+function loadScheduled() {
+  api('scheduled_list').then((items) => { scheduled.items = items; invalidate('thread'); }).catch(() => {});
+  // The palette's quiet mode entry reads the settings.
+  if (!settings.data) loadSettings();
+}
+
+function laterButton(ta, d) {
+  return h('button', { class: 'btn ghost icon-only', 'aria-label': 'Send later', title: 'Send later', 'data-key': 'send-later', disabled: !(d && d.connected),
+    onclick: () => {
+      if (!ta.value.trim()) { ta.focus(); return toast('Write the message first', 'error'); }
+      openSchedule({ body: ta.value.trim(), composer: ta });
+    } }, icon('clock'));
+}
+
+/** "Today 6:00 PM", "Tomorrow 9:00 AM", "Fri, Nov 21, 9:00 AM". */
+function whenLabel(ms) {
+  const d = new Date(ms);
+  const time = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  const today = new Date();
+  const tomorrow = new Date(today); tomorrow.setDate(today.getDate() + 1);
+  if (sameDay(d, today)) return `today at ${time}`;
+  if (sameDay(d, tomorrow)) return `tomorrow at ${time}`;
+  return `${d.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })} at ${time}`;
+}
+
+function laterChoices(now = new Date()) {
+  const at = (days, hour) => { const d = new Date(now); d.setDate(d.getDate() + days); d.setHours(hour, 0, 0, 0); return d.getTime(); };
+  const list = [{ label: 'In 1 hour', at: now.getTime() + 3600e3 }];
+  if (now.getHours() < 17) list.push({ label: 'This evening', at: at(0, 18) });
+  list.push({ label: 'Tomorrow morning', at: at(1, 9) });
+  return list;
+}
+
+// The value a datetime-local field takes: local time, no seconds.
+function localInputValue(ms) {
+  const d = new Date(ms - new Date(ms).getTimezoneOffset() * 60e3);
+  return d.toISOString().slice(0, 16);
+}
+
+/** The schedule dialog: a new text from the composer, or `item` to change. */
+function openSchedule({ body = '', composer = null, item = null }) {
+  const root = $('#palette-root');
+  const close = () => { root.replaceChildren(); (composer || $('.composer textarea'))?.focus(); };
+  let target = null;
+  if (!item) {
+    if (state.selected === 'new') {
+      if (!state.newTo.length) return toast('Add who the message is for first', 'error');
+      target = { addresses: [...state.newTo], thread_id: null };
+    } else {
+      target = { addresses: (threadMessages(state.selected)[0]?.addresses || []).map((a) => a.address), thread_id: state.selected };
+    }
+  }
+  const text = h('textarea', { 'aria-label': 'Message', rows: 3, required: true });
+  text.value = item ? item.body : body;
+  const error = h('p', { class: 'form-error', role: 'alert', hidden: true });
+  const custom = h('input', { type: 'datetime-local', id: 'later-at', required: true, min: localInputValue(Date.now()),
+    value: localInputValue(item ? item.at : Date.now() + 3600e3) });
+  const buttons = [];
+  const pick = async (at) => {
+    const value = text.value.trim();
+    if (!value) { error.textContent = 'Write the message first.'; error.hidden = false; return text.focus(); }
+    if (!Number.isFinite(at)) { error.textContent = 'Pick a date and time.'; error.hidden = false; return custom.focus(); }
+    buttons.forEach((b) => { b.disabled = true; });
+    error.hidden = true;
+    try {
+      const saved = item
+        ? await api('schedule_edit', { id: item.id, body: value, at })
+        : await api('schedule_add', { device: state.deviceId, ...target, body: value, at });
+      scheduled.items = [...scheduled.items.filter((s) => s.id !== saved.id), { ...saved, waiting: false }];
+      if (composer) { composer.value = ''; composer.style.height = 'auto'; }
+      root.replaceChildren();
+      invalidate('thread');
+      toast(`It will send ${whenLabel(saved.at)}`);
+    } catch (e) {
+      error.textContent = e.message || String(e); error.hidden = false;
+      buttons.forEach((b) => { b.disabled = false; });
+    }
+  };
+  for (const c of laterChoices()) {
+    buttons.push(h('button', { class: 'later-choice', type: 'button', onclick: () => pick(c.at) },
+      h('b', { text: c.label }), h('span', { text: whenLabel(c.at).replace(/^./, (x) => x.toUpperCase()) })));
+  }
+  const submit = h('button', { class: 'btn primary', type: 'submit' }, item ? 'Save' : 'Schedule');
+  const cancel = h('button', { class: 'btn ghost', type: 'button', onclick: close }, 'Cancel');
+  buttons.push(submit);
+  root.replaceChildren(h('div', { class: 'palette-backdrop', onclick: (e) => { if (e.target === e.currentTarget) close(); } },
+    h('form', { class: 'palette schedule-dialog', role: 'dialog', 'aria-label': item ? 'Change scheduled text' : 'Send later',
+      onkeydown: (e) => { if (e.key === 'Escape') { e.stopPropagation(); close(); } },
+      onsubmit: (e) => { e.preventDefault(); pick(new Date(custom.value).getTime()); } },
+    h('h2', { text: item ? 'Change scheduled text' : 'Send later' }),
+    text,
+    h('div', { class: 'later-choices' }, buttons.filter((b) => b !== submit)),
+    h('label', { for: 'later-at', class: 'later-custom' }, h('small', { text: 'Or pick a date and time' })),
+    h('div', { class: 'field-row' }, custom, submit),
+    error,
+    h('p', { class: 'hint', text: 'Tether sends it from your phone, even with this window closed. If your phone is out of reach then, it goes out once it is back.' }),
+    h('div', { class: 'dialog-actions' }, cancel))));
+  (buttons[0] || text).focus();
+}
+
+function scheduledNodes(id, msgs) {
+  const addrs = msgs[0]?.addresses || [];
+  const items = scheduled.items
+    .filter((s) => s.device === state.deviceId && (s.thread_id === id || (s.thread_id == null && addrs.length && sameAddrs(s.addresses, addrs))))
+    .sort((a, b) => a.at - b.at);
+  if (!items.length) return [];
+  return [h('div', { class: 'day', text: items.length === 1 ? 'Scheduled' : `${items.length} scheduled` }), ...items.map((s) => {
+    const status = s.state === 'unsure' ? 'Tether stopped while sending this, so it may have gone out. Check on your phone.'
+      : s.state === 'sending' ? 'Sending'
+        : s.waiting ? 'Waiting for your phone. It sends once your phone is back.'
+          : `Sends ${whenLabel(s.at)}`;
+    const busy = s.state === 'sending';
+    return h('div', { class: `bubble-row out first scheduled ${s.waiting || s.state === 'unsure' ? 'waiting' : ''}`, 'data-key': `sched-${s.id}` },
+      h('div', { class: 'bubble', text: s.body }),
+      h('div', { class: 'stamp' }, h('span', { class: 'stamp-status' }, busy ? h('span', { class: 'spinner' }) : icon('clock', 'sm'), h('span', { text: status })),
+        busy ? null : h('span', { class: 'stamp-actions' },
+          h('button', { class: 'stamp-btn', onclick: () => openSchedule({ item: s }), 'aria-label': 'Change this scheduled text' }, s.state === 'unsure' ? 'Send again' : 'Edit'),
+          h('button', { class: 'stamp-btn', onclick: () => cancelScheduled(s), 'aria-label': 'Cancel this scheduled text' }, 'Cancel'))));
+  })];
+}
+
+async function cancelScheduled(s) {
+  try {
+    await api('schedule_cancel', { id: s.id });
+    scheduled.items = scheduled.items.filter((x) => x.id !== s.id);
+    invalidate('thread');
+    toast('Scheduled text cancelled');
+    $('.composer textarea')?.focus();
+  } catch (e) { toast(e.message || String(e), 'error'); }
+}
+
+// ---------- quiet mode ----------
+function quietSettings() {
+  const s = settings.data;
+  return [
+    settingSwitch('quiet_mode', 'Quiet mode', 'Phone notifications come as one summary now and then instead of one pop-up each. Calls and texts with sign-in codes still pop up right away.'),
+    s.quiet_mode ? h('div', { class: 'setting row-setting' }, h('label', { for: 'quiet-interval' }, h('b', { text: 'Summary' }), h('small', { text: 'Only when something came in.' })),
+      h('select', { id: 'quiet-interval', 'data-key': 'set-quiet_interval', onchange: (e) => saveSettings({ quiet_interval: Number(e.target.value) }) },
+        [[30, 'At most every 30 minutes'], [60, 'At most every hour'], [120, 'At most every 2 hours'], [240, 'At most every 4 hours']]
+          .map(([value, label]) => h('option', { value, selected: s.quiet_interval === value }, label)))) : null,
+  ];
+}
+
+function quietCommand() {
+  const s = settings.data;
+  if (!s) return null;
+  const on = !!s.quiet_mode;
+  return { label: on ? 'Turn off quiet mode' : 'Turn on quiet mode', sub: 'Notification summary', icon: 'bell',
+    run: () => saveSettings({ quiet_mode: !on }, on ? 'Quiet mode is off' : 'Quiet mode is on') };
+}
+
+// A click on the quiet mode summary pop-up.
+function showNotifications() {
+  if (state.view !== 'messages') showView('messages');
+  if (!state.feedOpen) toggleFeed();
 }

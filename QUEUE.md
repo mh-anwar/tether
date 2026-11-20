@@ -12,8 +12,10 @@ Status marks: `[ ]` open, `[~]` in progress (say who/which branch), `[x]` done (
   video, then posts.
 - Q17a **Make the GitHub repo public**: owner said not yet (2026-11-12). Flathub and auto-update (Q29) wait on
   it: a private repo's releases can't be seen by installed copies.
-- Q2 **Extra ideas to approve or drop**: schedule a text to send later; quiet mode (phone notifications
-  collected into one summary instead of popping up all day).
+- Q39 **Phone apps without wireless debugging**: proposal in docs/decisions.md (a small optional companion
+  app, "Tether Screen", using Android's screen sharing; adb stays as an Advanced path). Owner to pick it,
+  the cheap stopgap (adb stays reachable until the phone reboots), or neither.
+- Q40 **Logo**: "Links" is applied; "Orbit" and "Leash" are in docs/logo/ (sheet.png). Owner to confirm.
 
 ## Needs a real phone
 
@@ -40,14 +42,27 @@ check on a real Android phone with the stock KDE Connect app (the owner's Samsun
   work with "Filesystem expose" on the Samsung.
 - [~] Q10 **Tray icon** on the owner's i3 and on KDE/GNOME (checked with stand-in trays). Done when: the
   menu, tooltip and badge look right on a real KDE panel, GNOME with the AppIndicator extension, and i3bar.
+- [~] Q2 **Scheduled texts and quiet mode** (2026-11-19, merged into the 2026-11-19 window PR): Send
+  later in the composer (service sends at the time, waits for the phone if it's away), quiet mode summary
+  pop-ups. Checked with unit tests and the fake phone in the WebDriver test. Done when: a text scheduled
+  for a few minutes ahead arrives from the owner's Samsung with the window closed, and a quiet-mode
+  summary shows on the owner's desktop and opens the notifications.
 - [~] Q29 **Auto-update** goes live once the repo is public (Q17a).
 
 ## Next
 
-- [ ] Q4 **Calls on the PC**: Bluetooth hands-free (BlueZ + PipeWire HFP, the computer as the headset) for
+- [~] Q41 **Window redesign** (2026-11-19): tabbed Settings, Devices page that leads with what needs
+  fixing, Notifications panel closed until opened, draggable column widths, Quit in Settings and Ctrl+K,
+  tray tooltip names the right-click menu. Checked by the WebDriver tests and screenshots under Xvfb.
+  Done when: the owner is happy with it on their laptop.
+- [~] Q4 **Calls on the PC**: Bluetooth hands-free (BlueZ + PipeWire HFP, the computer as the headset) for
   audio, answer, decline, hang up and dial; call banner in the window. KDE Connect only reports calls, so
   this is a separate channel (see docs/decisions.md). Done when: a call to the phone is answered and heard
-  on the laptop.
+  on the laptop. Status 2026-11-19: built on PipeWire 1.4's `org.pipewire.Telephony` (calls.rs, call
+  banner, Call buttons, Ctrl+K "Call a number", setup steps); passes a fake telephony service in unit
+  and window tests (`testing/ui/test_calls.py`). Waits on the owner: pair the phone with the laptop over
+  Bluetooth and try a real call (sound both ways, answer, decline, dial). No mute yet (the API has none;
+  next: mute the laptop microphone through PipeWire).
 - [ ] Q17 **Flathub**: the Flatpak builds and ships with releases; left: source from a tag, bundled adb +
   scrcpy, Dynamic Launcher for pinned apps, screenshots, lint, then the Flathub PR (docs/flathub.md, "Work
   left"). Needs Q17a.
@@ -58,7 +73,7 @@ check on a real Android phone with the stock KDE Connect app (the owner's Samsun
 
 - [ ] Q13 **Drag-and-drop send** verified for real (needs a session with a window manager or the owner).
 - [ ] Q18 **Real app icons for every app**: icons now come from notifications; the rest show letters. Next:
-  pull icons from the phone over adb.
+  pull icons from the phone over adb, or from the companion app if Q39 goes that way (decide after Q39).
 - [ ] Q23 **Dialogs**: the command palette as a proper combobox for screen readers (focus return is done).
 - [ ] Q24 **Phone-app workspaces** (idea): "Work" opens several pinned phone apps at once; dropping a file
   on a pinned app opens it in that app on the phone.

@@ -7,6 +7,11 @@ Traps that already cost time. Add new ones here with the symptom first.
   dependency features, so everything recompiles. Always build them together.
 - **Change not picked up**: `cargo build ... --example fake_phone` builds only the example, not the listed
   binaries. Build binaries and examples in separate commands.
+- **Tests or binaries don't have your change (worktrees sharing one `target/`)**: `cargo test` says
+  "Finished" in a fraction of a second and runs old tests. Another checkout built the same crate since,
+  and cargo's fingerprint looks at that checkout's files. `touch` the files you changed (for the window,
+  also `ui/*` and `crates/tether-app/src/main.rs`) before building, and copy the binaries away before a
+  long window test so another thread's build can't replace them mid-run.
 - **`target/` size**: ~3.3 GB with the window app. `cargo clean` past ~15 GB.
 
 ## Flatpak
@@ -129,3 +134,23 @@ Traps that already cost time. Add new ones here with the symptom first.
   `tether-app` compiles, Cargo only watched the `ui` folder's own mtime, and a rerun build script alone
   doesn't recompile the crate. `crates/tether-app/build.rs` now watches each file and passes a hash of
   their contents as `TETHER_UI_HASH`, which `main.rs` reads with `env!`, so any edit recompiles the window.
+
+## Calls (Bluetooth hands-free)
+- **Calls say "PipeWire 1.4 or newer" on a system that has it**: the telephony service only starts with
+  PipeWire's native HFP backend (`bluez5.hfphsp-backend`, default native) and can be turned off with
+  `bluez5.telephony-dbus-service = false` in WirePlumber's monitor.bluez.properties. With
+  `bluez5.telephony.provide-ofono = true` it moves to the system bus under oFono's name, which Tether
+  doesn't read. `busctl --user tree org.pipewire.Telephony` shows what's there.
+- **Phone paired over Bluetooth but calls say "not connected for calls"**: Android only connects HFP when
+  "Calls" (Samsung: Settings, Connections, Bluetooth, gear next to the computer) is on for that computer,
+  and `bluez5.roles` must include `hfp_hf` (the default; distros that trim it to `hfp_ag` lose it).
+- **A test fake service that takes its bus name before exporting objects can leave calls unanswered**: a
+  method call that arrives in between is never replied to. Export first, then request the name (PipeWire
+  does), and keep a method timeout on the client (calls.rs uses 5 s) so a stuck reply can't wedge the
+  watcher.
+- **zbus turns `org.freedesktop.DBus.Error.Failed` into `Error::FDO`, not `MethodError`**: read the
+  message from both, or the phone's AT error is lost.
+- **`wd.sh` window says "Tether's background service isn't running" and every check times out**: the
+  daemon log says `path must be shorter than SUN_LEN`. `TETHER_UI_DIR` was a long path (an agent's
+  scratch folder) and the socket under `run/` is over Linux's 108-byte limit. Use a short folder such as
+  `/tmp/tw<n>`, and set `WD_DISPLAY`/`WD_PORT` to free values when another thread may be testing too.

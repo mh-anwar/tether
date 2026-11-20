@@ -20,6 +20,10 @@ pub struct Config {
     pub addresses: Vec<String>,
     /// Show phone notifications as desktop notifications.
     pub mirror_notifications: bool,
+    /// Collect phone notifications into one summary pop-up instead of one each.
+    pub quiet_mode: bool,
+    /// Minutes between quiet-mode summaries; one of `QUIET_INTERVALS`.
+    pub quiet_interval: u32,
     /// Keep the computer's and the phone's clipboards the same.
     pub clipboard_sync: bool,
     pub mdns: bool,
@@ -51,6 +55,8 @@ impl Default for Config {
             device_name: hostname(),
             addresses: vec![],
             mirror_notifications: true,
+            quiet_mode: false,
+            quiet_interval: 60,
             clipboard_sync: true,
             mdns: true,
             send_notifications: false,
@@ -103,6 +109,9 @@ impl Config {
     }
 }
 
+/// The summary intervals Settings offers, in minutes.
+pub const QUIET_INTERVALS: [u64; 4] = [30, 60, 120, 240];
+
 fn config_path() -> Result<PathBuf> {
     Ok(dirs::config_dir()
         .context("no config directory")?
@@ -123,6 +132,8 @@ pub fn settings() -> Result<Value> {
         "device_name": tether_core::identity::sanitize_name(&cfg.device_name),
         "addresses": cfg.addresses,
         "mirror_notifications": cfg.mirror_notifications,
+        "quiet_mode": cfg.quiet_mode,
+        "quiet_interval": cfg.quiet_interval,
         "clipboard_sync": cfg.clipboard_sync,
         "mdns": cfg.mdns,
         "send_notifications": cfg.send_notifications,
@@ -213,7 +224,15 @@ pub fn save_settings(changes: &Value) -> Result<bool> {
                     .context("blocklist must be a list of app names")?;
                 json!(names)
             }
+            "quiet_interval" => {
+                let minutes = value
+                    .as_u64()
+                    .filter(|m| QUIET_INTERVALS.contains(m))
+                    .context("Pick how often the summary comes from the list.")?;
+                json!(minutes)
+            }
             "mirror_notifications"
+            | "quiet_mode"
             | "auto_update"
             | "send_notifications"
             | "mute_media"

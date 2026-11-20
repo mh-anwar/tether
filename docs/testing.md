@@ -41,6 +41,12 @@ Setup on a new machine: `cargo install tauri-driver --locked`; WebKitWebDriver i
 `webkitgtk-webdriver` on Debian/Ubuntu (`webkit2gtk4.1-devel` ships it on Fedora). Add a check to
 `test_window.py` for every new screen or flow. Screenshots (below) are still how to judge looks.
 
+Calls: `testing/ui/wd.sh testing/ui/test_calls.py` starts `testing/ui/fake_telephony.py` (a stand-in for
+PipeWire's `org.pipewire.Telephony`, driven by stdin: `gateway`, `ring <number>`, `remote_hangup`) on the
+window's session bus and checks setup steps, answer, decline, sound here, dial and hang up; it saves
+`call-*.png`. `cargo test -p tether calls` runs the daemon side against a fake on a private dbus-daemon.
+Real Bluetooth isn't on this box: sound and the phone's side need the owner's laptop.
+
 ## Tray icon
 `testing/ui/tray_e2e.sh` checks the D-Bus tray as on a Wayland KDE desktop (private session bus, no X display):
 `sniwatcher.py --check` plays the desktop's tray, reads the tooltip, status, themed icon and the menu over

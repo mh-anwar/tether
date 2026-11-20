@@ -6,6 +6,7 @@ const ICONS = {
   pin: '<path d="M9 4h6l-1 6 3 3v2H7v-2l3-3-1-6Z"/><path d="M12 15v5"/>',
   search: '<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>',
   send: '<path d="M4 12 20 4l-6 16-3-7-7-1Z"/>',
+  clock: '<circle cx="12" cy="12" r="8"/><path d="M12 8v4l2.5 2"/>',
   bell: '<path d="M6 16V11a6 6 0 1 1 12 0v5l2 2H4l2-2Z"/><path d="M10 20a2 2 0 0 0 4 0"/>',
   x: '<path d="M6 6l12 12M18 6 6 18"/>',
   copy: '<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h8"/>',
@@ -38,6 +39,7 @@ const ICONS = {
   download: '<path d="M12 4v12M7 11l5 5 5-5M5 20h14"/>',
   music: '<path d="M9 18V6l11-2v12"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="17.5" cy="16" r="2.5"/>',
   call: '<path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a1 1 0 0 1-1 1A16 16 0 0 1 4 5a1 1 0 0 1 1-1Z"/>',
+  hangup: '<path d="M3 14.5c5-4.7 13-4.7 18 0l-2.2 2.7-3.6-1.5v-3a12 12 0 0 0-6.4 0v3l-3.6 1.5L3 14.5Z"/>',
 };
 
 function icon(name, cls = '') {

@@ -3,6 +3,7 @@
 mod api;
 mod apps;
 mod autostart;
+mod calls;
 mod client;
 mod clipsync;
 mod computer;
@@ -17,6 +18,7 @@ mod notify;
 mod phonefiles;
 mod received;
 mod remoteinput;
+mod schedule;
 mod sendnotifications;
 mod tray;
 mod update;

@@ -65,7 +65,7 @@
   works the same on Wayland. `xembed.rs`: otherwise an XEmbed icon (x11rb) docked into
   `_NET_SYSTEM_TRAY_S<n>` (i3bar, polybar), only in X11 sessions (no DISPLAY, `XDG_SESSION_TYPE=wayland` or a
   `WAYLAND_DISPLAY` without a session type means no X11 calls at all, so Xwayland isn't woken). Never both:
-  KDE proxies XEmbed icons itself. The icon is the app icon plus a red badge drawn in code (3x5 digits);
+  KDE proxies XEmbed icons itself. The icon is the tray cut of the app icon (`icons/tray.png`, see `docs/logo/`) plus a red badge drawn in code (3x5 digits);
   pixmaps at 16-64 px. With nothing unread, `IconName` is `tether-tray-symbolic` on GNOME and KDE (a
   one-colour SVG the panel recolours for light and dark themes) and the installed app icon elsewhere, both
   served from `data/tether/tray-icons` through `IconThemePath`; with unread texts `IconName` is empty so the
@@ -76,13 +76,25 @@
   `window_shown` within 0.7 s, the service starts `tether-app`. Menu (`menu.rs`, one model for both):
   Open Tether, Ring my phone (one row per phone when several are connected), Send files... (opens the window's
   file picker; a window started for it fetches the request with `ui_pending`), Pause notification pop-ups
-  (in memory until unticked or a restart; calls still pop up), Quit Tether (`quit` event closes windows, then
+  (in memory until unticked or a restart; calls still pop up), Quiet mode (the setting), Quit Tether (`quit` event closes windows, then
   the service exits 0, so systemd's Restart=on-failure leaves it stopped). SNI hosts get it over
   `com.canonical.dbusmenu` at `/MenuBar` (`LayoutUpdated` on change); XEmbed bars get an override-redirect
   window drawn with core X fonts, with pointer and keyboard grabs (arrows, Enter, Escape). The unread count
   also goes to docks as `com.canonical.Unity.LauncherEntry.Update` for each desktop entry that starts
   `tether-app` (resent every minute while non-zero). On GNOME with no tray at all, `settings_get` says
   `tray_missing` and the window's Settings shows a note until `tray_note_dismissed`.
+- `schedule`: texts to send later. The service holds them in `data/tether/scheduled.json` (0600) and
+  checks every 5 s and on each device event; a due text goes out through the same `sms::send` packet as
+  `sms_send` once its phone is connected (`waiting` in the list while it isn't). Never twice: each text is
+  saved as `sending` before it is handed to the link and removed after; one found as `sending` at start
+  becomes `unsure` and only goes out again when the person picks Send again (edits it).
+- Quiet mode (`notify.rs`, `quiet_mode`/`quiet_interval` in config): phone notifications are held instead
+  of popping up; once the first held one has waited the interval (30/60/120/240 min) one summary pop-up
+  ("12 notifications from WhatsApp, Gmail and 4 others") replaces the previous summary, and a click opens
+  the window's notifications (`show_notifications` event, or `ui_pending` for a newly started window).
+  Calls, pairing requests and notifications with a sign-in code (`has_code`, like the window's
+  `findCode`) still pop up at once. Dismissed on the phone before the summary: not counted. Tray row
+  "Quiet mode" and the palette write the setting through `save_settings` and send a `settings` event.
 - `autostart`: `tether autostart on|off` writes a systemd user unit (XDG autostart fallback); inside a
   Flatpak it asks the Background portal instead. The window turns it on at first launch and rewrites it
   each launch while on (follows a moved AppImage).
@@ -104,7 +116,10 @@ Request `{"id","method","params"}`, reply `{"id","result"|"error"}`, events push
   `update_install` (all return the update status: current, latest, kind, phase idle/checking/downloading/
   ready/installer, error, noReleases, installer path and command), `shutdown` (the window's restart after an
   update: the daemon exits, the window starts a fresh copy of itself, which starts the new daemon), `apps_download`, `apps_list`, `apps_open {package?, title}` (no package:
-  the whole screen), `apps_menu` (pinned packages), `photos_list {device}` (`folders: [{name, items: [phone path]}]`), `photos_thumbs {device, paths}` (phone path -> local preview or null), `photo_get|photo_copy|photo_save {device, path}`, `seen_set {seen: {thread id: date}}`, `window_shown` (tray click handshake), `ui_pending` (what the tray asked a newly started window to do, or null), `tray_extension_open` (opens the GNOME AppIndicator extension's page), `settings_get` / `settings_set {..}` (config.json keys `device_name`, `addresses`, `mirror_notifications`, `clipboard_sync`, `downloads_dir`, `auto_update`, `tray_note_dismissed`, plus `autostart`; other keys in the file are kept; returns `restart: true` when the service exits to reread them, the window starts it again), `screenshot_copy {device}`, `screenshot_save {device}` (returns `path`), `apps_menu_set {package, name, icon?, on}` (icon: a file from the
+  the whole screen), `apps_menu` (pinned packages), `photos_list {device}` (`folders: [{name, items: [phone path]}]`), `photos_thumbs {device, paths}` (phone path -> local preview or null), `photo_get|photo_copy|photo_save {device, path}`, `seen_set {seen: {thread id: date}}`, `window_shown` (tray click handshake), `ui_pending` (what the tray asked a newly started window to do, or null), `tray_extension_open` (opens the GNOME AppIndicator extension's page), `scheduled_list` (all phones; each `{id, device, thread_id, addresses, body, at (ms), state
+  scheduled|sending|unsure, waiting}`), `schedule_add {device, addresses, body, at, thread_id?, sub_id?}`,
+  `schedule_edit {id, body?, at?}`, `schedule_cancel {id}`; changes go out as the `scheduled {items}` event.
+  `settings_get` / `settings_set {..}` (config.json keys `device_name`, `addresses`, `mirror_notifications`, `quiet_mode`, `quiet_interval`, `clipboard_sync`, `downloads_dir`, `auto_update`, `tray_note_dismissed`, plus `autostart`; other keys in the file are kept; returns `restart: true` when the service exits to reread them, the window starts it again), `screenshot_copy {device}`, `screenshot_save {device}` (returns `path`), `apps_menu_set {package, name, icon?, on}` (icon: a file from the
   notification-icon cache, copied to `tether/menu-icons/`) (writes
   `$XDG_DATA_HOME/applications/tether-app-<package>.desktop` running `tether apps <package>`; the daemon
   rewrites their Exec at start so a moved AppImage still works, via `Tether.AppImage --tether ...`). The window polls `apps_status` while the Apps page is open.
@@ -120,6 +135,25 @@ Request `{"id","method","params"}`, reply `{"id","result"|"error"}`, events push
   with kinds battery, signal, notification, notification_removed, messages, call, call_ended, ping,
   clipboard, shared_text, shared_url, file_received, transfer_failed, contacts, photo_taken {path} (saved with
   received files), photo_cancelled.
+
+## Calls through this computer (crates/tether/src/calls.rs)
+Bluetooth hands-free with the computer as the headset. PipeWire 1.4+ (spa/plugins/bluez5/telephony.c)
+serves, on the session bus as `org.pipewire.Telephony`: an ObjectManager at `/org/pipewire/Telephony`
+listing each HFP-connected phone as `.../agN` with `org.pipewire.Telephony.AudioGateway1` (`Address`,
+`Dial(s)`, `HangupAll`, `HoldAndAnswer`, `SendTones`, volumes) and `...AudioGatewayTransport1` (`State`
+idle/pending/active/error = whether the call's sound is on the computer, `Activate` pulls it here with
+AT+BCC); each `agN` is an ObjectManager for its calls `.../agN/callM`, `...Call1` (`Answer`, `Hangup`,
+`LineIdentification` = number, `Name`, `State` active/held/dialing/alerting/incoming/waiting/
+disconnected). There is no mute in the API. BlueZ (system bus, `org.bluez` ObjectManager at `/`,
+`Device1` `Paired`/`Connected`/`UUIDs`, phones list the HFP AG UUID `0000111f-...`) only explains what's
+missing. The watcher re-reads both on any signal from either service and every 5 s, then pushes
+`{"event":"calls", blocker, phone, audio_here, calls: [{id, number, name, state, incoming, since}]}`.
+`blocker`: service, bluetooth, adapter_off, pair, connect, or null when ready. The phone among several
+gateways is the one whose Bluetooth name matches a KDE Connect phone's name. Names come from the KDE
+Connect contacts. API: `call_status`, `call_answer {id?}` (a waiting call is answered with HoldAndAnswer),
+`call_hangup {id?}` (no id: all), `call_dial {number}` (cleaned to `+0-9*#`, at most 30 characters, the
+limit of PipeWire's ATD parser), `call_audio_here`. The window's banner (`#call-root`) floats bottom right
+over every view; the rail's KDE Connect ringing banner hides while Bluetooth reports calls.
 
 ## Window (crates/tether-app, ui/)
 - Rust side: keeps one socket connection, forwards `call(method, params)`, emits `tether` (daemon events) and

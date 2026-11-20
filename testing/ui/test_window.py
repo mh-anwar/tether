@@ -66,6 +66,32 @@ try:
     check("window connects to the phone", lambda: text_shown("Connected"))
     check("conversations load", lambda: wait.until(lambda _: d.find_elements(By.CSS_SELECTOR, ".threads > *")))
 
+    def notifications_panel():
+        # Closed until opened; the choice is remembered across windows (and across test runs, so start closed).
+        if d.execute_script("return state.feedOpen"):
+            d.execute_script("toggleFeed()")
+        assert not d.find_element(By.CSS_SELECTOR, ".feed").is_displayed()
+        click("Notifications")
+        wait.until(lambda _: d.find_element(By.CSS_SELECTOR, ".feed").is_displayed())
+        d.find_element(By.CSS_SELECTOR, "[data-key=feed-close]").click()
+        wait.until(lambda _: not d.find_element(By.CSS_SELECTOR, ".feed").is_displayed())
+        assert d.execute_script("return localStorage.getItem('tether.feedOpen')") == "false"
+        click("Notifications")  # later steps use the panel
+        wait.until(lambda _: d.find_element(By.CSS_SELECTOR, ".feed").is_displayed())
+    check("Notifications panel opens and closes", notifications_panel)
+
+    def column_widths():
+        handle = d.find_element(By.CSS_SELECTOR, ".resizer[data-part=rail]")
+        before = d.find_element(By.CSS_SELECTOR, ".rail").size["width"]
+        ActionChains(d).click_and_hold(handle).move_by_offset(60, 0).release().perform()
+        wait.until(lambda _: d.find_element(By.CSS_SELECTOR, ".rail").size["width"] >= before + 40)
+        # Keyboard works too, and the width is kept for next time.
+        handle.send_keys(Keys.ARROW_LEFT)
+        assert "rail" in d.execute_script("return localStorage.getItem('tether.widths')")
+        d.execute_script("resetWidths()")
+        wait.until(lambda _: abs(d.find_element(By.CSS_SELECTOR, ".rail").size["width"] - before) <= 1)
+    check("Columns resize by drag and keyboard, and reset", column_widths)
+
     def copy_screenshot():
         if not os.environ.get("FAKE_SFTP"):
             raise RuntimeError("no stand-in file server (FAKE_SFTP); run wd.sh once more")
@@ -153,19 +179,23 @@ try:
 
     def readiness_checklist():
         click("Devices")
-        text_shown("On your phone")
+        text_shown("Phone features")
+        # The full list is folded away; only what needs doing shows at first.
+        assert not d.find_element(By.CSS_SELECTOR, ".readiness-list").is_displayed()
+        d.find_element(By.CSS_SELECTOR, ".all-features summary").click()
         text_shown("needs its switch on")
         text_shown("Battery > Unrestricted")
         rows = d.find_elements(By.CSS_SELECTOR, ".readiness-list li")
         assert len(rows) == 17
-        texts = d.find_element(By.CSS_SELECTOR, '[data-feature="texts"]')
+        texts = d.find_element(By.CSS_SELECTOR, '.readiness-list [data-feature="texts"]')
         if "kdeconnect.sms.messages" in os.environ.get("FAKE_PHONE_OMIT_CAPABILITIES", ""):
             assert "Not on this phone" in texts.text
         else:
             # The stand-in phone has sent conversations, so texts are proven to work.
             assert "Working" in texts.text
             # The stand-in phone also reported its battery, so that must not wait.
-            assert "Working" in d.find_element(By.CSS_SELECTOR, '[data-feature="battery"]').text
+            assert "Working" in d.find_element(By.CSS_SELECTOR, '.readiness-list [data-feature="battery"]').text
+            assert "Texts" in d.find_element(By.CSS_SELECTOR, ".feature-chips").text
         assert texts.find_elements(By.CSS_SELECTOR, "svg")
         # With nothing received yet, each page points at the right switch on the phone.
         d.execute_script("window.savedContacts = state.contacts; window.savedThreads = state.threads; window.savedKeyboard = state.keyboardActive; state.threads = new Map(); state.keyboardActive = false; renderList()")
@@ -283,6 +313,57 @@ try:
         wait.until(lambda _: not d.find_elements(By.CSS_SELECTOR, ".palette-backdrop"))
     check("Ctrl+K offers Check for updates", palette)
 
+    def shots_dir():
+        output = Path(os.environ.get("TETHER_SHOTS") or Path(os.environ["XDG_CONFIG_HOME"]).parent / "shots")
+        output.mkdir(parents=True, exist_ok=True)
+        return output
+
+    def schedule_text():
+        import json
+        d.execute_script("showView('messages')")
+        wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, ".threads .thread-item"))).click()
+        box = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, ".composer textarea")))
+        box.send_keys("Scheduled from the window test")
+        d.find_element(By.CSS_SELECTOR, "button[aria-label='Send later']").click()
+        wait.until(EC.visibility_of_element_located((By.CSS_SELECTOR, ".schedule-dialog .later-choice")))
+        d.save_screenshot(str(shots_dir() / "schedule-dialog.png"))
+        # Two hours ahead by the custom field, set the way the page reads it.
+        d.execute_script(
+            "const f = document.getElementById('later-at');"
+            "f.value = localInputValue(Date.now() + 2 * 3600e3);")
+        d.find_element(By.XPATH, "//form[contains(@class,'schedule-dialog')]//button[normalize-space(.)='Schedule']").click()
+        row = wait.until(EC.visibility_of_element_located(
+            (By.XPATH, "//div[contains(@class,'scheduled')][.//div[text()='Scheduled from the window test']]")))
+        assert "Sends today" in row.text or "Sends tomorrow" in row.text, row.text
+        assert box.get_attribute("value") == "", "composer not cleared"
+        saved = Path(os.environ["XDG_DATA_HOME"], "tether/scheduled.json")
+        items = json.loads(saved.read_text())
+        assert [i["body"] for i in items] == ["Scheduled from the window test"], items
+        d.save_screenshot(str(shots_dir() / "schedule-thread.png"))
+        # A text due while the phone can't take it shows it is waiting, then Cancel removes it.
+        row.find_element(By.XPATH, ".//button[text()='Cancel']").click()
+        wait.until(lambda _: not d.find_elements(By.CSS_SELECTOR, ".bubble-row.scheduled"))
+        wait.until(lambda _: json.loads(saved.read_text()) == [])
+        # How a due text looks while the phone is away (drawn only, the service isn't asked).
+        d.execute_script(
+            "scheduled.items = [{ id: 'look', device: state.deviceId, thread_id: state.selected, addresses: [],"
+            " body: 'Waiting look', at: Date.now() - 60e3, state: 'scheduled', waiting: true }]; invalidate('thread')")
+        text_shown("Waiting for your phone")
+        d.save_screenshot(str(shots_dir() / "schedule-waiting.png"))
+        d.execute_script("scheduled.items = []; invalidate('thread')")
+    check("schedule a text, see it in the thread, cancel it", schedule_text)
+
+    def scheduled_text_sends():
+        # Due in a moment: the service sends it through the phone, which echoes it into the thread.
+        d.execute_script(
+            "const t = state.selected; const a = threadMessages(t)[0].addresses.map((x) => x.address);"
+            "return api('schedule_add', { device: state.deviceId, thread_id: t, addresses: a,"
+            " body: 'Sent later by the window test', at: Date.now() })")
+        WebDriverWait(d, 30, ignored_exceptions=(StaleElementReferenceException,)).until(lambda _: d.execute_script(
+            "return threadMessages(state.selected).some((m) => m.type === 2 && m.body === 'Sent later by the window test')"
+            " && !scheduled.items.length"))
+    check("a due scheduled text is sent once", scheduled_text_sends)
+
     def notification_icons():
         # The fake phone sends WhatsApp's and Spotify's icons as payloads; other apps keep a letter.
         wait.until(lambda _: d.execute_script(
@@ -322,6 +403,15 @@ try:
 
     def settings_page():
         click("Settings")
+        # Tabs: arrow keys move between them, and each shows its own settings.
+        wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "[role=tab][data-tab=general]"))).click()
+        # Picking a tab redraws the page, so find it again before typing.
+        wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "[role=tab][data-tab=general]"))).send_keys(Keys.ARROW_RIGHT)
+        wait.until(lambda _: d.find_element(By.CSS_SELECTOR, "[data-tab=notifications]").get_attribute("aria-selected") == "true")
+        wait.until(EC.visibility_of_element_located((By.CSS_SELECTOR, "[data-key=set-mirror_notifications]")))
+        assert d.find_element(By.CSS_SELECTOR, "[data-tab=notifications]") == d.switch_to.active_element
+        d.find_element(By.CSS_SELECTOR, "[data-tab=general]").click()
+        wait.until(EC.visibility_of_element_located((By.CSS_SELECTOR, "[data-key=quit-tether]")))
         box = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "[data-key=set-auto_update]")))
         was = box.is_selected()
         box.click()
@@ -332,9 +422,28 @@ try:
         wait.until(lambda _: f'"auto_update": {str(was).lower()}' in cfg.read_text())
     check("Settings page saves a switch", settings_page)
 
+    def quiet_mode():
+        click("Settings")
+        wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "[role=tab][data-tab=notifications]"))).click()
+        box = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "[data-key=set-quiet_mode]")))
+        assert not box.is_selected(), "quiet mode is off by default"
+        box.click()
+        cfg = Path(os.environ["XDG_CONFIG_HOME"], "tether/config.json")
+        wait.until(lambda _: '"quiet_mode": true' in cfg.read_text())
+        interval = wait.until(EC.element_to_be_clickable((By.ID, "quiet-interval")))
+        d.execute_script("arguments[0].value = '120'; arguments[0].dispatchEvent(new Event('change'))", interval)
+        wait.until(lambda _: '"quiet_interval": 120' in cfg.read_text())
+        d.execute_script("document.getElementById('quiet-interval').scrollIntoView({block: 'center'})")
+        d.save_screenshot(str(shots_dir() / "settings-quiet-mode.png"))
+        wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "[data-key=set-quiet_mode]"))).click()
+        wait.until(lambda _: '"quiet_mode": false' in cfg.read_text())
+        wait.until(lambda _: not d.find_elements(By.ID, "quiet-interval"))
+    check("quiet mode switch and summary interval save", quiet_mode)
+
     def commands_editor():
         import json
         click("Settings")
+        click("Phone access")
         form = wait.until(EC.visibility_of_element_located((By.CSS_SELECTOR, "[data-key=command-new]")))
         form.find_element(By.CSS_SELECTOR, "[aria-label='Command name']").send_keys("Test command")
         form.find_element(By.CSS_SELECTOR, "[aria-label='Shell command']").send_keys("true")
@@ -356,6 +465,7 @@ try:
         # wd.sh runs the service as on GNOME with no tray; Settings explains once, until closed.
         import json
         click("Settings")
+        click("General")
         d.execute_script("return api('settings_set', { tray_note_dismissed: false }).then(() => loadSettings())")
         note = wait.until(EC.visibility_of_element_located((By.CSS_SELECTOR, "[data-key=tray-note]")))
         assert "extensions.gnome.org/extension/615" in note.text, note.text

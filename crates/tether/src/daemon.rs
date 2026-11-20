@@ -22,12 +22,15 @@ pub async fn run(cfg: Config) -> Result<()> {
         cfg.mirror_notifications,
         std::sync::atomic::Ordering::Relaxed,
     );
+    crate::notify::set_quiet(cfg.quiet_mode, cfg.quiet_interval);
     tokio::spawn(crate::notify::mirror(service.clone()));
+    tokio::spawn(crate::schedule::run(service.clone()));
     tokio::spawn(crate::mprisd::run(service.clone()));
     tokio::spawn(crate::desktopmedia::run(service.clone()));
     tokio::spawn(crate::sendnotifications::run(service.clone()));
     tokio::spawn(crate::received::run(service.clone()));
     tokio::spawn(crate::computer::run(service.clone()));
+    tokio::spawn(crate::calls::run(service.clone()));
     if cfg.clipboard_sync {
         crate::clipsync::start(service.clone());
     }

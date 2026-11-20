@@ -14,6 +14,7 @@ d=webdriver.Remote(command_executor=os.environ['WD_URL'],options=opts)
 w=WebDriverWait(d,25,ignored_exceptions=(StaleElementReferenceException,ElementClickInterceptedException))
 try:
  w.until(EC.element_to_be_clickable((By.XPATH,"//button[.//span[text()='Settings']]"))).click()
+ w.until(EC.element_to_be_clickable((By.CSS_SELECTOR,'[role=tab][data-tab=access]'))).click()
  form=w.until(EC.visibility_of_element_located((By.CSS_SELECTOR,'[data-key=command-new]')))
  form.find_element(By.CSS_SELECTOR,"[aria-label='Command name']").send_keys('Editor test')
  form.find_element(By.CSS_SELECTOR,"[aria-label='Shell command']").send_keys('true')

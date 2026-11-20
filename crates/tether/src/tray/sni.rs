@@ -137,7 +137,10 @@ impl Item {
     #[zbus(property)]
     fn tool_tip(&self) -> (String, Pixmaps, String, String) {
         let state = self.state.borrow();
-        let body = tooltip(&state)
+        let mut lines = tooltip(&state);
+        // People looking for a way to stop Tether hover the icon first.
+        lines.push("Right-click for more, including Quit Tether".into());
+        let body = lines
             .iter()
             .map(|l| escape(l))
             .collect::<Vec<_>>()

@@ -17,7 +17,7 @@ use tokio::{
     net::{UnixListener, UnixStream},
     sync::mpsc,
 };
-use tracing::{debug, warn};
+use tracing::{debug, info, warn};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Request {
@@ -151,6 +151,13 @@ pub(crate) fn exit_soon() {
     });
 }
 
+/// Quits Tether completely: open windows close first, since a window left open would start the
+/// service again.
+pub(crate) fn quit_all() {
+    ui_event(json!({"event": "quit"}));
+    exit_soon();
+}
+
 async fn call(svc: &Service, method: &str, p: &Value) -> Result<Value> {
     let ok = || Ok(json!(true));
     match method {
@@ -208,6 +215,11 @@ async fn call(svc: &Service, method: &str, p: &Value) -> Result<Value> {
             exit_soon();
             ok()
         }
+        "quit" => {
+            info!("quitting at the window's request");
+            quit_all();
+            ok()
+        }
         "window_shown" => {
             crate::tray::window_shown();
             ok()
@@ -257,6 +269,11 @@ async fn call(svc: &Service, method: &str, p: &Value) -> Result<Value> {
                 crate::notify::ENABLED.store(on, std::sync::atomic::Ordering::Relaxed);
                 crate::tray::refresh();
             }
+            if p.get("quiet_mode").is_some() || p.get("quiet_interval").is_some() {
+                let cfg = crate::config::Config::load()?;
+                crate::notify::set_quiet(cfg.quiet_mode, cfg.quiet_interval);
+                crate::tray::refresh();
+            }
             if let Some(on) = p.get("auto_update").and_then(Value::as_bool) {
                 crate::update::set_auto(on);
             }
@@ -270,6 +287,10 @@ async fn call(svc: &Service, method: &str, p: &Value) -> Result<Value> {
             }
             Ok(json!({"restart": restart}))
         }
+        "scheduled_list" => crate::schedule::list(svc),
+        "schedule_add" => crate::schedule::add(svc, p),
+        "schedule_edit" => crate::schedule::edit(p),
+        "schedule_cancel" => crate::schedule::cancel(p),
         "apps_find_port" => Ok(crate::apps::find_pairing_port(svc)),
         "apps_doctor" => crate::apps::doctor(svc).await,
         "apps_download" => crate::apps::download(svc),
@@ -285,6 +306,17 @@ async fn call(svc: &Service, method: &str, p: &Value) -> Result<Value> {
             let title = p.get("title").and_then(Value::as_str).unwrap_or("Phone");
             crate::apps::open(svc, package, title).await
         }
+        "call_status" => Ok(crate::calls::status()),
+        "call_answer" => crate::calls::answer(p.get("id").and_then(Value::as_str))
+            .await
+            .map(|_| json!(true)),
+        "call_hangup" => crate::calls::hangup(p.get("id").and_then(Value::as_str))
+            .await
+            .map(|_| json!(true)),
+        "call_dial" => crate::calls::dial(s(p, "number")?)
+            .await
+            .map(|_| json!(true)),
+        "call_audio_here" => crate::calls::audio_here().await.map(|_| json!(true)),
         "apps_windows" => Ok(crate::apps::windows()),
         "apps_close" => Ok(crate::apps::close(p.get("package").and_then(Value::as_str))),
         _ => {

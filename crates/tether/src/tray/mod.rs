@@ -123,6 +123,8 @@ pub(crate) struct TrayState {
     pub mirroring: bool,
     /// ... but paused from the tray for now.
     pub paused: bool,
+    /// ... or summed up now and then (quiet mode).
+    pub quiet: bool,
 }
 
 impl TrayState {
@@ -154,6 +156,7 @@ fn snapshot(service: &Service) -> TrayState {
         phones,
         mirroring: crate::notify::ENABLED.load(Ordering::Relaxed),
         paused: crate::notify::PAUSED.load(Ordering::Relaxed),
+        quiet: crate::notify::quiet(),
     }
 }
 
@@ -241,13 +244,20 @@ async fn run(service: &Service, action: Action) {
                 info!("tray: could not ring the phone: {e}");
             }
         }
-        Action::SendFiles => {
-            let event = json!({"event": "send_files"});
-            if open_window().await {
-                crate::api::ui_event(event);
-            } else {
-                *PENDING.lock().unwrap_or_else(|e| e.into_inner()) = Some((Instant::now(), event));
+        Action::SendFiles => open_window_with(json!({"event": "send_files"})).await,
+        Action::ToggleQuiet => {
+            let on = !crate::notify::quiet();
+            match crate::config::save_settings(&json!({"quiet_mode": on}))
+                .and_then(|_| crate::config::Config::load())
+            {
+                Ok(cfg) => {
+                    crate::notify::set_quiet(cfg.quiet_mode, cfg.quiet_interval);
+                    info!("tray: quiet mode {}", if on { "on" } else { "off" });
+                    crate::api::ui_event(json!({"event": "settings"}));
+                }
+                Err(e) => info!("tray: could not change quiet mode: {e}"),
             }
+            refresh();
         }
         Action::TogglePause => {
             let paused = !crate::notify::PAUSED.load(Ordering::Relaxed);
@@ -260,10 +270,18 @@ async fn run(service: &Service, action: Action) {
         }
         Action::Quit => {
             info!("tray: quitting");
-            // Open windows close too; otherwise they would start the service again.
-            crate::api::ui_event(json!({"event": "quit"}));
-            crate::api::exit_soon();
+            crate::api::quit_all();
         }
+    }
+}
+
+/// Opens the window for something it should do there (an event such as "send_files"): a running
+/// window gets the event, a newly started one asks for it with `ui_pending`.
+pub(crate) async fn open_window_with(event: Value) {
+    if open_window().await {
+        crate::api::ui_event(event);
+    } else {
+        *PENDING.lock().unwrap_or_else(|e| e.into_inner()) = Some((Instant::now(), event));
     }
 }
 
@@ -328,6 +346,8 @@ pub(crate) fn tooltip(state: &TrayState) -> Vec<String> {
     }
     if state.paused && state.mirroring {
         lines.push("Notification pop-ups paused".into());
+    } else if state.quiet && state.mirroring {
+        lines.push("Quiet mode: notifications come as a summary".into());
     }
     lines
 }
@@ -363,11 +383,12 @@ fn blend(img: &mut RgbaImage, x: u32, y: u32, color: [u8; 3], alpha: f32) {
     px.0[3] = (out * 255.0) as u8;
 }
 
-/// The app icon at `size` pixels, with a red badge holding the unread count.
+/// The app icon at `size` pixels, with a red badge holding the unread count. Drawn from the tray
+/// cut of the icon (no margin, larger mark), which stays legible at 16 to 24 pixels.
 pub fn icon(size: u32, unread: usize) -> RgbaImage {
     static BASE: OnceLock<Option<RgbaImage>> = OnceLock::new();
     let base = BASE.get_or_init(|| {
-        image::load_from_memory(include_bytes!("../../../tether-app/icons/icon.png"))
+        image::load_from_memory(include_bytes!("../../../tether-app/icons/tray.png"))
             .ok()
             .map(|i| i.to_rgba8())
     });
@@ -415,19 +436,11 @@ pub fn icon(size: u32, unread: usize) -> RgbaImage {
     img
 }
 
-/// One-colour version of the app icon (phone and signal arc) for panels that draw tray icons in
-/// their text colour: GNOME recolours any "-symbolic" icon, KDE recolours the ColorScheme-Text
-/// class. Only filled shapes: GTK fills every shape of a symbolic icon, so strokes would turn
-/// into solid blocks.
-const SYMBOLIC_SVG: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16">
-<style id="current-color-scheme">.ColorScheme-Text { color:#232629; }</style>
-<g class="ColorScheme-Text" fill="currentColor">
-<path fill-rule="evenodd" d="M4 1.5h3a1.5 1.5 0 0 1 1.5 1.5v10a1.5 1.5 0 0 1-1.5 1.5H4A1.5 1.5 0 0 1 2.5 13V3A1.5 1.5 0 0 1 4 1.5zM4 3v10h3V3z"/>
-<circle cx="5.5" cy="11.6" r="0.75"/>
-<path d="M11.76 4.48A4.6 4.6 0 0 1 11.76 11.52L10.79 10.37A3.1 3.1 0 0 0 10.79 5.63z"/>
-</g>
-</svg>
-"##;
+/// One-colour version of the app icon (the phone and screen links) for panels that draw tray
+/// icons in their text colour: GNOME recolours any "-symbolic" icon, KDE recolours the
+/// ColorScheme-Text class. Only filled shapes: GTK fills every shape of a symbolic icon, so strokes
+/// would turn into solid blocks. Generated by docs/logo/gen.py.
+const SYMBOLIC_SVG: &str = include_str!("../../../tether-app/icons/icon-symbolic.svg");
 
 pub(crate) const SYMBOLIC_NAME: &str = "tether-tray-symbolic";
 pub(crate) const COLOUR_NAME: &str = "tether-tray";
@@ -575,6 +588,7 @@ mod tests {
             phones: vec![phone("Galaxy", true, Some((82, true)))],
             mirroring: true,
             paused: false,
+            quiet: false,
         };
         assert_eq!(
             tooltip(&s),
@@ -591,6 +605,12 @@ mod tests {
                 "1 unread conversation",
                 "Notification pop-ups paused"
             ]
+        );
+        s.paused = false;
+        s.quiet = true;
+        assert_eq!(
+            tooltip(&s).last().map(String::as_str),
+            Some("Quiet mode: notifications come as a summary")
         );
         let empty = TrayState::default();
         assert_eq!(tooltip(&empty), ["No phone paired yet"]);

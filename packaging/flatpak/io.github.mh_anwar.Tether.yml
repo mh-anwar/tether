@@ -28,6 +28,10 @@ finish-args:
   - --talk-name=org.mpris.MediaPlayer2.*
   # "Lock the screen" and the lock state the phone shows (computer.rs).
   - --talk-name=org.freedesktop.ScreenSaver
+  # Calls through this computer over Bluetooth hands-free (calls.rs): PipeWire's telephony service,
+  # and BlueZ to tell whether the phone is paired.
+  - --talk-name=org.pipewire.Telephony
+  - --system-talk-name=org.bluez
 
 modules:
   - name: tether
@@ -47,6 +51,8 @@ modules:
       - install -Dm755 target/release/tether /app/bin/tether
       - install -Dm755 target/release/tether-app /app/bin/tether-app
       - install -Dm644 crates/tether-app/icons/icon.png /app/share/icons/hicolor/512x512/apps/io.github.mh_anwar.Tether.png
+      - install -Dm644 crates/tether-app/icons/icon.svg /app/share/icons/hicolor/scalable/apps/io.github.mh_anwar.Tether.svg
+      - install -Dm644 crates/tether-app/icons/icon-symbolic.svg /app/share/icons/hicolor/symbolic/apps/io.github.mh_anwar.Tether-symbolic.svg
       - install -Dm644 packaging/flatpak/io.github.mh_anwar.Tether.desktop /app/share/applications/io.github.mh_anwar.Tether.desktop
       - install -Dm644 packaging/flatpak/io.github.mh_anwar.Tether.metainfo.xml /app/share/metainfo/io.github.mh_anwar.Tether.metainfo.xml
     sources:
