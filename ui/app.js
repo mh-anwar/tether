@@ -992,8 +992,8 @@ function commandsEditor(commands, flatpak) {
     commands.length ? commands.map(row) : h('p', { class: 'none', text: 'No commands yet.' }), row({ name: '', command: '' }, -1));
 }
 
-const SETTINGS_TABS = [['general', 'General'], ['notifications', 'Notifications'], ['calls', 'Calls and media'],
-  ['access', 'Phone access'], ['files', 'Files and clipboard'], ['connection', 'Connection']];
+const SETTINGS_TABS = [['general', 'General'], ['notifications', 'Notifications'], ['calls', 'Calls'],
+  ['access', 'Phone access'], ['files', 'Sharing'], ['connection', 'Connection']];
 function settingsTabs() {
   const pick = (id, focus) => {
     settings.tab = id; savePref('tether.settingsTab', id); renderSettings();

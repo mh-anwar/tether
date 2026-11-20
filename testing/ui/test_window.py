@@ -424,6 +424,7 @@ try:
 
     def quiet_mode():
         click("Settings")
+        wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "[role=tab][data-tab=notifications]"))).click()
         box = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "[data-key=set-quiet_mode]")))
         assert not box.is_selected(), "quiet mode is off by default"
         box.click()
