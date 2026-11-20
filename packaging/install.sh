@@ -7,11 +7,12 @@ set -eu
 here=$(cd "$(dirname "$0")" && pwd)
 bin="$HOME/.local/bin"
 apps="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
-icons="${XDG_DATA_HOME:-$HOME/.local/share}/icons/hicolor/512x512/apps"
+hicolor="${XDG_DATA_HOME:-$HOME/.local/share}/icons/hicolor"
+icons="$hicolor/512x512/apps"
 
 if [ "${1:-}" = "--remove" ]; then
     "$bin/tether" autostart off 2>/dev/null || true
-    rm -f "$bin/tether" "$bin/tether-app" "$apps/tether.desktop" "$icons/tether.png"
+    rm -f "$bin/tether" "$bin/tether-app" "$apps/tether.desktop" "$icons/tether.png" "$hicolor/scalable/apps/tether.svg"
     echo "Tether removed. Running copies stop at the next login."
     exit 0
 fi
@@ -29,6 +30,11 @@ fi
 mkdir -p "$bin" "$apps" "$icons"
 install -m 755 "$here/tether" "$here/tether-app" "$bin/"
 install -m 644 "$here/icon.png" "$icons/tether.png"
+# The SVG keeps the icon sharp at every size menus and docks ask for.
+if [ -f "$here/icon.svg" ]; then
+    mkdir -p "$hicolor/scalable/apps"
+    install -m 644 "$here/icon.svg" "$hicolor/scalable/apps/tether.svg"
+fi
 cat > "$apps/tether.desktop" <<EOF
 [Desktop Entry]
 Type=Application

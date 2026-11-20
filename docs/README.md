@@ -11,6 +11,7 @@ when you learn something (one line on why is enough). The task list is `../QUEUE
 | [testing.md](testing.md) | How to test each layer here on a headless box, with the exact commands |
 | [positioning.md](positioning.md) | What other Linux phone apps do, and what only Tether does |
 | [flathub.md](flathub.md) | Getting onto Flathub: blockers and remaining work |
+| [logo/](logo/README.md) | The app icon, tray and panel icons: the three concepts, where each file lives, how to regenerate |
 | [gotchas.md](gotchas.md) | Traps that cost time once; check before debugging something odd |
 
 Status of verified behaviour: `../HANDOFF.md`. House rules: `../AGENTS.md`.

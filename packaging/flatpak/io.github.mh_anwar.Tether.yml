@@ -47,6 +47,8 @@ modules:
       - install -Dm755 target/release/tether /app/bin/tether
       - install -Dm755 target/release/tether-app /app/bin/tether-app
       - install -Dm644 crates/tether-app/icons/icon.png /app/share/icons/hicolor/512x512/apps/io.github.mh_anwar.Tether.png
+      - install -Dm644 crates/tether-app/icons/icon.svg /app/share/icons/hicolor/scalable/apps/io.github.mh_anwar.Tether.svg
+      - install -Dm644 crates/tether-app/icons/icon-symbolic.svg /app/share/icons/hicolor/symbolic/apps/io.github.mh_anwar.Tether-symbolic.svg
       - install -Dm644 packaging/flatpak/io.github.mh_anwar.Tether.desktop /app/share/applications/io.github.mh_anwar.Tether.desktop
       - install -Dm644 packaging/flatpak/io.github.mh_anwar.Tether.metainfo.xml /app/share/metainfo/io.github.mh_anwar.Tether.metainfo.xml
     sources:
