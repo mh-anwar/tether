@@ -495,7 +495,7 @@ fn quote(s: &str) -> Result<String> {
     Ok(format!("\"{s}\""))
 }
 
-fn write_private(path: &Path, data: &[u8]) -> Result<()> {
+pub(crate) fn write_private(path: &Path, data: &[u8]) -> Result<()> {
     use std::{io::Write, os::unix::fs::OpenOptionsExt};
     let mut f = std::fs::OpenOptions::new()
         .write(true)

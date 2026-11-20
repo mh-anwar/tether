@@ -51,6 +51,9 @@ function savePref(key, value) {
   try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* private mode */ }
 }
 
+// Texts the service will send later (scheduled_list), for every phone.
+const scheduled = { items: [] };
+
 function loadSeen() {
   try { return JSON.parse(localStorage.getItem('tether.seen') || '{}'); } catch { return {}; }
 }
@@ -276,6 +279,7 @@ async function loadAll() {
   api('seen_set', { seen: state.seen }).catch(() => {});
   if (state.view === 'settings') loadSettings();
   if (state.deviceId) await loadDevice();
+  loadScheduled();
   render();
   // A window started from the tray menu ("Send files...") picks up what it was opened for.
   api('ui_pending').then((ev) => { if (ev) onEvent(ev); }).catch(() => {});
@@ -678,6 +682,7 @@ function messageNodes(id, msgs) {
     nodes.push(row);
     prev = m;
   });
+  nodes.push(...scheduledNodes(id, msgs));
   return nodes;
 }
 
@@ -689,6 +694,7 @@ function buildComposer() {
     onkeydown: (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(ta); } } });
   return h('div', { class: 'composer' },
     h('div', { class: 'composer-box' }, ta,
+      laterButton(ta, d),
       h('button', { class: 'btn primary icon-only', 'aria-label': 'Send', title: 'Send (Enter)', onclick: () => send(ta), disabled: !(d && d.connected) }, icon('send'))),
     h('div', { class: 'note' }, h('span', { text: 'Sent as a text from your phone' }), h('span', { text: 'Shift+Enter for a new line' })));
 }
@@ -726,7 +732,7 @@ function retry(m) {
   const i = state.pending.findIndex((p) => p.key === m.key);
   if (i >= 0) state.pending.splice(i, 1);
   const ta = $('.composer textarea');
-  if (ta) { ta.value = p.body; send(ta); }
+  if (ta) { ta.value = m.body; send(ta); }
 }
 
 // ---------- new message ----------
@@ -1018,7 +1024,8 @@ function settingsPanel(s, d, flatpak) {
   switch (settings.tab) {
     case 'notifications': return [
       group('From your phone', '',
-        settingSwitch('mirror_notifications', 'Show phone notifications on this computer', 'They always show in the Tether window.')),
+        settingSwitch('mirror_notifications', 'Show phone notifications on this computer', 'They always show in the Tether window.'),
+        ...quietSettings()),
       // The sandbox's filtered session bus can't watch other apps' notifications.
       flatpak ? null : group('To your phone', '',
         settingSwitch('send_notifications', "Send this computer's notifications to the phone", 'Off until you turn it on. Tether notifications are excluded.'),
@@ -1862,6 +1869,7 @@ function commands() {
     cmds.push({ label, icon: view === 'keyboard' ? 'key' : 'phone', run: () => showView(view) });
   cmds.push({ label: 'Settings', icon: 'settings', run: () => showView('settings') });
   cmds.push({ label: 'Quit Tether', sub: 'Stops it until you open it again', icon: 'x', run: quitTether });
+  const quietCmd = quietCommand(); if (quietCmd) cmds.push(quietCmd);
   if (apps.status?.device) {
     cmds.push({ label: 'Show phone screen', icon: 'phone', run: () => openApp(null) });
     for (const a of apps.list || []) cmds.push({ label: `Open ${a.name}`, sub: 'Phone app', icon: 'apps', run: () => openApp(a) });
@@ -1954,6 +1962,9 @@ function receivedFile(path) {
 function onEvent(ev) {
   if (ev.event === 'computer_settings') { openCommandsSettings(); return; }
   if (ev.event === 'send_files') { pickAndSendFiles(); return; }
+  if (ev.event === 'scheduled') { scheduled.items = ev.items || []; invalidate('thread'); return; }
+  if (ev.event === 'show_notifications') { showNotifications(); return; }
+  if (ev.event === 'settings') { loadSettings(); return; }
   if (ev.event === 'computer_ring') { state.computerRinging = ev.ringing; renderRail(); return; }
   if (ev.event === 'calls') { onCalls(ev); return; }
   if (ev.event === 'device') {
@@ -2437,4 +2448,164 @@ function activeCallCommands() {
 function dialCommands() {
   return [{ label: 'Call a number', icon: 'call', run: dialDialog },
     ...state.contacts.map((c) => ({ label: `Call ${c.name}`, sub: prettyNumber(c.number), icon: 'call', run: () => dialNumber(c.number, c.name) }))];
+}
+
+// ---------- texts sent later ----------
+// The service holds the schedule, so texts go out with the window closed; this is only the view.
+
+function loadScheduled() {
+  api('scheduled_list').then((items) => { scheduled.items = items; invalidate('thread'); }).catch(() => {});
+  // The palette's quiet mode entry reads the settings.
+  if (!settings.data) loadSettings();
+}
+
+function laterButton(ta, d) {
+  return h('button', { class: 'btn ghost icon-only', 'aria-label': 'Send later', title: 'Send later', 'data-key': 'send-later', disabled: !(d && d.connected),
+    onclick: () => {
+      if (!ta.value.trim()) { ta.focus(); return toast('Write the message first', 'error'); }
+      openSchedule({ body: ta.value.trim(), composer: ta });
+    } }, icon('clock'));
+}
+
+/** "Today 6:00 PM", "Tomorrow 9:00 AM", "Fri, Nov 21, 9:00 AM". */
+function whenLabel(ms) {
+  const d = new Date(ms);
+  const time = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  const today = new Date();
+  const tomorrow = new Date(today); tomorrow.setDate(today.getDate() + 1);
+  if (sameDay(d, today)) return `today at ${time}`;
+  if (sameDay(d, tomorrow)) return `tomorrow at ${time}`;
+  return `${d.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })} at ${time}`;
+}
+
+function laterChoices(now = new Date()) {
+  const at = (days, hour) => { const d = new Date(now); d.setDate(d.getDate() + days); d.setHours(hour, 0, 0, 0); return d.getTime(); };
+  const list = [{ label: 'In 1 hour', at: now.getTime() + 3600e3 }];
+  if (now.getHours() < 17) list.push({ label: 'This evening', at: at(0, 18) });
+  list.push({ label: 'Tomorrow morning', at: at(1, 9) });
+  return list;
+}
+
+// The value a datetime-local field takes: local time, no seconds.
+function localInputValue(ms) {
+  const d = new Date(ms - new Date(ms).getTimezoneOffset() * 60e3);
+  return d.toISOString().slice(0, 16);
+}
+
+/** The schedule dialog: a new text from the composer, or `item` to change. */
+function openSchedule({ body = '', composer = null, item = null }) {
+  const root = $('#palette-root');
+  const close = () => { root.replaceChildren(); (composer || $('.composer textarea'))?.focus(); };
+  let target = null;
+  if (!item) {
+    if (state.selected === 'new') {
+      if (!state.newTo.length) return toast('Add who the message is for first', 'error');
+      target = { addresses: [...state.newTo], thread_id: null };
+    } else {
+      target = { addresses: (threadMessages(state.selected)[0]?.addresses || []).map((a) => a.address), thread_id: state.selected };
+    }
+  }
+  const text = h('textarea', { 'aria-label': 'Message', rows: 3, required: true });
+  text.value = item ? item.body : body;
+  const error = h('p', { class: 'form-error', role: 'alert', hidden: true });
+  const custom = h('input', { type: 'datetime-local', id: 'later-at', required: true, min: localInputValue(Date.now()),
+    value: localInputValue(item ? item.at : Date.now() + 3600e3) });
+  const buttons = [];
+  const pick = async (at) => {
+    const value = text.value.trim();
+    if (!value) { error.textContent = 'Write the message first.'; error.hidden = false; return text.focus(); }
+    if (!Number.isFinite(at)) { error.textContent = 'Pick a date and time.'; error.hidden = false; return custom.focus(); }
+    buttons.forEach((b) => { b.disabled = true; });
+    error.hidden = true;
+    try {
+      const saved = item
+        ? await api('schedule_edit', { id: item.id, body: value, at })
+        : await api('schedule_add', { device: state.deviceId, ...target, body: value, at });
+      scheduled.items = [...scheduled.items.filter((s) => s.id !== saved.id), { ...saved, waiting: false }];
+      if (composer) { composer.value = ''; composer.style.height = 'auto'; }
+      root.replaceChildren();
+      invalidate('thread');
+      toast(`It will send ${whenLabel(saved.at)}`);
+    } catch (e) {
+      error.textContent = e.message || String(e); error.hidden = false;
+      buttons.forEach((b) => { b.disabled = false; });
+    }
+  };
+  for (const c of laterChoices()) {
+    buttons.push(h('button', { class: 'later-choice', type: 'button', onclick: () => pick(c.at) },
+      h('b', { text: c.label }), h('span', { text: whenLabel(c.at).replace(/^./, (x) => x.toUpperCase()) })));
+  }
+  const submit = h('button', { class: 'btn primary', type: 'submit' }, item ? 'Save' : 'Schedule');
+  const cancel = h('button', { class: 'btn ghost', type: 'button', onclick: close }, 'Cancel');
+  buttons.push(submit);
+  root.replaceChildren(h('div', { class: 'palette-backdrop', onclick: (e) => { if (e.target === e.currentTarget) close(); } },
+    h('form', { class: 'palette schedule-dialog', role: 'dialog', 'aria-label': item ? 'Change scheduled text' : 'Send later',
+      onkeydown: (e) => { if (e.key === 'Escape') { e.stopPropagation(); close(); } },
+      onsubmit: (e) => { e.preventDefault(); pick(new Date(custom.value).getTime()); } },
+    h('h2', { text: item ? 'Change scheduled text' : 'Send later' }),
+    text,
+    h('div', { class: 'later-choices' }, buttons.filter((b) => b !== submit)),
+    h('label', { for: 'later-at', class: 'later-custom' }, h('small', { text: 'Or pick a date and time' })),
+    h('div', { class: 'field-row' }, custom, submit),
+    error,
+    h('p', { class: 'hint', text: 'Tether sends it from your phone, even with this window closed. If your phone is out of reach then, it goes out once it is back.' }),
+    h('div', { class: 'dialog-actions' }, cancel))));
+  (buttons[0] || text).focus();
+}
+
+function scheduledNodes(id, msgs) {
+  const addrs = msgs[0]?.addresses || [];
+  const items = scheduled.items
+    .filter((s) => s.device === state.deviceId && (s.thread_id === id || (s.thread_id == null && addrs.length && sameAddrs(s.addresses, addrs))))
+    .sort((a, b) => a.at - b.at);
+  if (!items.length) return [];
+  return [h('div', { class: 'day', text: items.length === 1 ? 'Scheduled' : `${items.length} scheduled` }), ...items.map((s) => {
+    const status = s.state === 'unsure' ? 'Tether stopped while sending this, so it may have gone out. Check on your phone.'
+      : s.state === 'sending' ? 'Sending'
+        : s.waiting ? 'Waiting for your phone. It sends once your phone is back.'
+          : `Sends ${whenLabel(s.at)}`;
+    const busy = s.state === 'sending';
+    return h('div', { class: `bubble-row out first scheduled ${s.waiting || s.state === 'unsure' ? 'waiting' : ''}`, 'data-key': `sched-${s.id}` },
+      h('div', { class: 'bubble', text: s.body }),
+      h('div', { class: 'stamp' }, h('span', { class: 'stamp-status' }, busy ? h('span', { class: 'spinner' }) : icon('clock', 'sm'), h('span', { text: status })),
+        busy ? null : h('span', { class: 'stamp-actions' },
+          h('button', { class: 'stamp-btn', onclick: () => openSchedule({ item: s }), 'aria-label': 'Change this scheduled text' }, s.state === 'unsure' ? 'Send again' : 'Edit'),
+          h('button', { class: 'stamp-btn', onclick: () => cancelScheduled(s), 'aria-label': 'Cancel this scheduled text' }, 'Cancel'))));
+  })];
+}
+
+async function cancelScheduled(s) {
+  try {
+    await api('schedule_cancel', { id: s.id });
+    scheduled.items = scheduled.items.filter((x) => x.id !== s.id);
+    invalidate('thread');
+    toast('Scheduled text cancelled');
+    $('.composer textarea')?.focus();
+  } catch (e) { toast(e.message || String(e), 'error'); }
+}
+
+// ---------- quiet mode ----------
+function quietSettings() {
+  const s = settings.data;
+  return [
+    settingSwitch('quiet_mode', 'Quiet mode', 'Phone notifications come as one summary now and then instead of one pop-up each. Calls and texts with sign-in codes still pop up right away.'),
+    s.quiet_mode ? h('div', { class: 'setting row-setting' }, h('label', { for: 'quiet-interval' }, h('b', { text: 'Summary' }), h('small', { text: 'Only when something came in.' })),
+      h('select', { id: 'quiet-interval', 'data-key': 'set-quiet_interval', onchange: (e) => saveSettings({ quiet_interval: Number(e.target.value) }) },
+        [[30, 'At most every 30 minutes'], [60, 'At most every hour'], [120, 'At most every 2 hours'], [240, 'At most every 4 hours']]
+          .map(([value, label]) => h('option', { value, selected: s.quiet_interval === value }, label)))) : null,
+  ];
+}
+
+function quietCommand() {
+  const s = settings.data;
+  if (!s) return null;
+  const on = !!s.quiet_mode;
+  return { label: on ? 'Turn off quiet mode' : 'Turn on quiet mode', sub: 'Notification summary', icon: 'bell',
+    run: () => saveSettings({ quiet_mode: !on }, on ? 'Quiet mode is off' : 'Quiet mode is on') };
+}
+
+// A click on the quiet mode summary pop-up.
+function showNotifications() {
+  if (state.view !== 'messages') showView('messages');
+  if (!state.feedOpen) toggleFeed();
 }

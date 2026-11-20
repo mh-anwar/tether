@@ -123,6 +123,8 @@ pub(crate) struct TrayState {
     pub mirroring: bool,
     /// ... but paused from the tray for now.
     pub paused: bool,
+    /// ... or summed up now and then (quiet mode).
+    pub quiet: bool,
 }
 
 impl TrayState {
@@ -154,6 +156,7 @@ fn snapshot(service: &Service) -> TrayState {
         phones,
         mirroring: crate::notify::ENABLED.load(Ordering::Relaxed),
         paused: crate::notify::PAUSED.load(Ordering::Relaxed),
+        quiet: crate::notify::quiet(),
     }
 }
 
@@ -241,13 +244,20 @@ async fn run(service: &Service, action: Action) {
                 info!("tray: could not ring the phone: {e}");
             }
         }
-        Action::SendFiles => {
-            let event = json!({"event": "send_files"});
-            if open_window().await {
-                crate::api::ui_event(event);
-            } else {
-                *PENDING.lock().unwrap_or_else(|e| e.into_inner()) = Some((Instant::now(), event));
+        Action::SendFiles => open_window_with(json!({"event": "send_files"})).await,
+        Action::ToggleQuiet => {
+            let on = !crate::notify::quiet();
+            match crate::config::save_settings(&json!({"quiet_mode": on}))
+                .and_then(|_| crate::config::Config::load())
+            {
+                Ok(cfg) => {
+                    crate::notify::set_quiet(cfg.quiet_mode, cfg.quiet_interval);
+                    info!("tray: quiet mode {}", if on { "on" } else { "off" });
+                    crate::api::ui_event(json!({"event": "settings"}));
+                }
+                Err(e) => info!("tray: could not change quiet mode: {e}"),
             }
+            refresh();
         }
         Action::TogglePause => {
             let paused = !crate::notify::PAUSED.load(Ordering::Relaxed);
@@ -262,6 +272,16 @@ async fn run(service: &Service, action: Action) {
             info!("tray: quitting");
             crate::api::quit_all();
         }
+    }
+}
+
+/// Opens the window for something it should do there (an event such as "send_files"): a running
+/// window gets the event, a newly started one asks for it with `ui_pending`.
+pub(crate) async fn open_window_with(event: Value) {
+    if open_window().await {
+        crate::api::ui_event(event);
+    } else {
+        *PENDING.lock().unwrap_or_else(|e| e.into_inner()) = Some((Instant::now(), event));
     }
 }
 
@@ -326,6 +346,8 @@ pub(crate) fn tooltip(state: &TrayState) -> Vec<String> {
     }
     if state.paused && state.mirroring {
         lines.push("Notification pop-ups paused".into());
+    } else if state.quiet && state.mirroring {
+        lines.push("Quiet mode: notifications come as a summary".into());
     }
     lines
 }
@@ -566,6 +588,7 @@ mod tests {
             phones: vec![phone("Galaxy", true, Some((82, true)))],
             mirroring: true,
             paused: false,
+            quiet: false,
         };
         assert_eq!(
             tooltip(&s),
@@ -582,6 +605,12 @@ mod tests {
                 "1 unread conversation",
                 "Notification pop-ups paused"
             ]
+        );
+        s.paused = false;
+        s.quiet = true;
+        assert_eq!(
+            tooltip(&s).last().map(String::as_str),
+            Some("Quiet mode: notifications come as a summary")
         );
         let empty = TrayState::default();
         assert_eq!(tooltip(&empty), ["No phone paired yet"]);

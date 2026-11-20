@@ -21,6 +21,7 @@ pub(crate) enum Action {
     Ring(String),
     SendFiles,
     TogglePause,
+    ToggleQuiet,
     Quit,
 }
 
@@ -67,6 +68,7 @@ const OPEN: i32 = 1;
 const SEND: i32 = 3;
 const PAUSE: i32 = 5;
 const QUIT: i32 = 7;
+const QUIET: i32 = 8;
 const RING: i32 = 100;
 
 pub(crate) fn entries(state: &TrayState) -> Vec<Entry> {
@@ -112,6 +114,10 @@ pub(crate) fn entries(state: &TrayState) -> Vec<Entry> {
             state.mirroring,
             Action::TogglePause,
         )
+    });
+    out.push(Entry {
+        check: Some(state.quiet && state.mirroring),
+        ..Entry::item(QUIET, "Quiet mode", state.mirroring, Action::ToggleQuiet)
     });
     out.push(Entry::separator(6));
     out.push(Entry::item(QUIT, "Quit Tether", true, Action::Quit));
@@ -326,6 +332,7 @@ mod tests {
                 .collect(),
             mirroring,
             paused,
+            quiet: false,
         }
     }
 
@@ -353,6 +360,7 @@ mod tests {
                 "Send files\u{2026}",
                 "-",
                 "Pause notification pop-ups",
+                "Quiet mode",
                 "-",
                 "Quit Tether"
             ]
@@ -370,8 +378,19 @@ mod tests {
         assert_eq!(l[3], "(Send files\u{2026})");
         // Pop-ups are off in Settings: nothing to pause, and no stale tick.
         assert_eq!(l[5], "(Pause notification pop-ups)");
+        assert_eq!(l[6], "(Quiet mode)");
         assert_eq!(action_for(&s, RING), None);
         assert_eq!(action_for(&s, SEND), None);
+    }
+
+    #[test]
+    fn quiet_mode_row_shows_its_tick() {
+        let s = TrayState {
+            quiet: true,
+            ..state(&["Galaxy"], true, false)
+        };
+        assert_eq!(labels(&s)[6], "[x] Quiet mode");
+        assert_eq!(action_for(&s, QUIET), Some(Action::ToggleQuiet));
     }
 
     #[test]

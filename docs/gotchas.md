@@ -7,6 +7,11 @@ Traps that already cost time. Add new ones here with the symptom first.
   dependency features, so everything recompiles. Always build them together.
 - **Change not picked up**: `cargo build ... --example fake_phone` builds only the example, not the listed
   binaries. Build binaries and examples in separate commands.
+- **Tests or binaries don't have your change (worktrees sharing one `target/`)**: `cargo test` says
+  "Finished" in a fraction of a second and runs old tests. Another checkout built the same crate since,
+  and cargo's fingerprint looks at that checkout's files. `touch` the files you changed (for the window,
+  also `ui/*` and `crates/tether-app/src/main.rs`) before building, and copy the binaries away before a
+  long window test so another thread's build can't replace them mid-run.
 - **`target/` size**: ~3.3 GB with the window app. `cargo clean` past ~15 GB.
 
 ## Flatpak

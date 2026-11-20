@@ -269,6 +269,11 @@ async fn call(svc: &Service, method: &str, p: &Value) -> Result<Value> {
                 crate::notify::ENABLED.store(on, std::sync::atomic::Ordering::Relaxed);
                 crate::tray::refresh();
             }
+            if p.get("quiet_mode").is_some() || p.get("quiet_interval").is_some() {
+                let cfg = crate::config::Config::load()?;
+                crate::notify::set_quiet(cfg.quiet_mode, cfg.quiet_interval);
+                crate::tray::refresh();
+            }
             if let Some(on) = p.get("auto_update").and_then(Value::as_bool) {
                 crate::update::set_auto(on);
             }
@@ -282,6 +287,10 @@ async fn call(svc: &Service, method: &str, p: &Value) -> Result<Value> {
             }
             Ok(json!({"restart": restart}))
         }
+        "scheduled_list" => crate::schedule::list(svc),
+        "schedule_add" => crate::schedule::add(svc, p),
+        "schedule_edit" => crate::schedule::edit(p),
+        "schedule_cancel" => crate::schedule::cancel(p),
         "apps_find_port" => Ok(crate::apps::find_pairing_port(svc)),
         "apps_doctor" => crate::apps::doctor(svc).await,
         "apps_download" => crate::apps::download(svc),
