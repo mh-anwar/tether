@@ -111,7 +111,9 @@ review the full diff and remove unrelated changes.
   why). Every PR fills every section of `.github/pull_request_template.md`: summary, new features, changed
   behaviour, removed, why (decisions and alternatives), data/settings/interfaces table (config keys, files,
   API methods, events, storage, protocol, permissions, migration), fixes, queue items, checked / not
-  checked, known problems, owner actions. Write "None" rather than dropping a section. Merge with
+  checked, known problems. Write "None" rather than dropping a section. No personal details in PRs: no
+  owner actions or setup steps, names, emails, numbers, addresses, IPs, device names or models tied to a
+  person, logins or tokens; those go in the chat report only. Merge with
   `gh pr merge --squash --body "$(gh pr view N --json body -q .body)"` so the full description lands in
   the commit on `main` too. Update the description if the PR changes before merging.
 - Keep secrets, keys, certificates and real phone data out of commits; treat logs with message contents as

@@ -1,0 +1,35 @@
+# PR descriptions are the project's record (AGENTS.md, "Git and docs"): every section of
+# .github/pull_request_template.md must be there, and no personal details may slip in.
+name: pr-record
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize, ready_for_review]
+permissions:
+  contents: read
+jobs:
+  description:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check the description
+        env:
+          # Passed through the environment, never pasted into the script, so text in a PR can't run.
+          BODY: ${{ github.event.pull_request.body }}
+        run: |
+          fail=0
+          for h in "Summary" "New features" "Changed behaviour" "Removed" "Why (decisions and alternatives)" \
+                   "Data, settings and interfaces" "Fixes" "Work queue" "Checked / not checked" \
+                   "Known problems and follow-ups"; do
+            if ! printf '%s\n' "$BODY" | grep -qxF "## $h"; then
+              echo "::error::Missing section: ## $h (write \"None\" rather than leaving it out)"; fail=1
+            fi
+          done
+          # Email addresses (bots' noreply addresses are fine) and IPv4 addresses outside documentation
+          # and loopback ranges.
+          if printf '%s\n' "$BODY" | grep -oE '[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}' | grep -viq 'noreply'; then
+            echo "::error::The description contains an email address; keep personal details out of PRs"; fail=1
+          fi
+          if printf '%s\n' "$BODY" | grep -oE '\b([0-9]{1,3}\.){3}[0-9]{1,3}\b' \
+               | grep -vE '^(127\.|0\.0\.0\.0|192\.0\.2\.|198\.51\.100\.|203\.0\.113\.)' | grep -q .; then
+            echo "::error::The description contains an IP address; use 192.0.2.x for examples"; fail=1
+          fi
+          exit $fail
