@@ -129,3 +129,19 @@ Traps that already cost time. Add new ones here with the symptom first.
   `tether-app` compiles, Cargo only watched the `ui` folder's own mtime, and a rerun build script alone
   doesn't recompile the crate. `crates/tether-app/build.rs` now watches each file and passes a hash of
   their contents as `TETHER_UI_HASH`, which `main.rs` reads with `env!`, so any edit recompiles the window.
+
+## Calls (Bluetooth hands-free)
+- **Calls say "PipeWire 1.4 or newer" on a system that has it**: the telephony service only starts with
+  PipeWire's native HFP backend (`bluez5.hfphsp-backend`, default native) and can be turned off with
+  `bluez5.telephony-dbus-service = false` in WirePlumber's monitor.bluez.properties. With
+  `bluez5.telephony.provide-ofono = true` it moves to the system bus under oFono's name, which Tether
+  doesn't read. `busctl --user tree org.pipewire.Telephony` shows what's there.
+- **Phone paired over Bluetooth but calls say "not connected for calls"**: Android only connects HFP when
+  "Calls" (Samsung: Settings, Connections, Bluetooth, gear next to the computer) is on for that computer,
+  and `bluez5.roles` must include `hfp_hf` (the default; distros that trim it to `hfp_ag` lose it).
+- **A test fake service that takes its bus name before exporting objects can leave calls unanswered**: a
+  method call that arrives in between is never replied to. Export first, then request the name (PipeWire
+  does), and keep a method timeout on the client (calls.rs uses 5 s) so a stuck reply can't wedge the
+  watcher.
+- **zbus turns `org.freedesktop.DBus.Error.Failed` into `Error::FDO`, not `MethodError`**: read the
+  message from both, or the phone's AT error is lost.

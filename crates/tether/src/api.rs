@@ -285,6 +285,17 @@ async fn call(svc: &Service, method: &str, p: &Value) -> Result<Value> {
             let title = p.get("title").and_then(Value::as_str).unwrap_or("Phone");
             crate::apps::open(svc, package, title).await
         }
+        "call_status" => Ok(crate::calls::status()),
+        "call_answer" => crate::calls::answer(p.get("id").and_then(Value::as_str))
+            .await
+            .map(|_| json!(true)),
+        "call_hangup" => crate::calls::hangup(p.get("id").and_then(Value::as_str))
+            .await
+            .map(|_| json!(true)),
+        "call_dial" => crate::calls::dial(s(p, "number")?)
+            .await
+            .map(|_| json!(true)),
+        "call_audio_here" => crate::calls::audio_here().await.map(|_| json!(true)),
         "apps_windows" => Ok(crate::apps::windows()),
         "apps_close" => Ok(crate::apps::close(p.get("package").and_then(Value::as_str))),
         _ => {

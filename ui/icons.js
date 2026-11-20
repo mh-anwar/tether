@@ -38,6 +38,7 @@ const ICONS = {
   download: '<path d="M12 4v12M7 11l5 5 5-5M5 20h14"/>',
   music: '<path d="M9 18V6l11-2v12"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="17.5" cy="16" r="2.5"/>',
   call: '<path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a1 1 0 0 1-1 1A16 16 0 0 1 4 5a1 1 0 0 1 1-1Z"/>',
+  hangup: '<path d="M3 14.5c5-4.7 13-4.7 18 0l-2.2 2.7-3.6-1.5v-3a12 12 0 0 0-6.4 0v3l-3.6 1.5L3 14.5Z"/>',
 };
 
 function icon(name, cls = '') {

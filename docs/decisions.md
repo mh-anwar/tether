@@ -11,8 +11,14 @@
 - **Active redial.** Paired phones that drop are redialed at their last address every 15 s, with a unicast
   announcement, instead of waiting for broadcasts. Broadcast doesn't cross VPNs and is flaky on some Wi-Fi.
 - **Calls and screen mirroring are separate channels.** KDE Connect only reports calls; audio and answering
-  will go over Bluetooth hands-free (the way Phone Link does it). Screen and apps will use Android's wireless
+  go over Bluetooth hands-free (the way Phone Link does it). Screen and apps use Android's wireless
   debugging (scrcpy-style), which needs no root.
+- **Calls through PipeWire's telephony D-Bus service, not oFono or our own HFP stack.** PipeWire 1.4
+  (March 2025) speaks HFP as the hands-free unit itself and publishes `org.pipewire.Telephony` on the
+  session bus, on by default (native backend, roles `hfp_hf` + `hfp_ag` by default). The sound already
+  goes through the desktop's PipeWire, so there's nothing to route. oFono would need a system service,
+  root setup and its own audio path; talking HFP ourselves would fight PipeWire for the RFCOMM profile.
+  Cost: needs PipeWire 1.4+ (Ubuntu 25.04, Fedora 42, Debian 13, Arch); older systems get setup steps.
 - **Window: Tauri with plain HTML/CSS/JS, no npm or bundler.** Uses the system WebKitGTK (small binary), and
   the UI builds with cargo alone. Phone text is only ever inserted as text, never as HTML.
 - **The window is a client of the daemon** and starts it if needed; the daemon holds an exclusive lock

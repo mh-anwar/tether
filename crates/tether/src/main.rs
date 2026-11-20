@@ -3,6 +3,7 @@
 mod api;
 mod apps;
 mod autostart;
+mod calls;
 mod client;
 mod clipsync;
 mod computer;

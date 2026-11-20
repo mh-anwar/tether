@@ -28,6 +28,10 @@ finish-args:
   - --talk-name=org.mpris.MediaPlayer2.*
   # "Lock the screen" and the lock state the phone shows (computer.rs).
   - --talk-name=org.freedesktop.ScreenSaver
+  # Calls through this computer over Bluetooth hands-free (calls.rs): PipeWire's telephony service,
+  # and BlueZ to tell whether the phone is paired.
+  - --talk-name=org.pipewire.Telephony
+  - --system-talk-name=org.bluez
 
 modules:
   - name: tether
