@@ -367,11 +367,31 @@ async fn drives_a_fake_phone_over_dbus() {
 
     let lookup: Lookup = Box::new(|n| (n == "+15551234567").then(|| "Alice".to_string()));
     let names: Names = Box::new(|| vec!["Galaxy S23".to_string()]);
+    // The repo's stand-in wpctl, with its microphone state in a folder of this test's own.
+    let dir = std::env::temp_dir().join(format!("tether-calls-mic-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let state = dir.join("muted");
+    let wpctl = dir.join("wpctl");
+    let stand_in = concat!(env!("CARGO_MANIFEST_DIR"), "/../../testing/calls/wpctl");
+    std::fs::write(
+        &wpctl,
+        format!(
+            "#!/bin/sh\nFAKE_WPCTL_STATE={} exec {stand_in} \"$@\"\n",
+            state.display()
+        ),
+    )
+    .unwrap();
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&wpctl, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    let mic_state = || std::fs::read_to_string(&state).unwrap_or_default();
     let w = Arc::new(Watcher::new(
         Some(bus.conn().await),
         Some(bus.conn().await),
         lookup,
         names,
+        mic::Mic::Wpctl(wpctl.clone()),
     ));
     let mut rx = w.subscribe();
     let bg = w.clone();
@@ -422,10 +442,28 @@ async fn drives_a_fake_phone_over_dbus() {
     assert!(err.contains("Not incoming"), "{err}");
 
     w.audio_here().await.unwrap();
-    until(&mut rx, "audio", |s| s.audio_here).await;
+    let s = until(&mut rx, "audio", |s| s.audio_here).await;
+    assert!(s.can_mute && !s.muted);
+
+    w.mute(true).await.unwrap();
+    until(&mut rx, "muted", |s| s.muted).await;
+    assert_eq!(mic_state().trim(), "1");
 
     w.hangup(None).await.unwrap();
-    until(&mut rx, "hung up", |s| s.calls.is_empty()).await;
+    let s = until(&mut rx, "hung up", |s| s.calls.is_empty()).await;
+    assert!(!s.muted);
+    // Tether muted it for the call, so it gives the microphone back.
+    assert_eq!(mic_state().trim(), "0");
+    assert!(w.mute(true).await.is_err(), "no call to mute");
+
+    // A microphone the desktop muted before the call shows as muted and stays muted afterwards.
+    std::fs::write(&state, "1").unwrap();
+    add_call(&tel, &fake, "+15551234567", "incoming").await;
+    until(&mut rx, "pre-muted call", |s| s.calls.len() == 1 && s.muted).await;
+    w.hangup(None).await.unwrap();
+    until(&mut rx, "pre-muted hung up", |s| s.calls.is_empty()).await;
+    assert_eq!(mic_state().trim(), "1");
+    std::fs::write(&state, "0").unwrap();
 
     w.dial("(555) 010-9999").await.unwrap();
     let s = until(&mut rx, "dialing", |s| s.calls.len() == 1).await;
@@ -448,4 +486,5 @@ async fn drives_a_fake_phone_over_dbus() {
     w.poke.notify_one();
     until(&mut rx, "service gone", |s| s.blocker == Some("service")).await;
     task.abort();
+    let _ = std::fs::remove_dir_all(&dir);
 }

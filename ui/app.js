@@ -2280,9 +2280,9 @@ async function switchDevice(id) {
 }
 
 // ---------- Calls through this computer (Bluetooth hands-free, crates/tether/src/calls.rs) ----------
-// The daemon pushes `calls` events with {blocker, phone, audio_here, calls}; the banner floats over
-// every view so a ringing call can be answered from anywhere.
-const calls = { status: null, busy: null, timer: null };
+// The daemon pushes `calls` events with {blocker, phone, audio_here, can_mute, muted, calls}; the
+// banner floats over every view so a ringing call can be answered from anywhere.
+const calls = { status: null, busy: null, timer: null, muting: false };
 
 const callSetup = {
   service: { why: 'Calling from this computer needs PipeWire 1.4 or newer with its Bluetooth support.',
@@ -2341,12 +2341,38 @@ async function callAction(c, method, label) {
   setTimeout(() => { if (calls.busy?.label === label) { calls.busy = null; renderCallBanner(); } }, 8000);
 }
 
+/** Mutes or unmutes this computer's microphone for the call; the daemon's next status confirms it. */
+async function setCallMute(muted) {
+  if (calls.muting) return;
+  calls.muting = true;
+  renderCallBanner();
+  try {
+    await api('call_mute', { muted });
+    if (calls.status) calls.status.muted = muted;
+  } catch (e) {
+    toast(String(e), 'error');
+  } finally {
+    calls.muting = false;
+    renderCallBanner();
+    // Keyboard users keep their place: the banner was rebuilt under them.
+    $('#call-root .btn.mute')?.focus();
+  }
+}
+
+function muteButton() {
+  const muted = !!calls.status?.muted;
+  return h('button', { class: `btn mute${muted ? ' on' : ''}`, 'aria-pressed': String(muted), disabled: calls.muting,
+    title: muted ? 'Turn this computer\'s microphone back on' : 'Turn off this computer\'s microphone',
+    onclick: () => setCallMute(!muted) }, icon(muted ? 'mic-off' : 'mic', 'sm'), muted ? 'Unmute' : 'Mute');
+}
+
 function callCard(c) {
   const busy = calls.busy && (calls.busy.id === c.id || calls.busy.id === null) ? calls.busy.label : null;
   const ringing = c.state === 'incoming' || c.state === 'waiting';
   const active = c.state === 'active';
   const sub = active && c.since ? h('span', { class: 'call-timer', 'data-since': String(c.since), text: callClock(c.since) }) : h('span', { text: callStateText(c) });
   const where = active ? h('span', { text: calls.status.audio_here ? 'Sound on this computer' : 'Sound on your phone' }) : null;
+  const mutedNote = !ringing && calls.status.muted ? h('span', { class: 'muted-note', text: 'Microphone off' }) : null;
   const title = callTitle(c);
   const actions = busy ? [h('div', { class: 'spinner', 'aria-hidden': 'true' }), h('span', { text: busy })]
     : ringing ? [
@@ -2354,11 +2380,12 @@ function callCard(c) {
       h('button', { class: 'btn hangup', onclick: () => callAction(c, 'call_hangup', 'Declining') }, icon('hangup', 'sm'), 'Decline')]
     : [
       active && !calls.status.audio_here ? h('button', { class: 'btn', onclick: () => callAction(null, 'call_audio_here', 'Moving the sound here') }, 'Use this computer') : null,
+      calls.status.can_mute ? muteButton() : null,
       h('button', { class: 'btn hangup', onclick: () => callAction(c, 'call_hangup', 'Hanging up') }, icon('hangup', 'sm'), 'Hang up')];
   return h('section', { class: 'call-card', 'aria-label': `${callStateText(c) || 'Call'}: ${title}` },
     h('div', { class: 'who' }, avatar(title, false),
       h('div', { class: 'grow' }, h('b', { text: title }),
-        h('div', { class: 'sub' }, sub, c.name && c.number ? h('span', { text: prettyNumber(c.number) }) : null, where))),
+        h('div', { class: 'sub' }, sub, c.name && c.number ? h('span', { text: prettyNumber(c.number) }) : null, where, mutedNote))),
     h('div', { class: 'acts' }, actions));
 }
 
@@ -2442,7 +2469,10 @@ function activeCallCommands() {
         { label: `Decline ${who}`, icon: 'hangup', run: () => callAction(c, 'call_hangup', 'Declining') }];
     }
     return [{ label: `Hang up on ${who}`, icon: 'hangup', run: () => callAction(c, 'call_hangup', 'Hanging up') }];
-  });
+  }).concat(liveCalls().some((c) => c.state !== 'incoming' && c.state !== 'waiting') && calls.status?.can_mute
+    ? [calls.status.muted ? { label: 'Unmute the microphone', icon: 'mic', run: () => setCallMute(false) }
+      : { label: 'Mute the microphone', icon: 'mic-off', run: () => setCallMute(true) }]
+    : []);
 }
 
 function dialCommands() {

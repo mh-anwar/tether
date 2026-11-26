@@ -50,6 +50,11 @@ pub struct Status {
     pub phone: Option<String>,
     /// True while the call's sound runs through this computer (the HFP audio link is up).
     pub audio_here: bool,
+    /// Whether this computer can mute its microphone (wpctl or pactl found); the window hides Mute
+    /// otherwise.
+    pub can_mute: bool,
+    /// True while a call is live and this computer's microphone is muted, by Tether or the desktop.
+    pub muted: bool,
     pub calls: Vec<Call>,
 }
 
@@ -260,6 +265,9 @@ struct Inner {
     status: Status,
     tracker: Tracker,
     gateway: Option<OwnedObjectPath>,
+    /// Tether muted the microphone for the current call, so it unmutes it once the calls end. A
+    /// microphone muted before the call stays muted.
+    muted_by_us: bool,
 }
 
 pub struct Watcher {
@@ -267,6 +275,7 @@ pub struct Watcher {
     system: Option<Connection>,
     lookup: Lookup,
     names: Names,
+    mic: mic::Mic,
     inner: Mutex<Inner>,
     poke: Notify,
     changed: tokio::sync::watch::Sender<Status>,
@@ -299,7 +308,13 @@ pub async fn run(svc: Service) {
             .map(|d| d.name)
             .collect()
     });
-    let w = Arc::new(Watcher::new(session, system, lookup, names));
+    let w = Arc::new(Watcher::new(
+        session,
+        system,
+        lookup,
+        names,
+        mic::Mic::detect(),
+    ));
     let _ = WATCHER.set(w.clone());
     let mut changes = w.subscribe();
     tokio::spawn(async move {
@@ -344,18 +359,24 @@ pub async fn audio_here() -> Result<()> {
     watcher()?.audio_here().await
 }
 
+pub async fn mute(muted: bool) -> Result<()> {
+    watcher()?.mute(muted).await
+}
+
 impl Watcher {
     fn new(
         session: Option<Connection>,
         system: Option<Connection>,
         lookup: Lookup,
         names: Names,
+        mic: mic::Mic,
     ) -> Self {
         Self {
             session,
             system,
             lookup,
             names,
+            mic,
             inner: Mutex::new(Inner {
                 status: Status {
                     blocker: Some("service"),
@@ -363,6 +384,7 @@ impl Watcher {
                 },
                 tracker: Tracker::default(),
                 gateway: None,
+                muted_by_us: false,
             }),
             poke: Notify::new(),
             changed: tokio::sync::watch::channel(Status::default()).0,
@@ -409,6 +431,8 @@ impl Watcher {
         };
         let names = (self.names)();
         let (blocker, phone, gw) = summarize(gateways.as_deref(), &bt, &names);
+        let live = gw.is_some_and(|g| g.calls.iter().any(|c| c.state != "disconnected"));
+        let muted = self.settle_mic(live).await;
         let now = now_ms();
         let Ok(mut inner) = self.inner.lock() else {
             return;
@@ -422,6 +446,8 @@ impl Watcher {
             blocker,
             phone,
             audio_here: gw.is_some_and(|g| g.transport == "active"),
+            can_mute: self.mic.available(),
+            muted,
             calls,
         };
         inner.gateway = gw.map(|g| g.path.clone());
@@ -499,6 +525,39 @@ impl Watcher {
             )
             .await
             .map_err(friendly)?;
+        self.poke.notify_one();
+        Ok(())
+    }
+
+    /// The microphone's mute while a call is live (read each round, so muting from the desktop shows
+    /// too). Once the calls end, gives back a microphone Tether muted: left muted, the next video
+    /// call would start silent with no sign why.
+    async fn settle_mic(&self, live: bool) -> bool {
+        if live {
+            return self.mic.muted().await.unwrap_or(false);
+        }
+        let ours = self.inner.lock().is_ok_and(|i| i.muted_by_us);
+        if ours {
+            match self.mic.set(false).await {
+                Ok(()) => info!("calls: microphone unmuted after the call"),
+                Err(e) => tracing::warn!("calls: couldn't unmute the microphone: {e}"),
+            }
+            if let Ok(mut i) = self.inner.lock() {
+                i.muted_by_us = false;
+            }
+        }
+        false
+    }
+
+    pub async fn mute(&self, muted: bool) -> Result<()> {
+        if self.status().calls.is_empty() {
+            bail!("There's no call to mute");
+        }
+        self.mic.set(muted).await?;
+        if let Ok(mut i) = self.inner.lock() {
+            // Unmuting by hand hands the microphone back too: nothing to restore after the call.
+            i.muted_by_us = muted;
+        }
         self.poke.notify_one();
         Ok(())
     }
@@ -630,6 +689,8 @@ async fn read_bluetooth(conn: &Connection) -> Bluetooth {
     devices.sort_by(|a, b| a.address.cmp(&b.address));
     Bluetooth::Devices(devices)
 }
+
+mod mic;
 
 #[cfg(test)]
 mod tests;

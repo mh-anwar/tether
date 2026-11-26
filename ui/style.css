@@ -663,6 +663,8 @@ details[open] > summary .chev { transform: rotate(90deg); }
 .btn.answer { background: #1f8a4c; border-color: #1f8a4c; color: #fff; }
 .btn.hangup { background: #c4302b; border-color: #c4302b; color: #fff; }
 .btn.answer:hover, .btn.hangup:hover { filter: brightness(1.08); }
+.btn.mute.on { background: var(--text); border-color: var(--text); color: var(--bg); }
+.call-card .muted-note { color: var(--text-2); font-weight: 600; }
 .call-dialog { padding: 18px 20px; display: grid; gap: 12px; }
 .call-dialog h2 { margin: 0; font-size: 17px; }
 .call-dialog p { margin: 0; color: var(--text-2); }

@@ -63,6 +63,13 @@ def banner_button(text):
         (By.XPATH, f"//*[@id='call-root']//button[normalize-space(.)='{text}']")))
 
 
+def mic_state():
+    try:
+        return Path(os.environ["FAKE_WPCTL_STATE"]).read_text().strip()
+    except FileNotFoundError:
+        return ""
+
+
 def text_shown(text):
     return wait.until(EC.visibility_of_element_located(
         (By.XPATH, f"//*[text()[contains(normalize-space(.), \"{text}\")]]")))
@@ -107,10 +114,26 @@ try:
         text_shown("Sound on this computer")
         wait.until(lambda _: d.find_element(By.CSS_SELECTOR, ".call-timer").text not in ("", "00:00"))
         d.save_screenshot(str(SHOTS / "call-active.png"))
+        # Mute turns off this computer's microphone and says so in words, not only by colour.
+        banner_button("Mute").click()
+        wait.until(lambda _: mic_state() == "1")
+        unmute = banner_button("Unmute")
+        assert unmute.get_attribute("aria-pressed") == "true"
+        text_shown("Microphone off")
+        d.save_screenshot(str(SHOTS / "call-muted.png"))
+        # And from the keyboard, through Ctrl+K.
+        d.find_element(By.TAG_NAME, "body").send_keys(Keys.CONTROL, "k")
+        field = wait.until(EC.visibility_of_element_located((By.CSS_SELECTOR, "[aria-label='Command']")))
+        field.send_keys("Unmute the microphone", Keys.ENTER)
+        wait.until(lambda _: mic_state() == "0")
+        banner_button("Mute").click()
+        wait.until(lambda _: mic_state() == "1")
         banner_button("Hang up").click()
         heard("called Hangup")
         wait.until(lambda _: not d.find_elements(By.CSS_SELECTOR, "#call-root .call-card"))
-    check("incoming call: answer, sound here, timer, hang up", incoming)
+        # Tether muted it for the call, so the call ending turns the microphone back on.
+        wait.until(lambda _: mic_state() == "0")
+    check("incoming call: answer, sound here, timer, mute, hang up", incoming)
 
     def decline():
         tell("ring +15550199")
@@ -156,4 +179,4 @@ finally:
 if failures:
     print(f"{len(failures)} failed: {', '.join(failures)}")
     sys.exit(1)
-print("PASSED: calls setup, answer, sound here, hang up, decline, dial, far-end hang up")
+print("PASSED: calls setup, answer, sound here, mute, hang up, decline, dial, far-end hang up")
