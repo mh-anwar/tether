@@ -667,6 +667,8 @@ details[open] > summary .chev { transform: rotate(90deg); }
 .btn.answer:hover, .btn.hangup:hover { filter: brightness(1.08); }
 .btn.mute.on { background: var(--text); border-color: var(--text); color: var(--bg); }
 .call-card .muted-note { color: var(--text-2); font-weight: 600; }
+.call-dialog .quick-replies { display: grid; gap: 6px; margin: 4px 0 10px; }
+.call-dialog .quick-replies .btn { justify-content: flex-start; text-align: left; }
 .call-card .keypad-wrap { display: grid; gap: 8px; justify-items: center; }
 .call-card .keyed { min-height: 22px; font-size: 18px; letter-spacing: 2px; font-variant-numeric: tabular-nums; color: var(--text); }
 .call-card .keypad { display: grid; grid-template-columns: repeat(3, 64px); gap: 6px; }

@@ -182,6 +182,18 @@ try:
         wait.until(lambda _: not d.find_elements(By.CSS_SELECTOR, "#call-root .call-card"))
     check("dial a number from the command palette", dial_from_palette)
 
+    def decline_with_text():
+        tell("ring +15550177")
+        banner_button("Text").click()
+        text_shown("Decline and text")
+        d.save_screenshot(str(SHOTS / "call-decline-text.png"))
+        wait.until(EC.element_to_be_clickable((By.XPATH, "//*[@aria-label='Quick replies']//button[normalize-space(.)='On my way.']"))).click()
+        heard("called Hangup")
+        wait.until(lambda _: not d.find_elements(By.CSS_SELECTOR, "#call-root .call-card"))
+        # The phone took the text to send.
+        text_shown("Text sent to")
+    check("ringing call: decline with a text", decline_with_text)
+
     def far_end_hangs_up():
         tell("ring +15550123")
         banner_button("Answer").click()
@@ -231,4 +243,4 @@ finally:
 if failures:
     print(f"{len(failures)} failed: {', '.join(failures)}")
     sys.exit(1)
-print("PASSED: calls setup, settings, answer, sound here, mute, keypad, hang up, decline, dial, far-end hang up, call waiting, missed-call text")
+print("PASSED: calls setup, settings, answer, sound here, mute, keypad, hang up, decline, dial, far-end hang up, call waiting, missed-call text, decline with a text")

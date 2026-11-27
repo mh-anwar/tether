@@ -5,6 +5,7 @@ Finds things by role and text, the way a person would, so layout changes don't b
 
 import os
 import sys
+import time
 from pathlib import Path
 
 from selenium import webdriver
@@ -467,9 +468,23 @@ try:
         shell.send_keys("printf test")
         saved.find_element(By.XPATH, ".//button[text()='Save command']").click()
         wait.until(lambda _: any(c["command"] == "printf test" for c in json.loads(cfg.read_text()).get("commands", [])))
-        saved = wait.until(EC.visibility_of_element_located((By.XPATH, "//form[.//b[text()='Test command']]")))
-        saved.find_element(By.XPATH, ".//button[text()='Remove command']").click()
-        wait.until(lambda _: not any(c["name"] == "Test command" for c in json.loads(cfg.read_text()).get("commands", [])))
+        # Saving re-renders Settings once the reply arrives, which can replace the form between finding
+        # the button and clicking it; find it again then.
+        # A click on a form that is being replaced is lost without an error, so click until it lands.
+        remove = (By.XPATH, "//form[.//b[text()='Test command']]//button[text()='Remove command']")
+        gone = lambda: not any(c["name"] == "Test command" for c in json.loads(cfg.read_text()).get("commands", []))
+        for _ in range(5):
+            try:
+                wait.until(EC.element_to_be_clickable(remove)).click()
+            except StaleElementReferenceException:
+                pass
+            for _ in range(20):
+                if gone():
+                    break
+                time.sleep(0.1)
+            if gone():
+                break
+        assert gone(), "Remove command didn't save"
     check("Commands editor adds, edits and removes", commands_editor)
 
     def tray_note():

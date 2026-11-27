@@ -2435,6 +2435,30 @@ function keypad() {
       h('span', { class: 'digit', text: k }), h('span', { class: 'letters', 'aria-hidden': 'true', text: sub })))));
 }
 
+const QUICK_REPLIES = ['Can\'t talk right now. I\'ll call you back.', 'In a meeting. I\'ll call you after.', 'On my way.'];
+
+/** Declines a ringing call and texts the caller through the phone, as a phone's own "Reply" does. */
+function declineWithText(c) {
+  const send = async (body) => {
+    body = body.trim();
+    if (!body) return input.focus();
+    closeDialog();
+    callAction(c, 'call_hangup', 'Declining');
+    try { await api('sms_send', { device: state.deviceId, addresses: [c.number], body }); toast(`Text sent to ${callTitle(c)}`); }
+    catch (e) { toast(String(e), 'error'); }
+  };
+  const input = h('input', { type: 'text', placeholder: 'Write your own', 'aria-label': 'Your own reply', autocomplete: 'off' });
+  dialog(`Decline ${callTitle(c)} with a text`,
+    h('form', { onsubmit: (e) => { e.preventDefault(); send(input.value); } },
+      h('h2', { text: `Decline and text ${callTitle(c)}` }),
+      h('div', { class: 'quick-replies', role: 'group', 'aria-label': 'Quick replies' },
+        QUICK_REPLIES.map((t) => h('button', { class: 'btn', type: 'button', onclick: () => send(t) }, t))),
+      input,
+      h('div', { class: 'row' }, h('button', { class: 'btn primary', type: 'submit' }, icon('send', 'sm'), 'Decline and send'),
+        h('button', { class: 'btn ghost', type: 'button', onclick: closeDialog }, 'Cancel'))));
+  $('.quick-replies button')?.focus();
+}
+
 function callCard(c) {
   const busy = calls.busy && (calls.busy.id === c.id || calls.busy.id === null) ? calls.busy.label : null;
   const ringing = c.state === 'incoming' || c.state === 'waiting';
@@ -2445,6 +2469,7 @@ function callCard(c) {
   const title = callTitle(c);
   const actions = busy ? [h('div', { class: 'spinner', 'aria-hidden': 'true' }), h('span', { text: busy })]
     : ringing ? [
+      c.number && state.deviceId ? h('button', { class: 'btn', title: 'Decline and send a short text', onclick: () => declineWithText(c) }, icon('message', 'sm'), 'Text') : null,
       h('button', { class: 'btn answer', onclick: () => callAction(c, 'call_answer', 'Answering') }, icon('call', 'sm'), 'Answer'),
       h('button', { class: 'btn hangup', onclick: () => callAction(c, 'call_hangup', 'Declining') }, icon('hangup', 'sm'), 'Decline')]
     : [
