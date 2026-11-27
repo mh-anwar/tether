@@ -27,6 +27,10 @@ list`). Work goes through PRs (branch, PR, green CI, squash-merge).
   calls watcher). Unit-tested in `tray/menu.rs`; `testing/ui/tray_e2e.sh` answers, mutes and hangs up a
   call from the menu (it also expected a menu without "Quiet mode" and failed on main; fixed).
 
+- Missed-call pop-up (KDE Connect telephony): "Send a text" (window event `compose`) and, when Bluetooth
+  calling is ready, "Call back" (`calls::dial`). Checked with a scratch script: stand-in notification
+  server + fake telephony + fake phone sending `missedCall`; Call back dialed the number.
+
 ## In progress
 
 - Nothing half-done. Draft PR #15 describes everything above; keep its body current.

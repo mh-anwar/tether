@@ -65,7 +65,7 @@ check on a real Android phone with the stock KDE Connect app (the owner's Samsun
   `work/2026-11-26`): Mute (this computer's microphone through wpctl/pactl, given back after the call),
   a keypad during calls (`SendTones`), Answer/Decline on the ringing call's desktop pop-up, and
   `tether call` for shortcuts (`pickup`, `mute`, `keys`, a number), switching between two calls
-  (HoldAndAnswer), and call rows in the tray menu. Checked against fakes only; on the real phone also
+  (HoldAndAnswer), call rows in the tray menu, and Call back / Send a text on missed-call pop-ups. Checked against fakes only; on the real phone also
   check that the keypad reaches phone menus, Mute silences the far end, and Switch works.
 - [ ] Q17 **Flathub**: the Flatpak builds and ships with releases; left: source from a tag, bundled adb +
   scrcpy, Dynamic Launcher for pinned apps, screenshots, lint, then the Flathub PR (docs/flathub.md, "Work
