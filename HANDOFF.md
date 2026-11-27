@@ -37,6 +37,13 @@ describes everything below. Work goes through PRs (branch, PR, green CI, squash-
 - `python3 testing/calls/cli_e2e.py` (`tether call`), `python3 testing/calls/missed_e2e.py` (missed-call
   pop-up buttons through `testing/calls/fake_notifications.py`).
 
+## Audited against PipeWire's source (master, 2026-11-26, spa/plugins/bluez5/backend-native.c)
+
+- Fixed: switching to a held call now uses SwapCalls (HoldAndAnswer needs a waiting call); keypad keys
+  go one per SendTones (PipeWire passes the string into one AT+VTS).
+- Fine as is: Call1.Hangup works for every state (CHUP, CHLD=1 or CHLD=0 as fits), HoldAndAnswer for a
+  waiting call, HangupAll, Dial, Transport Activate.
+
 ## In progress
 
 - Nothing half-done.
