@@ -462,7 +462,7 @@ async fn call(c: &mut Client, args: &[String]) -> Result<()> {
         }
         "hangup" | "pickup" => {
             if calls.is_empty() {
-                bail!("No call to hang up.");
+                bail!("No call right now.");
             }
             c.call("call_hangup", json!({})).await?;
             println!("Hung up.");
