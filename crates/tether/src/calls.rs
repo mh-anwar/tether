@@ -649,14 +649,17 @@ impl Watcher {
         if live {
             return self.mic.muted().await.unwrap_or(false);
         }
-        let ours = self.inner.lock().is_ok_and(|i| i.muted_by_us);
+        // Taken, not read: two rounds running at once must not both unmute, or the second could undo
+        // a mute made in between.
+        let ours = self
+            .inner
+            .lock()
+            .map(|mut i| std::mem::take(&mut i.muted_by_us))
+            .unwrap_or(false);
         if ours {
             match self.mic.set(false).await {
                 Ok(()) => info!("calls: microphone unmuted after the call"),
                 Err(e) => tracing::warn!("calls: couldn't unmute the microphone: {e}"),
-            }
-            if let Ok(mut i) = self.inner.lock() {
-                i.muted_by_us = false;
             }
         }
         false

@@ -601,7 +601,7 @@ async fn drives_a_fake_phone_over_dbus() {
     let s = until(&mut rx, "hung up", |s| s.calls.is_empty()).await;
     assert!(!s.muted);
     // Tether muted it for the call, so it gives the microphone back.
-    assert_eq!(mic_state().trim(), "0");
+    eventually("the microphone given back", || mic_state().trim() == "0").await;
     assert!(w.mute(true).await.is_err(), "no call to mute");
 
     // A microphone the desktop muted before the call shows as muted and stays muted afterwards.
