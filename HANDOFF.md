@@ -31,6 +31,9 @@ list`). Work goes through PRs (branch, PR, green CI, squash-merge).
   calling is ready, "Call back" (`calls::dial`). Checked with a scratch script: stand-in notification
   server + fake telephony + fake phone sending `missedCall`; Call back dialed the number.
 
+- Settings, Calls: "Calls through this computer" group (Ready / Not set up yet + Show the steps, Call a
+  number), re-rendered when the blocker changes. Checked in `test_calls.py`.
+
 ## In progress
 
 - Nothing half-done. Draft PR #15 describes everything above; keep its body current.
