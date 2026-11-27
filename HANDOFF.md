@@ -24,7 +24,8 @@ list`). Work goes through PRs (branch, PR, green CI, squash-merge).
   lists calls and the three most useful commands.
 - Tray menu: while a call is live, "Answer <caller>" / "Decline" (ringing) or "Hang up on <caller>" and
   a "Mute the microphone" check row come right after Open Tether (`TrayState.call`, refreshed from the
-  calls watcher). Unit-tested in `tray/menu.rs`.
+  calls watcher). Unit-tested in `tray/menu.rs`; `testing/ui/tray_e2e.sh` answers, mutes and hangs up a
+  call from the menu (it also expected a menu without "Quiet mode" and failed on main; fixed).
 
 ## In progress
 
@@ -32,7 +33,6 @@ list`). Work goes through PRs (branch, PR, green CI, squash-merge).
 
 ## Up next
 
-- A check of the tray's call rows in `testing/ui/tray_e2e.sh` (needs fake telephony on that bus).
 - Real-phone checks: everything in QUEUE "Needs a real phone", plus the new call features (keypad
   tones reach phone menus, Mute silences the far end, pop-up buttons on GNOME/KDE, HoldAndAnswer on a
   held call with no waiting call, which PipeWire may refuse).
