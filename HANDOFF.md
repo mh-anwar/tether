@@ -34,6 +34,10 @@ list`). Work goes through PRs (branch, PR, green CI, squash-merge).
 - Settings, Calls: "Calls through this computer" group (Ready / Not set up yet + Show the steps, Call a
   number), re-rendered when the blocker changes. Checked in `test_calls.py`.
 
+- Decline with a text (ringing card, Text button, quick replies + own text, `sms_send`), tray tooltip
+  line for the call. Checked in `test_calls.py` and tray unit tests.
+- Fixed a flaky window check (Commands editor Remove click lost during a re-render).
+
 ## In progress
 
 - Nothing half-done. Draft PR #15 describes everything above; keep its body current.
