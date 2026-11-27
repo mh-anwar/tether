@@ -680,14 +680,16 @@ impl Watcher {
     }
 
     /// Two calls at once: the held one becomes active and the active one goes on hold (AT+CHLD=2,
-    /// which PipeWire sends for HoldAndAnswer; HFP uses the same command for both).
+    /// sent by PipeWire's SwapCalls, which needs a held call; its HoldAndAnswer refuses unless a call
+    /// is waiting, see hfp_hf_swap_calls / hfp_hf_hold_and_answer in spa/plugins/bluez5/backend-native.c).
+    /// PipeWire has no way to hold a single call, so there is no Hold button.
     pub async fn swap(&self, id: Option<&str>) -> Result<()> {
         self.find(id, |c| c.state == "held")
             .ok()
             .filter(|c| c.state == "held")
             .ok_or_else(|| anyhow!("There's no call on hold to switch to"))?;
         let gw = self.gateway()?;
-        self.call_method(gw.as_str(), AG, "HoldAndAnswer").await
+        self.call_method(gw.as_str(), AG, "SwapCalls").await
     }
 
     /// Keypad presses during a call, for phone menus ("press 1") and PINs. The phone plays them into

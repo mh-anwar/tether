@@ -264,15 +264,16 @@ impl AudioGateway {
         self.0.lock().unwrap().dialed.push(number.clone());
         add_call(conn, &self.0, &number, "dialing").await;
     }
-    async fn hold_and_answer(&self, #[zbus(connection)] conn: &Connection) {
-        for c in self.0.lock().unwrap().calls.iter_mut() {
-            c.2 = match c.2.as_str() {
-                "active" => "held".into(),
-                "waiting" | "held" => "active".into(),
-                s => s.into(),
-            };
-        }
-        changed(conn, AG1).await;
+    /// PipeWire refuses HoldAndAnswer without an active and a waiting call, and SwapCalls without a
+    /// held one (backend-native.c); both then send AT+CHLD=2.
+    async fn hold_and_answer(
+        &self,
+        #[zbus(connection)] conn: &Connection,
+    ) -> zbus::fdo::Result<()> {
+        chld2(&self.0, conn, &["active", "waiting"]).await
+    }
+    async fn swap_calls(&self, #[zbus(connection)] conn: &Connection) -> zbus::fdo::Result<()> {
+        chld2(&self.0, conn, &["held"]).await
     }
     fn send_tones(&self, tones: String) {
         self.0.lock().unwrap().tones.push(tones);
@@ -334,6 +335,24 @@ async fn eventually(what: &str, ok: impl Fn() -> bool) {
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
     panic!("timed out waiting for {what}");
+}
+
+async fn chld2(fake: &Shared, conn: &Connection, needs: &[&str]) -> zbus::fdo::Result<()> {
+    {
+        let mut f = fake.lock().unwrap();
+        if !needs.iter().all(|n| f.calls.iter().any(|c| c.2 == *n)) {
+            return Err(zbus::fdo::Error::Failed("Invalid state".into()));
+        }
+        for c in f.calls.iter_mut() {
+            c.2 = match c.2.as_str() {
+                "active" => "held".into(),
+                "waiting" | "held" => "active".into(),
+                s => s.into(),
+            };
+        }
+    }
+    changed(conn, AG1).await;
+    Ok(())
 }
 
 struct Transport(Shared);

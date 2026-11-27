@@ -164,5 +164,9 @@ Traps that already cost time. Add new ones here with the symptom first.
 - **Mute in a test mutes nothing, or the real microphone**: the daemon uses `wpctl` from PATH unless
   `TETHER_WPCTL` points at the stand-in `testing/calls/wpctl` (state in `FAKE_WPCTL_STATE`). `wd.sh` and
   `tray_e2e.sh` set both; set them for any other harness, or a developer's own microphone gets muted.
+- **Switching to a held call fails on a real phone but passes the fakes**: PipeWire's `HoldAndAnswer`
+  answers an error unless there is an active *and* a waiting call; switching to a held call is
+  `SwapCalls`, and nothing holds a single call (spa/plugins/bluez5/backend-native.c). The fakes now
+  refuse the same way, so keep them in step with PipeWire's checks.
 - **Clicks on notification buttons arrive for every program's pop-ups**: `ActionInvoked` is broadcast.
   The calls pop-up acts only on ids it got back from its own `Notify` (calls/popup.rs).

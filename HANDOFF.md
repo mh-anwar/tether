@@ -15,7 +15,7 @@ describes everything below. Work goes through PRs (branch, PR, green CI, squash-
   over the watcher's own session connection, closed when the call stops ringing). KDE Connect's plain
   "Incoming call" pop-up is skipped while Bluetooth calling is ready (`calls::rings_here`).
 - Switch between two calls: a waiting call's Answer holds the first (HoldAndAnswer); a held call's card
-  has "Switch to this call" (`call_swap`, also in Ctrl+K). Mute shows only on the call being talked on.
+  has "Switch to this call" (`call_swap` = SwapCalls, also in Ctrl+K). Mute shows only on the call being talked on.
 - Decline with a text: Text button on a ringing card, three quick replies or your own, `sms_send`.
 - Missed-call pop-up (KDE Connect telephony): "Send a text" (window event `compose`) and, when Bluetooth
   calling is ready, "Call back" (`calls::dial`).
@@ -47,6 +47,8 @@ describes everything below. Work goes through PRs (branch, PR, green CI, squash-
 - Call actions now re-read the calls before replying (`Watcher::after_action`) and once more after a
   poke. On real PipeWire, check that the window and `tether call` show the new state at once; if
   PipeWire updates its objects only after replying, the second round (and its signals) cover it.
-- A Hold button for a single call once HoldAndAnswer with no other call is confirmed on real PipeWire.
+- No Hold button for a single call: PipeWire (backend-native.c, master 2026-11) only sends AT+CHLD=2
+  from SwapCalls with a held call or HoldAndAnswer with active + waiting, and has nothing to hold one
+  call. Revisit if PipeWire adds it. Both fakes now refuse the same way PipeWire does.
 
 Delete this file once the real-phone checks in QUEUE are done.

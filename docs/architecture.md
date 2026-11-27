@@ -156,7 +156,7 @@ incoming, since}]}`. Ringing calls get a desktop pop-up from `calls/popup.rs` (N
 `answer`/`decline`/`default` actions over the watcher's own session connection, closed with
 CloseNotification once the call stops ringing; ActionInvoked is matched to our own ids), and KDE
 Connect's plain ringing pop-up is skipped while `calls::rings_here()`. A held call switches back with
-`HoldAndAnswer` (`call_swap`). Each status change also refreshes the tray (`TrayState.call`: Answer /
+`SwapCalls` (`call_swap`). Each status change also refreshes the tray (`TrayState.call`: Answer /
 Decline or Hang up / Mute rows and a tooltip line). `tether call` (client.rs) drives the same API
 methods. Missed calls from KDE Connect get "Call back" (when `rings_here`) and "Send a text" (window
 event `compose`) in notify.rs.

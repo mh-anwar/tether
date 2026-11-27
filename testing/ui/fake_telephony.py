@@ -14,7 +14,7 @@ Run: uv run --no-project --with dbus-fast python testing/ui/fake_telephony.py
 import asyncio
 import sys
 
-from dbus_fast import Variant
+from dbus_fast import DBusError, Variant
 from dbus_fast.aio import MessageBus
 from dbus_fast.service import PropertyAccess, ServiceInterface, dbus_property, method
 
@@ -90,8 +90,19 @@ class Gateway(ServiceInterface):
 
     @method()
     def HoldAndAnswer(self):
-        # AT+CHLD=2: the active call goes on hold, the waiting or held one becomes active.
+        # PipeWire sends AT+CHLD=2 for this only with an active and a waiting call (backend-native.c).
         log("called HoldAndAnswer")
+        self.chld2(["active", "waiting"])
+
+    @method()
+    def SwapCalls(self):
+        # ... and for this only with a held call.
+        log("called SwapCalls")
+        self.chld2(["held"])
+
+    def chld2(self, needs):
+        if not all(any(c.state == n for c in self.phone.calls) for n in needs):
+            raise DBusError("org.freedesktop.DBus.Error.Failed", "Invalid state")
         for c in list(self.phone.calls):
             if c.state == "active":
                 c.set_state("held")

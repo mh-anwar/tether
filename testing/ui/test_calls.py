@@ -216,7 +216,7 @@ try:
         # Only the call being talked on offers Mute.
         assert len(d.find_elements(By.XPATH, "//*[@id='call-root']//button[normalize-space(.)='Mute']")) == 1
         banner_button("Switch to this call").click()
-        heard("called HoldAndAnswer")
+        heard("called SwapCalls")
         wait.until(lambda _: d.find_elements(By.XPATH, "//*[@id='call-root']//button[normalize-space(.)='Switch to this call']"))
         tell("remote_hangup")
         wait.until(lambda _: not d.find_elements(By.CSS_SELECTOR, "#call-root .call-card"))
