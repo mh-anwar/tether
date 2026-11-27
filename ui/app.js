@@ -1981,6 +1981,8 @@ function onEvent(ev) {
   if (ev.event === 'send_files') { pickAndSendFiles(); return; }
   if (ev.event === 'scheduled') { scheduled.items = ev.items || []; invalidate('thread'); return; }
   if (ev.event === 'show_notifications') { showNotifications(); return; }
+  // "Send a text" on a missed-call pop-up: a new message to that number.
+  if (ev.event === 'compose') { if (ev.number) openNew({ number: ev.number, name: ev.name || '' }); return; }
   if (ev.event === 'settings') { loadSettings(); return; }
   if (ev.event === 'computer_ring') { state.computerRinging = ev.ringing; renderRail(); return; }
   if (ev.event === 'calls') { onCalls(ev); return; }

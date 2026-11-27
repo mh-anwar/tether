@@ -194,6 +194,12 @@ try:
         wait.until(lambda _: not d.find_elements(By.CSS_SELECTOR, "#call-root .call-card"))
     check("call waiting: answer holds the first, switch back", call_waiting)
 
+    def missed_call_text():
+        # "Send a text" on a missed-call pop-up opens a new message to that number.
+        d.execute_script("onEvent({event: 'compose', number: '+15550789', name: ''})")
+        wait.until(lambda _: d.execute_script("return state.selected === 'new' && state.newTo[0] === '+15550789'"))
+    check("missed call: Send a text opens a new message", missed_call_text)
+
     def dark_banner():
         tell("ring +15550123")
         banner_button("Answer")
@@ -209,4 +215,4 @@ finally:
 if failures:
     print(f"{len(failures)} failed: {', '.join(failures)}")
     sys.exit(1)
-print("PASSED: calls setup, answer, sound here, mute, keypad, hang up, decline, dial, far-end hang up, call waiting")
+print("PASSED: calls setup, answer, sound here, mute, keypad, hang up, decline, dial, far-end hang up, call waiting, missed-call text")
