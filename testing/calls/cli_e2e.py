@@ -70,7 +70,8 @@ try:
     assert call("mute") == "Microphone off."
     assert mic() == "1" and "Microphone off." in call()
     assert call("keys", "1", "2#") == "Sent 12#."
-    assert heard("called SendTones") == "called SendTones 12#"
+    for key in "12#":  # one key per SendTones, as HFP's AT+VTS takes
+        assert heard("called SendTones") == f"called SendTones {key}"
     tell("ring +15550456")
     until("waiting", lambda: "waiting: +15550456" in call())
     assert "Declined +15550456" in call("decline")

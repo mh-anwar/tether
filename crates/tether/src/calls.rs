@@ -700,16 +700,22 @@ impl Watcher {
             bail!("Keys can only be sent once the call is answered");
         }
         let gw = self.gateway()?;
-        self.session()?
-            .call_method(
-                Some(TELEPHONY),
-                gw.as_str(),
-                Some(AG),
-                "SendTones",
-                &(tones.as_str(),),
-            )
-            .await
-            .map_err(friendly)?;
+        // One key per call: PipeWire puts the whole string into a single AT+VTS (backend-native.c,
+        // hfp_hf_send_tones), but HFP's AT+VTS takes one DTMF key. Each reply comes after the phone's
+        // OK, so the keys go out in order.
+        let mut buf = [0u8; 4];
+        for key in tones.chars() {
+            self.session()?
+                .call_method(
+                    Some(TELEPHONY),
+                    gw.as_str(),
+                    Some(AG),
+                    "SendTones",
+                    &(&*key.encode_utf8(&mut buf),),
+                )
+                .await
+                .map_err(friendly)?;
+        }
         Ok(())
     }
 

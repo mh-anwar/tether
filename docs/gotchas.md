@@ -168,5 +168,8 @@ Traps that already cost time. Add new ones here with the symptom first.
   answers an error unless there is an active *and* a waiting call; switching to a held call is
   `SwapCalls`, and nothing holds a single call (spa/plugins/bluez5/backend-native.c). The fakes now
   refuse the same way, so keep them in step with PipeWire's checks.
+- **Several keypad keys in one `SendTones` may do nothing on a real phone**: PipeWire sends the whole
+  string as one `AT+VTS=...`, but HFP's AT+VTS takes a single key. `Watcher::tones` sends one key per
+  call, in order.
 - **Clicks on notification buttons arrive for every program's pop-ups**: `ActionInvoked` is broadcast.
   The calls pop-up acts only on ids it got back from its own `Notify` (calls/popup.rs).

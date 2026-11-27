@@ -610,7 +610,8 @@ async fn drives_a_fake_phone_over_dbus() {
     until(&mut rx, "one call left", |s| s.calls.len() == 1).await;
 
     w.tones("1 2#a").await.unwrap();
-    assert_eq!(fake.lock().unwrap().tones, vec!["12#A".to_string()]);
+    // One key per SendTones: HFP's AT+VTS takes a single key.
+    assert_eq!(fake.lock().unwrap().tones, ["1", "2", "#", "A"]);
 
     w.mute(true).await.unwrap();
     until(&mut rx, "muted", |s| s.muted).await;

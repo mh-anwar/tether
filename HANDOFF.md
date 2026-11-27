@@ -9,7 +9,8 @@ describes everything below. Work goes through PRs (branch, PR, green CI, squash-
 - Mute during calls: `calls/mic.rs` mutes the default microphone via `wpctl` (else `pactl`), reads it
   back each round, unmutes after the call only if Tether muted it. Window: Mute/Unmute button
   (aria-pressed, "Microphone off" text), Ctrl+K entry. API `call_mute {muted}`; status `can_mute`, `muted`.
-- Keypad during an active call: AudioGateway1 `SendTones`, `call_tones {tones}`, `clean_tones`. Window:
+- Keypad during an active call: AudioGateway1 `SendTones` one key per call (PipeWire passes the string
+  straight into one AT+VTS, which takes a single key), `call_tones {tones}`, `clean_tones`. Window:
   Keypad button opens a 12-key grid, typing digits works, Escape closes.
 - Desktop pop-up for a ringing Bluetooth call with Answer / Decline / Text / Open Tether (`calls/popup.rs`,
   over the watcher's own session connection, closed when the call stops ringing). KDE Connect's plain
