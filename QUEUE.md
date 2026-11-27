@@ -61,8 +61,12 @@ check on a real Android phone with the stock KDE Connect app (the owner's Samsun
   on the laptop. Status 2026-11-19: built on PipeWire 1.4's `org.pipewire.Telephony` (calls.rs, call
   banner, Call buttons, Ctrl+K "Call a number", setup steps); passes a fake telephony service in unit
   and window tests (`testing/ui/test_calls.py`). Waits on the owner: pair the phone with the laptop over
-  Bluetooth and try a real call (sound both ways, answer, decline, dial). No mute yet (the API has none;
-  next: mute the laptop microphone through PipeWire).
+  Bluetooth and try a real call (sound both ways, answer, decline, dial). 2026-11-26 (branch
+  `work/2026-11-26`): Mute (this computer's microphone through wpctl/pactl, given back after the call),
+  a keypad during calls (`SendTones`), Answer/Decline on the ringing call's desktop pop-up, and
+  `tether call` for shortcuts (`pickup`, `mute`, `keys`, a number). Checked against fakes only; on the
+  real phone also check that the keypad reaches phone menus and that Mute silences the far end. Next:
+  hold and switching between two calls (HoldAndAnswer on a held call), calls in the tray menu.
 - [ ] Q17 **Flathub**: the Flatpak builds and ships with releases; left: source from a tag, bundled adb +
   scrcpy, Dynamic Launcher for pinned apps, screenshots, lint, then the Flathub PR (docs/flathub.md, "Work
   left"). Needs Q17a.
@@ -74,13 +78,15 @@ check on a real Android phone with the stock KDE Connect app (the owner's Samsun
 - [ ] Q13 **Drag-and-drop send** verified for real (needs a session with a window manager or the owner).
 - [ ] Q18 **Real app icons for every app**: icons now come from notifications; the rest show letters. Next:
   pull icons from the phone over adb, or from the companion app if Q39 goes that way (decide after Q39).
-- [ ] Q23 **Dialogs**: the command palette as a proper combobox for screen readers (focus return is done).
 - [ ] Q24 **Phone-app workspaces** (idea): "Work" opens several pinned phone apps at once; dropping a file
   on a pinned app opens it in that app on the phone.
 - [ ] Q16 **Forked Android app** only if a feature can't go through KDE Connect (for example call control
   without Bluetooth).
 
 ## Done
+
+- 2026-11-26 Q23: the command palette is an ARIA combobox (active option announced, match count in a
+  live region, Tab stays in the dialog); checked in `test_window.py` (branch `work/2026-11-26`).
 
 - 2026-11-16 v1.1.0: phone apps open once each in their own window and close from the Apps page, Android 9
   phones share one "Phone screen" window (#8). Tray polish: right-click menu (Open Tether, Ring my phone,

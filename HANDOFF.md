@@ -1,30 +1,36 @@
-# Handoff (2026-11-16, v1.1.0)
+# Handoff (live, 2026-11-26, branch `work/2026-11-26`)
 
 Read first: `AGENTS.md` (house rules), `QUEUE.md` (work queue), `docs/README.md` (knowledge base index).
-`main` = what shipped in v1.1.0. Work goes through PRs now (branch, PR, green CI, squash-merge).
+`main` = v1.1.0 plus #13/#14. This branch adds call features on top; draft PR open from it (see `gh pr
+list`). Work goes through PRs (branch, PR, green CI, squash-merge).
 
-## State
+## Done on this branch (all checked with fakes, none on a real phone)
 
-- Every KDE Connect feature a user expects works both ways against the simulator (`tether_core::sim`), the
-  end-to-end suite (`crates/tether/tests/protocol_e2e.rs`), the feature suites (`testing/computer`,
-  `testing/media`) and the WebDriver window tests (`testing/ui/wd.sh`). docs/testing.md has the commands.
-- Earlier, the protocol core, pairing, texts and notifications were verified against real KDE Connect
-  26.08.2 (`testing/kdeconnect-peer`) and the owner's Samsung.
-- 1.1.0 added one window per phone app with Close (#8), the tray menu, tooltip and unread marks (#9),
-  notification icons and the phone camera where the phone still offers it (#10), and a Flatpak bundle built
-  by the release workflow (#11). The Flatpak's portal dialogs and tray were checked only by code and CI,
-  not in a real sandboxed session.
-- Not verified on a real phone: everything listed in QUEUE "Needs a real phone". That is the next step,
-  and the only one that needs the owner.
+- Mute during calls: `calls/mic.rs` mutes the default microphone via `wpctl` (else `pactl`), reads it
+  back each round, unmutes after the call only if Tether muted it. Window: Mute/Unmute button
+  (aria-pressed, "Microphone off" text), Ctrl+K entry. API `call_mute {muted}`; status `can_mute`, `muted`.
+- Keypad during an active call: AudioGateway1 `SendTones`, `call_tones {tones}`, `clean_tones`. Window:
+  Keypad button opens a 12-key grid, typing digits works, Escape closes.
+- Desktop pop-up for a ringing Bluetooth call with Answer / Decline / Open Tether (`calls/popup.rs`,
+  over the watcher's own session connection, closed when the call stops ringing). KDE Connect's plain
+  "Incoming call" pop-up is skipped while Bluetooth calling is ready (`calls::rings_here`).
+- Q23: command palette is an ARIA combobox.
+- Tests: `cargo test -p tether calls` (fake PipeWire + fake notification server + stand-in wpctl on a
+  private bus), `testing/ui/wd.sh testing/ui/test_calls.py`, `testing/ui/wd.sh` (all pass 2026-11-26).
 
-## Traps found this session
+## In progress
 
-- `tether-app` embeds `ui/` at compile time; `build.rs` now passes a hash of the files so edits recompile it
-  (docs/gotchas.md).
-- Android advertises plugins that are switched off, so capabilities alone can't tell whether a feature is
-  set up; the readiness checklist only says "Working" after data arrived.
-- `kdeconnect.runcommand`'s `commandList` is a JSON string, not an object (upstream and the Android app).
-- The repo's ruleset needs an approving review and allows squash/rebase only; the lead merges its own PRs
-  with `gh pr merge --squash --admin` once CI's Rust job is green.
+- `tether call [answer|decline|hangup|pickup|mute|here|keys N|<number>]` (main.rs + client.rs). Written,
+  not yet built. Next: build, run the scratch e2e (private bus + `testing/ui/fake_telephony.py` + daemon,
+  then each subcommand), commit, mention it in README.
+- Hold / switch between two calls: fakes updated (`HoldAndAnswer` swaps active and held/waiting; `ring`
+  while active rings as "waiting"). Next: `Watcher::swap` (needs a held call, calls AG `HoldAndAnswer`),
+  API `call_swap`, a "Switch to this call" button on a held call's card, a check in test_calls.py and
+  the dbus test.
+
+## Up next
+
+- Calls in the tray menu (Answer / Hang up / Mute while a call is live).
+- Real-phone checks: everything in QUEUE "Needs a real phone", plus the new call features.
 
 Delete this file once the real-phone checks in QUEUE are done.
