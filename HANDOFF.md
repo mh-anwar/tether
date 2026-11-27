@@ -17,7 +17,6 @@ list`). Work goes through PRs (branch, PR, green CI, squash-merge).
 - Q23: command palette is an ARIA combobox.
 - Tests: `cargo test -p tether calls` (fake PipeWire + fake notification server + stand-in wpctl on a
   private bus), `testing/ui/wd.sh testing/ui/test_calls.py`, `testing/ui/wd.sh` (all pass 2026-11-26).
-
 - Switch between two calls: a waiting call's Answer holds the first (HoldAndAnswer); a held call's card
   has "Switch to this call" (`call_swap`, also in Ctrl+K). Mute shows only on the call being talked on.
 - `tether call [answer|decline|hangup|pickup|mute|here|keys N|<number>]`, checked end to end against

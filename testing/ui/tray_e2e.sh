@@ -14,6 +14,8 @@ echo '{"device_name":"Workstation","mirror_notifications":true,"clipboard_sync":
 export XDG_CONFIG_HOME=$W/cfg XDG_DATA_HOME=$W/data XDG_RUNTIME_DIR=$W/run TETHER_PORT=$PORT
 export XDG_CURRENT_DESKTOP=KDE XDG_SESSION_TYPE=wayland TOKIO_WORKER_THREADS=2
 unset DISPLAY WAYLAND_DISPLAY
+# Call mute goes through a stand-in wpctl.
+export TETHER_WPCTL=$ROOT/testing/calls/wpctl FAKE_WPCTL_STATE=$W/mic-muted
 
 pids=()
 cleanup() { for p in "${pids[@]}"; do kill "$p" 2>/dev/null || true; done; }
