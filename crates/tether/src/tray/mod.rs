@@ -377,6 +377,15 @@ pub(crate) fn tooltip(state: &TrayState) -> Vec<String> {
     if lines.is_empty() {
         lines.push("No phone paired yet".into());
     }
+    // A call matters more than anything else here, so it goes first.
+    if let Some(c) = &state.call {
+        let line = match (c.ringing, c.muted) {
+            (true, _) => format!("{} is calling", c.who),
+            (false, true) => format!("On a call with {}, microphone off", c.who),
+            (false, false) => format!("On a call with {}", c.who),
+        };
+        lines.insert(0, line);
+    }
     match state.unread {
         0 => {}
         1 => lines.push("1 unread conversation".into()),
@@ -653,6 +662,24 @@ mod tests {
         );
         let empty = TrayState::default();
         assert_eq!(tooltip(&empty), ["No phone paired yet"]);
+        let mut call = TrayCall {
+            id: "/c1".into(),
+            who: "Alice".into(),
+            ringing: true,
+            can_mute: true,
+            muted: false,
+        };
+        let on_call = |c: &TrayCall| TrayState {
+            call: Some(c.clone()),
+            ..TrayState::default()
+        };
+        assert_eq!(tooltip(&on_call(&call))[0], "Alice is calling");
+        call.ringing = false;
+        call.muted = true;
+        assert_eq!(
+            tooltip(&on_call(&call))[0],
+            "On a call with Alice, microphone off"
+        );
     }
 
     #[test]
