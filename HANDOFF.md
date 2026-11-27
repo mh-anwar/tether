@@ -44,10 +44,9 @@ describes everything below. Work goes through PRs (branch, PR, green CI, squash-
 
 - Real-phone checks: everything in QUEUE "Needs a real phone", plus the new call features (keypad tones
   reach phone menus, Mute silences the far end, pop-up buttons on GNOME/KDE, Switch on a held call).
-- API actions return before the watcher has re-read the calls, so `tether call` right after another
-  action can see the old state (cli_e2e.py waits for it). Consider `self.refresh().await` in
-  `Watcher::call_method`/`dial` instead of `poke`, once it's clear PipeWire updates its objects before
-  replying.
+- Call actions now re-read the calls before replying (`Watcher::after_action`) and once more after a
+  poke. On real PipeWire, check that the window and `tether call` show the new state at once; if
+  PipeWire updates its objects only after replying, the second round (and its signals) cover it.
 - A Hold button for a single call once HoldAndAnswer with no other call is confirmed on real PipeWire.
 
 Delete this file once the real-phone checks in QUEUE are done.

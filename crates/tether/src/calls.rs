@@ -589,12 +589,19 @@ impl Watcher {
         .ok_or_else(|| anyhow!("That call has ended"))
     }
 
+    /// Re-reads at once, so whoever asked (the window, `tether call`) sees the result in the reply's
+    /// wake; a second round follows in case PipeWire updates its objects a moment after replying.
+    async fn after_action(&self) {
+        self.refresh().await;
+        self.poke.notify_one();
+    }
+
     async fn call_method(&self, path: &str, iface: &str, method: &str) -> Result<()> {
         self.session()?
             .call_method(Some(TELEPHONY), path, Some(iface), method, &())
             .await
             .map_err(friendly)?;
-        self.poke.notify_one();
+        self.after_action().await;
         Ok(())
     }
 
@@ -631,7 +638,7 @@ impl Watcher {
             )
             .await
             .map_err(friendly)?;
-        self.poke.notify_one();
+        self.after_action().await;
         Ok(())
     }
 

@@ -75,7 +75,7 @@ try:
     until("waiting", lambda: "waiting: +15550456" in call())
     assert "Declined +15550456" in call("decline")
     heard("called Hangup")
-    until("waiting call gone", lambda: "waiting" not in call())
+    assert "waiting" not in call(), "the daemon re-reads the calls before answering"
     assert call("pickup") == "Hung up."
     heard("called HangupAll")
     until("microphone given back", lambda: mic() == "0")
