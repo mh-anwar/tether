@@ -128,12 +128,22 @@ try:
         wait.until(lambda _: mic_state() == "0")
         banner_button("Mute").click()
         wait.until(lambda _: mic_state() == "1")
+        # The keypad sends keys into the call for phone menus, by click and by typing.
+        banner_button("Keypad").click()
+        d.find_element(By.XPATH, "//*[@id='call-root']//*[@role='group' and @aria-label='Keypad']//button[@aria-label='1']").click()
+        assert heard("called SendTones") == "called SendTones 1"
+        d.switch_to.active_element.send_keys("#")
+        assert heard("called SendTones") == "called SendTones #"
+        text_shown("1#")
+        d.save_screenshot(str(SHOTS / "call-keypad.png"))
+        d.switch_to.active_element.send_keys(Keys.ESCAPE)
+        banner_button("Keypad")
         banner_button("Hang up").click()
         heard("called Hangup")
         wait.until(lambda _: not d.find_elements(By.CSS_SELECTOR, "#call-root .call-card"))
         # Tether muted it for the call, so the call ending turns the microphone back on.
         wait.until(lambda _: mic_state() == "0")
-    check("incoming call: answer, sound here, timer, mute, hang up", incoming)
+    check("incoming call: answer, sound here, timer, mute, keypad, hang up", incoming)
 
     def decline():
         tell("ring +15550199")
@@ -179,4 +189,4 @@ finally:
 if failures:
     print(f"{len(failures)} failed: {', '.join(failures)}")
     sys.exit(1)
-print("PASSED: calls setup, answer, sound here, mute, hang up, decline, dial, far-end hang up")
+print("PASSED: calls setup, answer, sound here, mute, keypad, hang up, decline, dial, far-end hang up")

@@ -122,6 +122,16 @@ fn numbers() {
     assert!(clean_number(&"1".repeat(31)).is_err());
 }
 
+#[test]
+fn keypad_tones() {
+    assert_eq!(clean_tones("1 2 3").unwrap(), "123");
+    assert_eq!(clean_tones("*#abcd").unwrap(), "*#ABCD");
+    assert!(clean_tones("").is_err());
+    assert!(clean_tones("1;ATH").is_err());
+    assert!(clean_tones("E").is_err());
+    assert!(clean_tones(&"1".repeat(33)).is_err());
+}
+
 // ---------- fake PipeWire telephony and BlueZ on a private bus ----------
 
 struct Bus(std::process::Child, String);
@@ -167,6 +177,7 @@ struct Fake {
     transport: String,
     calls: Vec<(String, String, String)>, // path, number, state
     dialed: Vec<String>,
+    tones: Vec<String>,
     next: u32,
 }
 
@@ -252,6 +263,9 @@ impl AudioGateway {
     async fn dial(&self, number: String, #[zbus(connection)] conn: &Connection) {
         self.0.lock().unwrap().dialed.push(number.clone());
         add_call(conn, &self.0, &number, "dialing").await;
+    }
+    fn send_tones(&self, tones: String) {
+        self.0.lock().unwrap().tones.push(tones);
     }
     async fn hangup_all(&self, #[zbus(connection)] conn: &Connection) {
         let gone: Vec<_> = self
@@ -444,6 +458,9 @@ async fn drives_a_fake_phone_over_dbus() {
     w.audio_here().await.unwrap();
     let s = until(&mut rx, "audio", |s| s.audio_here).await;
     assert!(s.can_mute && !s.muted);
+
+    w.tones("1 2#a").await.unwrap();
+    assert_eq!(fake.lock().unwrap().tones, vec!["12#A".to_string()]);
 
     w.mute(true).await.unwrap();
     until(&mut rx, "muted", |s| s.muted).await;

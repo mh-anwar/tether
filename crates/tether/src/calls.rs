@@ -36,6 +36,8 @@ const DEVICE: &str = "org.bluez.Device1";
 const HFP_AG_UUID: &str = "0000111f-0000-1000-8000-00805f9b34fb";
 /// PipeWire parses ATD with `%30[^;]` (backend-native.c), so longer numbers never reach the phone.
 const MAX_NUMBER: usize = 30;
+/// Keypad presses arrive one or a few at a time; a pasted PIN or extension is the longest real use.
+const MAX_TONES: usize = 32;
 
 type Props = HashMap<String, OwnedVariant>;
 type Objects = HashMap<OwnedObjectPath, HashMap<String, Props>>;
@@ -258,6 +260,28 @@ pub fn clean_number(input: &str) -> Result<String> {
     Ok(out)
 }
 
+/// The keys HFP can send during a call (AT+VTS takes one DTMF character each: 0-9, *, #, A-D).
+pub fn clean_tones(input: &str) -> Result<String> {
+    let out: String = input
+        .chars()
+        .filter(|c| !c.is_whitespace())
+        .map(|c| c.to_ascii_uppercase())
+        .collect();
+    if out.is_empty() {
+        bail!("Press a key to send");
+    }
+    if let Some(c) = out
+        .chars()
+        .find(|c| !matches!(c, '0'..='9' | '*' | '#' | 'A'..='D'))
+    {
+        bail!("{c} isn't a key on a phone keypad");
+    }
+    if out.len() > MAX_TONES {
+        bail!("That's too many keys at once");
+    }
+    Ok(out)
+}
+
 type Lookup = Box<dyn Fn(&str) -> Option<String> + Send + Sync>;
 type Names = Box<dyn Fn() -> Vec<String> + Send + Sync>;
 
@@ -361,6 +385,10 @@ pub async fn audio_here() -> Result<()> {
 
 pub async fn mute(muted: bool) -> Result<()> {
     watcher()?.mute(muted).await
+}
+
+pub async fn tones(tones: &str) -> Result<()> {
+    watcher()?.tones(tones).await
 }
 
 impl Watcher {
@@ -559,6 +587,27 @@ impl Watcher {
             i.muted_by_us = muted;
         }
         self.poke.notify_one();
+        Ok(())
+    }
+
+    /// Keypad presses during a call, for phone menus ("press 1") and PINs. The phone plays them into
+    /// the call; PipeWire sends one AT+VTS per key.
+    pub async fn tones(&self, tones: &str) -> Result<()> {
+        let tones = clean_tones(tones)?;
+        if !self.status().calls.iter().any(|c| c.state == "active") {
+            bail!("Keys can only be sent once the call is answered");
+        }
+        let gw = self.gateway()?;
+        self.session()?
+            .call_method(
+                Some(TELEPHONY),
+                gw.as_str(),
+                Some(AG),
+                "SendTones",
+                &(tones.as_str(),),
+            )
+            .await
+            .map_err(friendly)?;
         Ok(())
     }
 

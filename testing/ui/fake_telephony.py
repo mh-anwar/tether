@@ -85,6 +85,10 @@ class Gateway(ServiceInterface):
             self.phone.remove(c)
 
     @method()
+    def SendTones(self, tones: "s"):
+        log("called SendTones", tones)
+
+    @method()
     def HoldAndAnswer(self):
         log("called HoldAndAnswer")
 
