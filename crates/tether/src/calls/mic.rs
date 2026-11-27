@@ -71,9 +71,11 @@ async fn run(prog: &std::path::Path, args: &[&str]) -> Result<(bool, String)> {
 fn parse_muted(mic: &Mic, out: &str) -> bool {
     match mic {
         Mic::Wpctl(_) => out.contains("[MUTED]"),
-        _ => out
-            .lines()
-            .any(|l| l.trim().strip_prefix("Mute:").is_some_and(|v| v.trim() == "yes")),
+        _ => out.lines().any(|l| {
+            l.trim()
+                .strip_prefix("Mute:")
+                .is_some_and(|v| v.trim() == "yes")
+        }),
     }
 }
 

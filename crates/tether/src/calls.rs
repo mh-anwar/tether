@@ -300,6 +300,7 @@ pub struct Watcher {
     lookup: Lookup,
     names: Names,
     mic: mic::Mic,
+    popups: Mutex<popup::Popups>,
     inner: Mutex<Inner>,
     poke: Notify,
     changed: tokio::sync::watch::Sender<Status>,
@@ -355,6 +356,12 @@ fn watcher() -> Result<&'static Arc<Watcher>> {
     WATCHER.get().context("Calls aren't ready yet")
 }
 
+/// True when calls go through this computer: the ringing call's pop-up comes from here, with Answer
+/// and Decline, rather than KDE Connect's plain one.
+pub fn rings_here() -> bool {
+    WATCHER.get().is_some_and(|w| w.status().blocker.is_none())
+}
+
 pub fn status() -> Value {
     WATCHER
         .get()
@@ -405,6 +412,7 @@ impl Watcher {
             lookup,
             names,
             mic,
+            popups: Mutex::default(),
             inner: Mutex::new(Inner {
                 status: Status {
                     blocker: Some("service"),
@@ -436,14 +444,56 @@ impl Watcher {
     async fn watch(&self) {
         let mut tel = signal_stream(self.session.as_ref(), TELEPHONY).await;
         let mut bt = signal_stream(self.system.as_ref(), BLUEZ).await;
+        let mut clicks = action_stream(self.session.as_ref()).await;
         let mut tick = tokio::time::interval(Duration::from_secs(5));
         loop {
             self.refresh().await;
             tokio::select! {
                 Some(_) = next(&mut tel) => {}
                 Some(_) = next(&mut bt) => {}
+                Some(m) = next_message(&mut clicks) => self.clicked(m).await,
                 _ = tick.tick() => {}
                 _ = self.poke.notified() => {}
+            }
+        }
+    }
+
+    /// A button on a call pop-up. The server tells every client about every click, so only ids of
+    /// our own pop-ups count.
+    async fn clicked(&self, m: zbus::Message) {
+        let Ok((id, action)) = m.body().deserialize::<(u32, String)>() else {
+            return;
+        };
+        let Some(call) = self.popups.lock().ok().and_then(|p| p.call_for(id)) else {
+            return;
+        };
+        let done = match action.as_str() {
+            "answer" => self.answer(Some(&call)).await,
+            "decline" => self.hangup(Some(&call)).await,
+            "default" => {
+                crate::tray::open_window().await;
+                Ok(())
+            }
+            _ => Ok(()),
+        };
+        if let Err(e) = done {
+            tracing::warn!("calls: {action} from the pop-up failed: {e}");
+        }
+    }
+
+    async fn update_popups(&self, calls: &[Call]) {
+        let Some(conn) = &self.session else { return };
+        let Ok((show, close)) = self.popups.lock().map(|mut p| p.diff(calls)) else {
+            return;
+        };
+        for id in close {
+            popup::close(conn, id).await;
+        }
+        for c in show {
+            if let Some(n) = popup::show(conn, &c).await {
+                if !self.popups.lock().is_ok_and(|mut p| p.shown(&c.id, n)) {
+                    popup::close(conn, n).await;
+                }
             }
         }
     }
@@ -462,31 +512,36 @@ impl Watcher {
         let live = gw.is_some_and(|g| g.calls.iter().any(|c| c.state != "disconnected"));
         let muted = self.settle_mic(live).await;
         let now = now_ms();
-        let Ok(mut inner) = self.inner.lock() else {
-            return;
-        };
-        let calls = inner.tracker.calls(
-            gw.map(|g| g.calls.as_slice()).unwrap_or(&[]),
-            &*self.lookup,
-            now,
-        );
-        let status = Status {
-            blocker,
-            phone,
-            audio_here: gw.is_some_and(|g| g.transport == "active"),
-            can_mute: self.mic.available(),
-            muted,
-            calls,
-        };
-        inner.gateway = gw.map(|g| g.path.clone());
-        if status != inner.status {
+        let changed = {
+            let Ok(mut inner) = self.inner.lock() else {
+                return;
+            };
+            let calls = inner.tracker.calls(
+                gw.map(|g| g.calls.as_slice()).unwrap_or(&[]),
+                &*self.lookup,
+                now,
+            );
+            let status = Status {
+                blocker,
+                phone,
+                audio_here: gw.is_some_and(|g| g.transport == "active"),
+                can_mute: self.mic.available(),
+                muted,
+                calls,
+            };
+            inner.gateway = gw.map(|g| g.path.clone());
+            if status == inner.status {
+                return;
+            }
             if status.blocker != inner.status.blocker {
                 info!("calls: {}", status.blocker.unwrap_or("ready"));
             }
             inner.status = status.clone();
-            drop(inner);
-            self.changed.send_replace(status);
-        }
+            status
+        };
+        // Pop-ups first, so a click can't arrive before its id is known.
+        self.update_popups(&changed.calls).await;
+        self.changed.send_replace(changed);
     }
 
     fn session(&self) -> Result<&Connection> {
@@ -645,6 +700,26 @@ async fn signal_stream(conn: Option<&Connection>, sender: &str) -> Option<zbus::
         .ok()
 }
 
+async fn action_stream(conn: Option<&Connection>) -> Option<zbus::MessageStream> {
+    let rule = zbus::MatchRule::builder()
+        .msg_type(zbus::message::Type::Signal)
+        .sender(popup::NOTIFICATIONS)
+        .interface(popup::NOTIFICATIONS)
+        .member("ActionInvoked")
+        .build()
+        .ok()?;
+    zbus::MessageStream::for_match_rule(rule, conn?, std::num::NonZeroUsize::new(16))
+        .await
+        .ok()
+}
+
+async fn next_message(s: &mut Option<zbus::MessageStream>) -> Option<zbus::Message> {
+    match s {
+        Some(s) => s.next().await.and_then(|m| m.ok()),
+        None => std::future::pending().await,
+    }
+}
+
 async fn next(s: &mut Option<zbus::MessageStream>) -> Option<()> {
     match s {
         Some(s) => s.next().await.map(|_| ()),
@@ -740,6 +815,7 @@ async fn read_bluetooth(conn: &Connection) -> Bluetooth {
 }
 
 mod mic;
+mod popup;
 
 #[cfg(test)]
 mod tests;

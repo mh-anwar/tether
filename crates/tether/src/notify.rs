@@ -173,6 +173,11 @@ pub async fn mirror(service: Service) {
                     .clone()
                     .or(c.number.clone())
                     .unwrap_or_else(|| "Unknown number".into());
+                // With the phone connected for calls over Bluetooth, the calls module shows the
+                // ringing call itself, with Answer and Decline.
+                if matches!(c.state, CallState::Ringing) && crate::calls::rings_here() {
+                    continue;
+                }
                 let title = match c.state {
                     CallState::Ringing => "Incoming call",
                     CallState::Missed => "Missed call",

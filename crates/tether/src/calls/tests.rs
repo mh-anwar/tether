@@ -283,6 +283,49 @@ impl AudioGateway {
     }
 }
 
+/// The desktop's notification server: records pop-ups and closes, and hands out ids from 41.
+#[derive(Default)]
+struct Notes {
+    shown: Vec<(u32, String, String, Vec<String>)>, // id, summary, body, actions
+    closed: Vec<u32>,
+}
+
+struct FakeNotifications(Arc<Mutex<Notes>>);
+
+#[interface(name = "org.freedesktop.Notifications")]
+impl FakeNotifications {
+    #[allow(clippy::too_many_arguments)]
+    fn notify(
+        &self,
+        _app: String,
+        _replaces: u32,
+        _icon: String,
+        summary: String,
+        body: String,
+        actions: Vec<String>,
+        _hints: HashMap<String, OwnedVariant>,
+        _timeout: i32,
+    ) -> u32 {
+        let mut n = self.0.lock().unwrap();
+        let id = 41 + n.shown.len() as u32;
+        n.shown.push((id, summary, body, actions));
+        id
+    }
+    fn close_notification(&self, id: u32) {
+        self.0.lock().unwrap().closed.push(id);
+    }
+}
+
+async fn eventually(what: &str, ok: impl Fn() -> bool) {
+    for _ in 0..100 {
+        if ok() {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    panic!("timed out waiting for {what}");
+}
+
 struct Transport(Shared);
 
 #[interface(name = "org.pipewire.Telephony.AudioGatewayTransport1")]
@@ -378,6 +421,20 @@ async fn drives_a_fake_phone_over_dbus() {
     let bluez = bus.conn().await;
     bluez.object_server().at("/", Bluez).await.unwrap();
     bluez.request_name(BLUEZ).await.unwrap();
+    let notes: Arc<Mutex<Notes>> = Arc::default();
+    let desktop = bus.conn().await;
+    desktop
+        .object_server()
+        .at(
+            "/org/freedesktop/Notifications",
+            FakeNotifications(notes.clone()),
+        )
+        .await
+        .unwrap();
+    desktop
+        .request_name("org.freedesktop.Notifications")
+        .await
+        .unwrap();
 
     let lookup: Lookup = Box::new(|n| (n == "+15551234567").then(|| "Alice".to_string()));
     let names: Names = Box::new(|| vec!["Galaxy S23".to_string()]);
@@ -441,12 +498,49 @@ async fn drives_a_fake_phone_over_dbus() {
         ("incoming", true, Some("Alice"))
     );
 
-    w.answer(None).await.unwrap();
+    // The ringing call pops up on the desktop with Answer and Decline; Answer there picks it up.
+    eventually("the call pop-up", || {
+        !notes.lock().unwrap().shown.is_empty()
+    })
+    .await;
+    let (id, summary, body, actions) = notes.lock().unwrap().shown[0].clone();
+    assert_eq!(summary, "Incoming call");
+    assert!(
+        body.contains("Alice") && body.contains("+15551234567"),
+        "{body}"
+    );
+    assert!(actions.contains(&"answer".to_string()) && actions.contains(&"decline".to_string()));
+    // Another program's pop-up being clicked is none of ours.
+    desktop
+        .emit_signal(
+            None::<()>,
+            "/org/freedesktop/Notifications",
+            "org.freedesktop.Notifications",
+            "ActionInvoked",
+            &(7u32, "answer"),
+        )
+        .await
+        .unwrap();
+    desktop
+        .emit_signal(
+            None::<()>,
+            "/org/freedesktop/Notifications",
+            "org.freedesktop.Notifications",
+            "ActionInvoked",
+            &(id, "answer"),
+        )
+        .await
+        .unwrap();
     let s = until(&mut rx, "answered", |s| {
         s.calls.first().is_some_and(|c| c.state == "active")
     })
     .await;
     assert!(s.calls[0].since.is_some());
+    // Answered: its pop-up goes away.
+    eventually("the pop-up to close", || {
+        notes.lock().unwrap().closed == vec![id]
+    })
+    .await;
     // The phone refusing shows its reason rather than a generic failure.
     let err = w
         .answer(Some(&s.calls[0].id))
@@ -477,7 +571,22 @@ async fn drives_a_fake_phone_over_dbus() {
     std::fs::write(&state, "1").unwrap();
     add_call(&tel, &fake, "+15551234567", "incoming").await;
     until(&mut rx, "pre-muted call", |s| s.calls.len() == 1 && s.muted).await;
-    w.hangup(None).await.unwrap();
+    // Declined from its pop-up this time.
+    eventually("the second pop-up", || {
+        notes.lock().unwrap().shown.len() == 2
+    })
+    .await;
+    let second = notes.lock().unwrap().shown[1].0;
+    desktop
+        .emit_signal(
+            None::<()>,
+            "/org/freedesktop/Notifications",
+            "org.freedesktop.Notifications",
+            "ActionInvoked",
+            &(second, "decline"),
+        )
+        .await
+        .unwrap();
     until(&mut rx, "pre-muted hung up", |s| s.calls.is_empty()).await;
     assert_eq!(mic_state().trim(), "1");
     std::fs::write(&state, "0").unwrap();
