@@ -309,9 +309,20 @@ try:
     def palette():
         d.find_element(By.TAG_NAME, "body").send_keys(Keys.CONTROL, "k")
         wait.until(EC.visibility_of_element_located((By.XPATH, "//*[contains(@class, 'palette')]//*[normalize-space(.)='Check for updates']")))
-        d.switch_to.active_element.send_keys(Keys.ESCAPE)
+        # A combobox for screen readers: the highlighted option follows the arrow keys.
+        field = d.switch_to.active_element
+        assert field.get_attribute("role") == "combobox"
+        assert field.get_attribute("aria-activedescendant") == "palette-opt-0"
+        field.send_keys(Keys.ARROW_DOWN)
+        second = d.find_element(By.ID, "palette-opt-1")
+        assert field.get_attribute("aria-activedescendant") == "palette-opt-1"
+        assert second.get_attribute("aria-selected") == "true"
+        field.send_keys("zzzz no such command")
+        wait.until(lambda _: d.find_element(By.CSS_SELECTOR, ".palette [role='status']").get_attribute("textContent") == "No matches")
+        assert field.get_attribute("aria-activedescendant") is None
+        field.send_keys(Keys.ESCAPE)
         wait.until(lambda _: not d.find_elements(By.CSS_SELECTOR, ".palette-backdrop"))
-    check("Ctrl+K offers Check for updates", palette)
+    check("Ctrl+K offers Check for updates, as a combobox", palette)
 
     def shots_dir():
         output = Path(os.environ.get("TETHER_SHOTS") or Path(os.environ["XDG_CONFIG_HOME"]).parent / "shots")

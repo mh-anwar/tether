@@ -1884,24 +1884,41 @@ function openPalette() {
   const root = $('#palette-root');
   if (root.firstChild) return;
   let sel = 0, shown = [];
-  const ul = h('ul', { role: 'listbox', 'aria-label': 'Commands' });
-  const input = h('input', { placeholder: 'Type a command, a name or a conversation', 'aria-label': 'Command', oninput: () => { sel = 0; draw(); },
+  // An ARIA combobox: focus stays in the field and the highlighted command is announced through
+  // aria-activedescendant, so screen readers follow the arrow keys.
+  const ul = h('ul', { id: 'palette-list', role: 'listbox', 'aria-label': 'Commands' });
+  const count = h('div', { class: 'sr-only', role: 'status', 'aria-live': 'polite' });
+  const move = (to) => { if (shown.length) { sel = Math.max(0, Math.min(shown.length - 1, to)); draw(); } };
+  const input = h('input', { placeholder: 'Type a command, a name or a conversation', 'aria-label': 'Command', role: 'combobox',
+    'aria-expanded': 'true', 'aria-controls': 'palette-list', 'aria-autocomplete': 'list', autocomplete: 'off', spellcheck: 'false',
+    oninput: () => { sel = 0; draw(); },
     onkeydown: (e) => {
       if (e.key === 'Escape') close();
-      else if (e.key === 'ArrowDown') { e.preventDefault(); sel = Math.min(shown.length - 1, sel + 1); draw(); }
-      else if (e.key === 'ArrowUp') { e.preventDefault(); sel = Math.max(0, sel - 1); draw(); }
-      else if (e.key === 'Enter' && shown[sel]) { close(); shown[sel].run(); }
+      else if (e.key === 'ArrowDown') { e.preventDefault(); move(sel + 1); }
+      else if (e.key === 'ArrowUp') { e.preventDefault(); move(sel - 1); }
+      else if ((e.key === 'Home' || e.key === 'End') && e.ctrlKey) { e.preventDefault(); move(e.key === 'Home' ? 0 : shown.length - 1); }
+      else if (e.key === 'Enter' && shown[sel]) { e.preventDefault(); close(); shown[sel].run(); }
+      // Nothing else in the dialog takes focus; keep it here rather than behind the backdrop.
+      else if (e.key === 'Tab') e.preventDefault();
     } });
   const close = () => { root.replaceChildren(); };
+  let lastCount = -1;
   const draw = () => {
     const q = input.value.trim().toLowerCase();
     shown = commands().filter((c) => !q || `${c.label} ${c.sub || ''}`.toLowerCase().includes(q)).slice(0, 9);
-    ul.replaceChildren(...(shown.length ? shown.map((c, i) => h('li', { role: 'option', 'aria-selected': i === sel ? 'true' : 'false',
+    ul.replaceChildren(...(shown.length ? shown.map((c, i) => h('li', { id: `palette-opt-${i}`, role: 'option', 'aria-selected': i === sel ? 'true' : 'false',
       onmousemove: () => { if (sel !== i) { sel = i; draw(); } }, onclick: () => { close(); c.run(); } },
-    icon(c.icon), h('span', { text: c.label }), c.sub ? h('span', { class: 'sub', text: c.sub }) : null)) : [h('div', { class: 'none', text: 'No matches' })]));
+    icon(c.icon), h('span', { text: c.label }), c.sub ? h('span', { class: 'sub', text: c.sub }) : null)) : [h('li', { class: 'none', role: 'presentation', text: 'No matches' })]));
+    if (shown.length) input.setAttribute('aria-activedescendant', `palette-opt-${sel}`);
+    else input.removeAttribute('aria-activedescendant');
+    // Announce the count only when it changes, not on every arrow key.
+    if (shown.length !== lastCount) {
+      lastCount = shown.length;
+      count.textContent = !shown.length ? 'No matches' : shown.length === 1 ? '1 command' : `${shown.length} commands`;
+    }
   };
   root.replaceChildren(h('div', { class: 'palette-backdrop', onclick: (e) => { if (e.target === e.currentTarget) close(); } },
-    h('div', { class: 'palette', role: 'dialog', 'aria-label': 'Commands' }, h('label', { class: 'search' }, icon('search', 'sm'), input), ul)));
+    h('div', { class: 'palette', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Commands' }, h('label', { class: 'search' }, icon('search', 'sm'), input), ul, count)));
   draw();
   input.focus();
 }
@@ -2282,7 +2299,7 @@ async function switchDevice(id) {
 // ---------- Calls through this computer (Bluetooth hands-free, crates/tether/src/calls.rs) ----------
 // The daemon pushes `calls` events with {blocker, phone, audio_here, can_mute, muted, calls}; the
 // banner floats over every view so a ringing call can be answered from anywhere.
-const calls = { status: null, busy: null, timer: null, muting: false };
+const calls = { status: null, busy: null, timer: null, muting: false, keypad: null, keyed: '', tones: Promise.resolve() };
 
 const callSetup = {
   service: { why: 'Calling from this computer needs PipeWire 1.4 or newer with its Bluetooth support.',
@@ -2354,16 +2371,45 @@ async function setCallMute(muted) {
   } finally {
     calls.muting = false;
     renderCallBanner();
-    // Keyboard users keep their place: the banner was rebuilt under them.
+    // The button was disabled while waiting, which drops focus; give it back.
     $('#call-root .btn.mute')?.focus();
   }
 }
 
 function muteButton() {
   const muted = !!calls.status?.muted;
-  return h('button', { class: `btn mute${muted ? ' on' : ''}`, 'aria-pressed': String(muted), disabled: calls.muting,
+  return h('button', { class: `btn mute${muted ? ' on' : ''}`, 'data-key': 'mute', 'aria-pressed': String(muted), disabled: calls.muting,
     title: muted ? 'Turn this computer\'s microphone back on' : 'Turn off this computer\'s microphone',
     onclick: () => setCallMute(!muted) }, icon(muted ? 'mic-off' : 'mic', 'sm'), muted ? 'Unmute' : 'Mute');
+}
+
+const KEYPAD = [['1', ''], ['2', 'ABC'], ['3', 'DEF'], ['4', 'GHI'], ['5', 'JKL'], ['6', 'MNO'],
+  ['7', 'PQRS'], ['8', 'TUV'], ['9', 'WXYZ'], ['*', ''], ['0', '+'], ['#', '']];
+
+/** One key press into the call (menus, PINs). Presses go out in order, one after another. */
+function pressKey(k) {
+  calls.keyed = (calls.keyed + k).slice(-24);
+  const shown = $('#call-root .keyed');
+  if (shown) shown.textContent = calls.keyed;
+  calls.tones = calls.tones.then(() => api('call_tones', { tones: k })).catch((e) => toast(String(e), 'error'));
+}
+
+function toggleKeypad(c) {
+  calls.keypad = calls.keypad === c.id ? null : c.id;
+  calls.keyed = '';
+  renderCallBanner();
+  $(calls.keypad ? '#call-root .keypad button' : '#call-root .btn.keys')?.focus();
+}
+
+function keypad() {
+  return h('div', { class: 'keypad-wrap', onkeydown: (e) => {
+    if (e.ctrlKey || e.altKey || e.metaKey) return;
+    if (/^[0-9*#]$/.test(e.key)) { e.preventDefault(); pressKey(e.key); } else if (e.key === 'Escape') { e.stopPropagation(); toggleKeypad({ id: calls.keypad }); }
+  } },
+  h('div', { class: 'keyed', 'aria-live': 'polite', 'aria-label': 'Keys sent', text: calls.keyed }),
+  h('div', { class: 'keypad', role: 'group', 'aria-label': 'Keypad' },
+    KEYPAD.map(([k, sub]) => h('button', { class: 'btn', 'data-key': `key-${k}`, 'aria-label': k, onclick: () => pressKey(k) },
+      h('span', { class: 'digit', text: k }), h('span', { class: 'letters', 'aria-hidden': 'true', text: sub })))));
 }
 
 function callCard(c) {
@@ -2381,11 +2427,14 @@ function callCard(c) {
     : [
       active && !calls.status.audio_here ? h('button', { class: 'btn', onclick: () => callAction(null, 'call_audio_here', 'Moving the sound here') }, 'Use this computer') : null,
       calls.status.can_mute ? muteButton() : null,
+      active ? h('button', { class: 'btn keys', 'data-key': 'keys', 'aria-expanded': String(calls.keypad === c.id), title: 'Press keys for phone menus',
+        onclick: () => toggleKeypad(c) }, icon('dialpad', 'sm'), calls.keypad === c.id ? 'Hide keypad' : 'Keypad') : null,
       h('button', { class: 'btn hangup', onclick: () => callAction(c, 'call_hangup', 'Hanging up') }, icon('hangup', 'sm'), 'Hang up')];
   return h('section', { class: 'call-card', 'aria-label': `${callStateText(c) || 'Call'}: ${title}` },
     h('div', { class: 'who' }, avatar(title, false),
       h('div', { class: 'grow' }, h('b', { text: title }),
         h('div', { class: 'sub' }, sub, c.name && c.number ? h('span', { text: prettyNumber(c.number) }) : null, where, mutedNote))),
+    active && calls.keypad === c.id && !busy ? keypad() : null,
     h('div', { class: 'acts' }, actions));
 }
 
@@ -2395,6 +2444,8 @@ function renderCallBanner() {
     root = h('div', { id: 'call-root', class: 'call-root', role: 'region', 'aria-label': 'Phone calls', 'aria-live': 'polite' });
     document.body.append(root);
   }
+  // The keypad belongs to its call: it closes when that call ends or is no longer active.
+  if (calls.keypad && !liveCalls().some((c) => c.id === calls.keypad && c.state === 'active')) { calls.keypad = null; calls.keyed = ''; }
   swap(root, () => liveCalls().map(callCard));
   const ticking = liveCalls().some((c) => c.state === 'active' && c.since);
   if (ticking && !calls.timer) {
@@ -2468,7 +2519,8 @@ function activeCallCommands() {
       return [{ label: `Answer ${who}`, icon: 'call', run: () => callAction(c, 'call_answer', 'Answering') },
         { label: `Decline ${who}`, icon: 'hangup', run: () => callAction(c, 'call_hangup', 'Declining') }];
     }
-    return [{ label: `Hang up on ${who}`, icon: 'hangup', run: () => callAction(c, 'call_hangup', 'Hanging up') }];
+    return [{ label: `Hang up on ${who}`, icon: 'hangup', run: () => callAction(c, 'call_hangup', 'Hanging up') },
+      c.state === 'active' && calls.keypad !== c.id ? { label: `Keypad for ${who}`, icon: 'dialpad', run: () => toggleKeypad(c) } : null].filter(Boolean);
   }).concat(liveCalls().some((c) => c.state !== 'incoming' && c.state !== 'waiting') && calls.status?.can_mute
     ? [calls.status.muted ? { label: 'Unmute the microphone', icon: 'mic', run: () => setCallMute(false) }
       : { label: 'Mute the microphone', icon: 'mic-off', run: () => setCallMute(true) }]
