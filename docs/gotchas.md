@@ -27,6 +27,13 @@ Traps that already cost time. Add new ones here with the symptom first.
 - **`run.sh start` says Xvfb runs but the window can't open the display**: `pgrep -f "Xvfb :57"` also
   matches your own shell when the command line you ran contains that text. Don't mention it in the same
   command.
+- **A test that starts a stand-in with `uv run` hangs at the end**: killing the `uv` process leaves its
+  Python child running with the test's pipes open, and asyncio's `wait()` waits for the pipes too.
+  Close the stand-in's stdin so it exits by itself (fake_telephony.py stops at end of input), and only
+  kill on a timeout.
+- **A stand-in daemon from a script that was killed keeps its port**: the next run says `Address already
+  in use`. Find it by its environment (`/proc/<pid>/environ` has the test's `XDG_DATA_HOME`) and kill
+  that PID; never `pkill -f` a pattern your own shell's command line contains.
 
 ## This box
 - **Phones/daemons don't find each other locally**: broadcast UDP doesn't loop back on this host. Use
@@ -154,3 +161,8 @@ Traps that already cost time. Add new ones here with the symptom first.
   daemon log says `path must be shorter than SUN_LEN`. `TETHER_UI_DIR` was a long path (an agent's
   scratch folder) and the socket under `run/` is over Linux's 108-byte limit. Use a short folder such as
   `/tmp/tw<n>`, and set `WD_DISPLAY`/`WD_PORT` to free values when another thread may be testing too.
+- **Mute in a test mutes nothing, or the real microphone**: the daemon uses `wpctl` from PATH unless
+  `TETHER_WPCTL` points at the stand-in `testing/calls/wpctl` (state in `FAKE_WPCTL_STATE`). `wd.sh` and
+  `tray_e2e.sh` set both; set them for any other harness, or a developer's own microphone gets muted.
+- **Clicks on notification buttons arrive for every program's pop-ups**: `ActionInvoked` is broadcast.
+  The calls pop-up acts only on ids it got back from its own `Notify` (calls/popup.rs).
