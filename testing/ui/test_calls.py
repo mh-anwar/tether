@@ -95,9 +95,25 @@ try:
         wait.until(lambda _: not d.find_elements(By.CSS_SELECTOR, ".call-dialog"))
     check("setup steps show while Bluetooth calling isn't ready", setup_steps)
 
+    def settings_not_ready():
+        # Settings, Calls says calls aren't set up and leads to the same steps.
+        d.execute_script("showView('settings')")
+        wait.until(EC.element_to_be_clickable((By.XPATH, "//*[@role='tab' and normalize-space(.)='Calls']"))).click()
+        text_shown("Not set up yet")
+        wait.until(EC.element_to_be_clickable((By.XPATH, "//button[normalize-space(.)='Show the steps']"))).click()
+        text_shown("Calls from this computer")
+        d.switch_to.active_element.send_keys(Keys.ESCAPE)
+        wait.until(lambda _: not d.find_elements(By.CSS_SELECTOR, ".call-dialog"))
+    check("Settings, Calls explains what's missing", settings_not_ready)
+
     def incoming():
         tell("gateway")
         wait.until(lambda _: d.execute_script("return calls.status && calls.status.blocker === null"))
+        # Settings, Calls (still open) turns to Ready on its own.
+        text_shown("Ready")
+        assert d.find_elements(By.XPATH, "//button[normalize-space(.)='Call a number']")
+        d.save_screenshot(str(SHOTS / "call-settings-ready.png"))
+        d.execute_script("showView('messages')")
         c = d.execute_script("return state.contacts[0]")
         tell(f"ring {c['number']}")
         banner_button("Answer")
@@ -215,4 +231,4 @@ finally:
 if failures:
     print(f"{len(failures)} failed: {', '.join(failures)}")
     sys.exit(1)
-print("PASSED: calls setup, answer, sound here, mute, keypad, hang up, decline, dial, far-end hang up, call waiting, missed-call text")
+print("PASSED: calls setup, settings, answer, sound here, mute, keypad, hang up, decline, dial, far-end hang up, call waiting, missed-call text")

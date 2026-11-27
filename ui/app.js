@@ -1015,6 +1015,24 @@ const group = (title, sub, ...rows) => h('section', { class: 'settings-group' },
   title ? h('h2', { text: title }) : null, sub ? h('p', { class: 'sub', text: sub }) : null,
   h('div', { class: 'settings-card' }, ...rows));
 
+/** Settings, Calls: whether calls go through this computer, and the way to set them up if not. */
+function callsReadiness() {
+  const st = calls.status;
+  if (!st) return group('Calls through this computer', '', h('div', { class: 'setting' }, h('div', { class: 'spinner', 'aria-hidden': 'true' }), h('small', { text: 'Checking Bluetooth' })));
+  if (st.blocker) {
+    const info = callSetup[st.blocker] || callSetup.service;
+    return group('Calls through this computer', 'Answer and make phone calls here, with this computer\'s speakers and microphone.',
+      h('div', { class: 'setting' }, h('b', { text: 'Not set up yet' }), h('small', { text: info.why }),
+        h('div', { class: 'field-row' }, h('button', { class: 'btn', 'data-key': 'calls-setup', onclick: () => callSetupDialog() }, 'Show the steps'))));
+  }
+  return group('Calls through this computer', '',
+    h('div', { class: 'setting' }, h('b', { text: 'Ready' }),
+      h('small', { text: `Calls to ${st.phone || 'your phone'} ring here too, over Bluetooth. Answer them in this window, on the pop-up or from the tray.` }),
+      h('small', { text: st.can_mute ? 'Mute turns off this computer\'s microphone during a call.'
+        : 'Mute isn\'t available: it needs PipeWire\'s wpctl or pactl, which this computer doesn\'t have.' }),
+      h('div', { class: 'field-row' }, h('button', { class: 'btn', 'data-key': 'calls-dial', onclick: dialDialog }, icon('call', 'sm'), 'Call a number'))));
+}
+
 async function quitTether() {
   try { await api('quit'); } catch (e) { toast(e.message || String(e), 'error'); }
 }
@@ -1031,6 +1049,7 @@ function settingsPanel(s, d, flatpak) {
         settingSwitch('send_notifications', "Send this computer's notifications to the phone", 'Off until you turn it on. Tether notifications are excluded.'),
         settingText('notification_blocklist', 'Apps that stay on this computer', 'Notifications from these apps are not sent to the phone.', 'Save', true))];
     case 'calls': return [
+      callsReadiness(),
       group('During phone calls', 'What happens to music and videos playing on this computer.',
         h('div', { class: 'setting row-setting' }, h('label', { for: 'pause-media' }, h('b', { text: 'Desktop players' }), h('small', { text: 'Players you were listening to.' })),
           h('select', { id: 'pause-media', 'aria-label': 'Pause media during calls', onchange: (e) => saveSettings({ pause_media: e.target.value }) },
@@ -2334,6 +2353,8 @@ function onCalls(status) {
   }
   renderCallBanner();
   if ($('.rail')) renderRail();
+  // Settings, Calls shows whether calls are ready; keep it current (only when that changed).
+  if (state.view === 'settings' && settings.tab === 'calls' && (prev?.blocker !== status.blocker || prev?.can_mute !== status.can_mute)) renderSettings();
 }
 
 function callStateText(c) {
