@@ -394,6 +394,10 @@ pub async fn mute(muted: bool) -> Result<()> {
     watcher()?.mute(muted).await
 }
 
+pub async fn swap(id: Option<&str>) -> Result<()> {
+    watcher()?.swap(id).await
+}
+
 pub async fn tones(tones: &str) -> Result<()> {
     watcher()?.tones(tones).await
 }
@@ -643,6 +647,17 @@ impl Watcher {
         }
         self.poke.notify_one();
         Ok(())
+    }
+
+    /// Two calls at once: the held one becomes active and the active one goes on hold (AT+CHLD=2,
+    /// which PipeWire sends for HoldAndAnswer; HFP uses the same command for both).
+    pub async fn swap(&self, id: Option<&str>) -> Result<()> {
+        self.find(id, |c| c.state == "held")
+            .ok()
+            .filter(|c| c.state == "held")
+            .ok_or_else(|| anyhow!("There's no call on hold to switch to"))?;
+        let gw = self.gateway()?;
+        self.call_method(gw.as_str(), AG, "HoldAndAnswer").await
     }
 
     /// Keypad presses during a call, for phone menus ("press 1") and PINs. The phone plays them into

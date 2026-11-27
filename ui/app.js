@@ -2426,7 +2426,9 @@ function callCard(c) {
       h('button', { class: 'btn hangup', onclick: () => callAction(c, 'call_hangup', 'Declining') }, icon('hangup', 'sm'), 'Decline')]
     : [
       active && !calls.status.audio_here ? h('button', { class: 'btn', onclick: () => callAction(null, 'call_audio_here', 'Moving the sound here') }, 'Use this computer') : null,
-      calls.status.can_mute ? muteButton() : null,
+      // Two calls at once: the held one can take over (the other goes on hold).
+      c.state === 'held' ? h('button', { class: 'btn', onclick: () => callAction(c, 'call_swap', 'Switching') }, icon('call', 'sm'), 'Switch to this call') : null,
+      calls.status.can_mute && c.state !== 'held' ? muteButton() : null,
       active ? h('button', { class: 'btn keys', 'data-key': 'keys', 'aria-expanded': String(calls.keypad === c.id), title: 'Press keys for phone menus',
         onclick: () => toggleKeypad(c) }, icon('dialpad', 'sm'), calls.keypad === c.id ? 'Hide keypad' : 'Keypad') : null,
       h('button', { class: 'btn hangup', onclick: () => callAction(c, 'call_hangup', 'Hanging up') }, icon('hangup', 'sm'), 'Hang up')];
@@ -2520,7 +2522,8 @@ function activeCallCommands() {
         { label: `Decline ${who}`, icon: 'hangup', run: () => callAction(c, 'call_hangup', 'Declining') }];
     }
     return [{ label: `Hang up on ${who}`, icon: 'hangup', run: () => callAction(c, 'call_hangup', 'Hanging up') },
-      c.state === 'active' && calls.keypad !== c.id ? { label: `Keypad for ${who}`, icon: 'dialpad', run: () => toggleKeypad(c) } : null].filter(Boolean);
+      c.state === 'active' && calls.keypad !== c.id ? { label: `Keypad for ${who}`, icon: 'dialpad', run: () => toggleKeypad(c) } : null,
+      c.state === 'held' ? { label: `Switch to ${who}`, sub: 'The other call goes on hold', icon: 'call', run: () => callAction(c, 'call_swap', 'Switching') } : null].filter(Boolean);
   }).concat(liveCalls().some((c) => c.state !== 'incoming' && c.state !== 'waiting') && calls.status?.can_mute
     ? [calls.status.muted ? { label: 'Unmute the microphone', icon: 'mic', run: () => setCallMute(false) }
       : { label: 'Mute the microphone', icon: 'mic-off', run: () => setCallMute(true) }]

@@ -174,6 +174,26 @@ try:
         wait.until(lambda _: not d.find_elements(By.CSS_SELECTOR, "#call-root .call-card"))
     check("the other side hanging up clears the banner", far_end_hangs_up)
 
+    def call_waiting():
+        tell("ring +15550123")
+        banner_button("Answer").click()
+        heard("called Answer")
+        text_shown("Sound on")
+        tell("ring +15550456")  # rings as "waiting" while the first call is active
+        text_shown("Call waiting")
+        banner_button("Answer").click()
+        heard("called HoldAndAnswer")
+        text_shown("On hold")
+        d.save_screenshot(str(SHOTS / "call-two.png"))
+        # Only the call being talked on offers Mute.
+        assert len(d.find_elements(By.XPATH, "//*[@id='call-root']//button[normalize-space(.)='Mute']")) == 1
+        banner_button("Switch to this call").click()
+        heard("called HoldAndAnswer")
+        wait.until(lambda _: d.find_elements(By.XPATH, "//*[@id='call-root']//button[normalize-space(.)='Switch to this call']"))
+        tell("remote_hangup")
+        wait.until(lambda _: not d.find_elements(By.CSS_SELECTOR, "#call-root .call-card"))
+    check("call waiting: answer holds the first, switch back", call_waiting)
+
     def dark_banner():
         tell("ring +15550123")
         banner_button("Answer")
@@ -189,4 +209,4 @@ finally:
 if failures:
     print(f"{len(failures)} failed: {', '.join(failures)}")
     sys.exit(1)
-print("PASSED: calls setup, answer, sound here, mute, keypad, hang up, decline, dial, far-end hang up")
+print("PASSED: calls setup, answer, sound here, mute, keypad, hang up, decline, dial, far-end hang up, call waiting")

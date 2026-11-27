@@ -317,6 +317,9 @@ async fn call(svc: &Service, method: &str, p: &Value) -> Result<Value> {
             .await
             .map(|_| json!(true)),
         "call_audio_here" => crate::calls::audio_here().await.map(|_| json!(true)),
+        "call_swap" => crate::calls::swap(p.get("id").and_then(Value::as_str))
+            .await
+            .map(|_| json!(true)),
         "call_tones" => crate::calls::tones(s(p, "tones")?)
             .await
             .map(|_| json!(true)),

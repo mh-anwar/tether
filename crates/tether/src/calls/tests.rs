@@ -264,6 +264,16 @@ impl AudioGateway {
         self.0.lock().unwrap().dialed.push(number.clone());
         add_call(conn, &self.0, &number, "dialing").await;
     }
+    async fn hold_and_answer(&self, #[zbus(connection)] conn: &Connection) {
+        for c in self.0.lock().unwrap().calls.iter_mut() {
+            c.2 = match c.2.as_str() {
+                "active" => "held".into(),
+                "waiting" | "held" => "active".into(),
+                s => s.into(),
+            };
+        }
+        changed(conn, AG1).await;
+    }
     fn send_tones(&self, tones: String) {
         self.0.lock().unwrap().tones.push(tones);
     }
@@ -553,6 +563,31 @@ async fn drives_a_fake_phone_over_dbus() {
     let s = until(&mut rx, "audio", |s| s.audio_here).await;
     assert!(s.can_mute && !s.muted);
 
+    // A second call while talking rings as "waiting"; Answer holds the first, Switch goes back.
+    assert!(w.swap(None).await.is_err(), "nothing on hold yet");
+    add_call(&tel, &fake, "+15550000002", "waiting").await;
+    until(&mut rx, "waiting", |s| s.calls.len() == 2).await;
+    w.answer(None).await.unwrap();
+    let s = until(&mut rx, "held", |s| {
+        s.calls.iter().any(|c| c.state == "held") && s.calls.iter().any(|c| c.state == "active")
+    })
+    .await;
+    let held = s
+        .calls
+        .iter()
+        .find(|c| c.state == "held")
+        .unwrap()
+        .id
+        .clone();
+    w.swap(Some(&held)).await.unwrap();
+    until(&mut rx, "switched", |s| {
+        s.calls.iter().any(|c| c.id == held && c.state == "active")
+    })
+    .await;
+    let second = s.calls.iter().find(|c| c.id != held).unwrap().id.clone();
+    w.hangup(Some(&second)).await.unwrap();
+    until(&mut rx, "one call left", |s| s.calls.len() == 1).await;
+
     w.tones("1 2#a").await.unwrap();
     assert_eq!(fake.lock().unwrap().tones, vec!["12#A".to_string()]);
 
@@ -571,12 +606,12 @@ async fn drives_a_fake_phone_over_dbus() {
     std::fs::write(&state, "1").unwrap();
     add_call(&tel, &fake, "+15551234567", "incoming").await;
     until(&mut rx, "pre-muted call", |s| s.calls.len() == 1 && s.muted).await;
-    // Declined from its pop-up this time.
-    eventually("the second pop-up", || {
-        notes.lock().unwrap().shown.len() == 2
+    // Declined from its pop-up this time (the third: the call waiting above had the second).
+    eventually("the third pop-up", || {
+        notes.lock().unwrap().shown.len() == 3
     })
     .await;
-    let second = notes.lock().unwrap().shown[1].0;
+    let second = notes.lock().unwrap().shown[2].0;
     desktop
         .emit_signal(
             None::<()>,
