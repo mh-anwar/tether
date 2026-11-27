@@ -362,6 +362,15 @@ pub fn rings_here() -> bool {
     WATCHER.get().is_some_and(|w| w.status().blocker.is_none())
 }
 
+/// The calls as the tray shows them; None until the watcher runs.
+pub fn current() -> Option<Status> {
+    WATCHER.get().map(|w| w.status())
+}
+
+pub fn is_ringing(c: &Call) -> bool {
+    popup::ringing(c)
+}
+
 pub fn status() -> Value {
     WATCHER
         .get()
@@ -546,6 +555,7 @@ impl Watcher {
         // Pop-ups first, so a click can't arrive before its id is known.
         self.update_popups(&changed.calls).await;
         self.changed.send_replace(changed);
+        crate::tray::refresh();
     }
 
     fn session(&self) -> Result<&Connection> {
@@ -645,7 +655,8 @@ impl Watcher {
             // Unmuting by hand hands the microphone back too: nothing to restore after the call.
             i.muted_by_us = muted;
         }
-        self.poke.notify_one();
+        // Re-read now rather than on the next round, so whoever asked sees the new state at once.
+        self.refresh().await;
         Ok(())
     }
 
