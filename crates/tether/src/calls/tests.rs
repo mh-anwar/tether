@@ -519,7 +519,9 @@ async fn drives_a_fake_phone_over_dbus() {
         body.contains("Alice") && body.contains("+15551234567"),
         "{body}"
     );
-    assert!(actions.contains(&"answer".to_string()) && actions.contains(&"decline".to_string()));
+    for a in ["answer", "decline", "text", "default"] {
+        assert!(actions.contains(&a.to_string()), "{actions:?}");
+    }
     // Another program's pop-up being clicked is none of ours.
     desktop
         .emit_signal(
@@ -606,7 +608,8 @@ async fn drives_a_fake_phone_over_dbus() {
     std::fs::write(&state, "1").unwrap();
     add_call(&tel, &fake, "+15551234567", "incoming").await;
     until(&mut rx, "pre-muted call", |s| s.calls.len() == 1 && s.muted).await;
-    // Declined from its pop-up this time (the third: the call waiting above had the second).
+    // Declined from its pop-up's Text button this time (the third pop-up: the call waiting above had
+    // the second), which also opens a new message to the caller.
     eventually("the third pop-up", || {
         notes.lock().unwrap().shown.len() == 3
     })
@@ -618,7 +621,7 @@ async fn drives_a_fake_phone_over_dbus() {
             "/org/freedesktop/Notifications",
             "org.freedesktop.Notifications",
             "ActionInvoked",
-            &(second, "decline"),
+            &(second, "text"),
         )
         .await
         .unwrap();

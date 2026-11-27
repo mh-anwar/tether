@@ -483,6 +483,15 @@ impl Watcher {
         let done = match action.as_str() {
             "answer" => self.answer(Some(&call)).await,
             "decline" => self.hangup(Some(&call)).await,
+            "text" => {
+                let number = self.find(Some(&call), |_| true).map(|c| c.number);
+                let done = self.hangup(Some(&call)).await;
+                if let Ok(number) = number {
+                    crate::tray::open_window_with(json!({"event": "compose", "number": number}))
+                        .await;
+                }
+                done
+            }
             "default" => {
                 crate::tray::open_window().await;
                 Ok(())

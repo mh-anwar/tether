@@ -11,7 +11,7 @@ describes everything below. Work goes through PRs (branch, PR, green CI, squash-
   (aria-pressed, "Microphone off" text), Ctrl+K entry. API `call_mute {muted}`; status `can_mute`, `muted`.
 - Keypad during an active call: AudioGateway1 `SendTones`, `call_tones {tones}`, `clean_tones`. Window:
   Keypad button opens a 12-key grid, typing digits works, Escape closes.
-- Desktop pop-up for a ringing Bluetooth call with Answer / Decline / Open Tether (`calls/popup.rs`,
+- Desktop pop-up for a ringing Bluetooth call with Answer / Decline / Text / Open Tether (`calls/popup.rs`,
   over the watcher's own session connection, closed when the call stops ringing). KDE Connect's plain
   "Incoming call" pop-up is skipped while Bluetooth calling is ready (`calls::rings_here`).
 - Switch between two calls: a waiting call's Answer holds the first (HoldAndAnswer); a held call's card
@@ -48,7 +48,6 @@ describes everything below. Work goes through PRs (branch, PR, green CI, squash-
   action can see the old state (cli_e2e.py waits for it). Consider `self.refresh().await` in
   `Watcher::call_method`/`dial` instead of `poke`, once it's clear PipeWire updates its objects before
   replying.
-- A "Text" button on the ringing call's desktop pop-up (decline + open the window on a new message);
-  a Hold button for a single call once HoldAndAnswer with no other call is confirmed on real PipeWire.
+- A Hold button for a single call once HoldAndAnswer with no other call is confirmed on real PipeWire.
 
 Delete this file once the real-phone checks in QUEUE are done.

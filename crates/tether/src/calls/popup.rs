@@ -82,15 +82,29 @@ pub async fn show(conn: &Connection, c: &Call) -> Option<u32> {
     } else {
         "Incoming call"
     };
-    // "default" is a click on the pop-up itself.
-    let actions = [
-        "answer",
-        "Answer",
-        "decline",
-        "Decline",
-        "default",
-        "Open Tether",
-    ];
+    // "default" is a click on the pop-up itself. "text" declines and opens a new message to the caller
+    // (three buttons: GNOME shows no more).
+    let actions: &[&str] = if c.number.is_empty() {
+        &[
+            "answer",
+            "Answer",
+            "decline",
+            "Decline",
+            "default",
+            "Open Tether",
+        ]
+    } else {
+        &[
+            "answer",
+            "Answer",
+            "decline",
+            "Decline",
+            "text",
+            "Text",
+            "default",
+            "Open Tether",
+        ]
+    };
     let mut hints: HashMap<&str, Variant> = HashMap::new();
     hints.insert("urgency", Variant::U8(2));
     hints.insert("category", Variant::from("call.incoming"));
@@ -109,7 +123,7 @@ pub async fn show(conn: &Connection, c: &Call) -> Option<u32> {
                 "call-start",
                 summary,
                 escape(&body),
-                &actions[..],
+                actions,
                 hints,
                 0i32,
             ),
