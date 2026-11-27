@@ -18,19 +18,24 @@ list`). Work goes through PRs (branch, PR, green CI, squash-merge).
 - Tests: `cargo test -p tether calls` (fake PipeWire + fake notification server + stand-in wpctl on a
   private bus), `testing/ui/wd.sh testing/ui/test_calls.py`, `testing/ui/wd.sh` (all pass 2026-11-26).
 
+- Switch between two calls: a waiting call's Answer holds the first (HoldAndAnswer); a held call's card
+  has "Switch to this call" (`call_swap`, also in Ctrl+K). Mute shows only on the call being talked on.
+- `tether call [answer|decline|hangup|pickup|mute|here|keys N|<number>]`, checked end to end against
+  the fake phone with a scratch script (private bus + `testing/ui/fake_telephony.py` + daemon). README
+  lists calls and the three most useful commands.
+- Tray menu: while a call is live, "Answer <caller>" / "Decline" (ringing) or "Hang up on <caller>" and
+  a "Mute the microphone" check row come right after Open Tether (`TrayState.call`, refreshed from the
+  calls watcher). Unit-tested in `tray/menu.rs`.
+
 ## In progress
 
-- `tether call [answer|decline|hangup|pickup|mute|here|keys N|<number>]` (main.rs + client.rs). Written,
-  not yet built. Next: build, run the scratch e2e (private bus + `testing/ui/fake_telephony.py` + daemon,
-  then each subcommand), commit, mention it in README.
-- Hold / switch between two calls: fakes updated (`HoldAndAnswer` swaps active and held/waiting; `ring`
-  while active rings as "waiting"). Next: `Watcher::swap` (needs a held call, calls AG `HoldAndAnswer`),
-  API `call_swap`, a "Switch to this call" button on a held call's card, a check in test_calls.py and
-  the dbus test.
+- Nothing half-done. Draft PR #15 describes everything above; keep its body current.
 
 ## Up next
 
-- Calls in the tray menu (Answer / Hang up / Mute while a call is live).
-- Real-phone checks: everything in QUEUE "Needs a real phone", plus the new call features.
+- A check of the tray's call rows in `testing/ui/tray_e2e.sh` (needs fake telephony on that bus).
+- Real-phone checks: everything in QUEUE "Needs a real phone", plus the new call features (keypad
+  tones reach phone menus, Mute silences the far end, pop-up buttons on GNOME/KDE, HoldAndAnswer on a
+  held call with no waiting call, which PipeWire may refuse).
 
 Delete this file once the real-phone checks in QUEUE are done.
