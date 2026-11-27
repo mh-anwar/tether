@@ -36,6 +36,8 @@ list`). Work goes through PRs (branch, PR, green CI, squash-merge).
 
 - Decline with a text (ringing card, Text button, quick replies + own text, `sms_send`), tray tooltip
   line for the call. Checked in `test_calls.py` and tray unit tests.
+- `testing/calls/cli_e2e.py` and `testing/calls/missed_e2e.py`: reproducible end-to-end checks for
+  `tether call` and the missed-call pop-up (both pass).
 - Fixed a flaky window check (Commands editor Remove click lost during a re-render).
 
 ## In progress
