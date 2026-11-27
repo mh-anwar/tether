@@ -21,6 +21,9 @@ computer. It works on GNOME, KDE, Xfce, i3, Sway and other desktops.
 - From the phone: use it as a touchpad and keyboard or a presentation remote, lock the screen, change the
   volume, ring the computer, and run commands you set up in Settings.
 - Type on the phone from the computer's keyboard (Keyboard page).
+- Calls through the computer over Bluetooth (PipeWire 1.4 or newer): answer, decline, dial, talk on the
+  computer's speakers and microphone, mute, a keypad for phone menus, switch between two calls, and
+  Answer or Decline right on the desktop pop-up.
 - Ring the phone to find it. See its battery and signal.
 - Open phone apps in their own windows with scrcpy (Android 10 or newer, Wireless debugging).
 - Search contacts and start a text from them.
@@ -65,6 +68,9 @@ tether type "hello"                   # type into the phone
 tether ring                           # ring the phone
 tether media toggle                   # play or pause the phone's music
 tether apps spotify                   # open a phone app in a window
+tether call pickup                    # answer a ringing call, or hang up (good on a shortcut key)
+tether call mute                      # microphone off, or back on
+tether call 5551234567                # call a number through the phone
 ```
 
 Run `tether --help` for the full list.

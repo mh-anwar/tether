@@ -161,6 +161,7 @@ pub async fn run(device: Option<String>, cmd: Cmd) -> Result<()> {
         Cmd::Ping => simple(&mut c, &device, "ping", "Ping sent.").await?,
         Cmd::Ring => simple(&mut c, &device, "ring", "Ringing the phone.").await?,
         Cmd::Mute => simple(&mut c, &device, "mute", "Ringer muted.").await?,
+        Cmd::Call { args } => call(&mut c, &args).await?,
         Cmd::Refresh => {
             c.call("refresh", json!({})).await?;
             println!("Looking for phones.");
@@ -401,6 +402,99 @@ pub async fn run(device: Option<String>, cmd: Cmd) -> Result<()> {
                     break;
                 }
             }
+        }
+    }
+    Ok(())
+}
+
+/// `tether call ...`: meant for desktop shortcuts too, so every action says what happened in one line.
+async fn call(c: &mut Client, args: &[String]) -> Result<()> {
+    let st = c.call("call_status", json!({})).await?;
+    let calls: Vec<Value> = st
+        .get("calls")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let ringing = calls.iter().find(|x| {
+        x.get("incoming").and_then(Value::as_bool) == Some(true)
+            && matches!(str_of(x, "state").as_str(), "incoming" | "waiting")
+    });
+    let who = |x: &Value| {
+        let name = str_of(x, "name");
+        if name.is_empty() {
+            str_of(x, "number")
+        } else {
+            name
+        }
+    };
+    let word = args.first().map(|a| a.to_lowercase()).unwrap_or_default();
+    if word.is_empty() {
+        if let Some(b) = st.get("blocker").and_then(Value::as_str) {
+            println!("Calls from this computer aren't set up ({b}). Open Tether and press a Call button for the steps.");
+            return Ok(());
+        }
+        if calls.is_empty() {
+            println!("No call right now.");
+        }
+        for x in &calls {
+            println!("{}: {}", str_of(x, "state"), who(x));
+        }
+        if !calls.is_empty() && st.get("muted").and_then(Value::as_bool) == Some(true) {
+            println!("Microphone off.");
+        }
+        return Ok(());
+    }
+    match word.as_str() {
+        "answer" | "pickup" if ringing.is_some() => {
+            let x = ringing.cloned().unwrap_or_default();
+            c.call("call_answer", json!({"id": str_of(&x, "id")}))
+                .await?;
+            println!("Answering {}.", who(&x));
+        }
+        "answer" => bail!("Nothing is ringing."),
+        "decline" => {
+            let Some(x) = ringing else {
+                bail!("Nothing is ringing.");
+            };
+            c.call("call_hangup", json!({"id": str_of(x, "id")}))
+                .await?;
+            println!("Declined {}.", who(x));
+        }
+        "hangup" | "pickup" => {
+            if calls.is_empty() {
+                bail!("No call to hang up.");
+            }
+            c.call("call_hangup", json!({})).await?;
+            println!("Hung up.");
+        }
+        "mute" => {
+            if calls.is_empty() {
+                bail!("No call to mute.");
+            }
+            let muted = st.get("muted").and_then(Value::as_bool) != Some(true);
+            c.call("call_mute", json!({"muted": muted})).await?;
+            println!(
+                "{}",
+                if muted {
+                    "Microphone off."
+                } else {
+                    "Microphone on."
+                }
+            );
+        }
+        "here" => {
+            c.call("call_audio_here", json!({})).await?;
+            println!("Moving the sound to this computer.");
+        }
+        "keys" => {
+            let keys = args[1..].concat();
+            c.call("call_tones", json!({"tones": keys})).await?;
+            println!("Sent {keys}.");
+        }
+        _ => {
+            let number = args.join(" ");
+            c.call("call_dial", json!({"number": number})).await?;
+            println!("Calling {number}.");
         }
     }
     Ok(())
