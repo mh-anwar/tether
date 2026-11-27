@@ -12,6 +12,8 @@ use std::{
 use tokio::sync::{mpsc, watch};
 use zbus::{fdo, interface, object_server::SignalEmitter, OwnedVariant, Variant};
 
+#[cfg(test)]
+use super::TrayCall;
 use super::TrayState;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -22,6 +24,12 @@ pub(crate) enum Action {
     SendFiles,
     TogglePause,
     ToggleQuiet,
+    /// Answer the ringing call with this id.
+    Answer(String),
+    /// Hang up (or decline) the call with this id.
+    HangUp(String),
+    /// Turn the microphone off (true) or back on during a call.
+    ToggleMute(bool),
     Quit,
 }
 
@@ -70,9 +78,48 @@ const PAUSE: i32 = 5;
 const QUIT: i32 = 7;
 const QUIET: i32 = 8;
 const RING: i32 = 100;
+const ANSWER: i32 = 9;
+const HANGUP: i32 = 10;
+const MUTE: i32 = 11;
 
 pub(crate) fn entries(state: &TrayState) -> Vec<Entry> {
     let mut out = vec![Entry::item(OPEN, "Open Tether", true, Action::Open)];
+    // A call comes first: the tray is the quickest way to it with the window closed.
+    if let Some(c) = &state.call {
+        out.push(Entry::separator(12));
+        if c.ringing {
+            out.push(Entry::item(
+                ANSWER,
+                format!("Answer {}", c.who),
+                true,
+                Action::Answer(c.id.clone()),
+            ));
+            out.push(Entry::item(
+                HANGUP,
+                "Decline",
+                true,
+                Action::HangUp(c.id.clone()),
+            ));
+        } else {
+            out.push(Entry::item(
+                HANGUP,
+                format!("Hang up on {}", c.who),
+                true,
+                Action::HangUp(c.id.clone()),
+            ));
+            if c.can_mute {
+                out.push(Entry {
+                    check: Some(c.muted),
+                    ..Entry::item(
+                        MUTE,
+                        "Mute the microphone",
+                        true,
+                        Action::ToggleMute(!c.muted),
+                    )
+                });
+            }
+        }
+    }
     out.push(Entry::separator(2));
     let connected: Vec<_> = state.connected().collect();
     match connected.as_slice() {
@@ -333,6 +380,7 @@ mod tests {
             mirroring,
             paused,
             quiet: false,
+            call: None,
         }
     }
 
@@ -381,6 +429,37 @@ mod tests {
         assert_eq!(l[6], "(Quiet mode)");
         assert_eq!(action_for(&s, RING), None);
         assert_eq!(action_for(&s, SEND), None);
+    }
+
+    #[test]
+    fn calls_come_first() {
+        let call = |ringing, muted| TrayCall {
+            id: "/c1".into(),
+            who: "Alice".into(),
+            ringing,
+            can_mute: true,
+            muted,
+        };
+        let s = TrayState {
+            call: Some(call(true, false)),
+            ..state(&["Galaxy"], true, false)
+        };
+        assert_eq!(
+            labels(&s)[..5],
+            ["Open Tether", "-", "Answer Alice", "Decline", "-"]
+        );
+        assert_eq!(action_for(&s, ANSWER), Some(Action::Answer("/c1".into())));
+        assert_eq!(action_for(&s, HANGUP), Some(Action::HangUp("/c1".into())));
+        let s = TrayState {
+            call: Some(call(false, true)),
+            ..state(&["Galaxy"], true, false)
+        };
+        assert_eq!(
+            labels(&s)[2..4],
+            ["Hang up on Alice", "[x] Mute the microphone"]
+        );
+        assert_eq!(action_for(&s, MUTE), Some(Action::ToggleMute(false)));
+        assert_eq!(action_for(&s, ANSWER), None);
     }
 
     #[test]

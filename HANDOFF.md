@@ -1,30 +1,62 @@
-# Handoff (2026-11-16, v1.1.0)
+# Handoff (live, 2026-11-26, branch `work/2026-11-26`)
 
 Read first: `AGENTS.md` (house rules), `QUEUE.md` (work queue), `docs/README.md` (knowledge base index).
-`main` = what shipped in v1.1.0. Work goes through PRs now (branch, PR, green CI, squash-merge).
+`main` = v1.1.0 plus #13/#14. This branch adds call features on top; draft PR #15 is open from it and
+describes everything below. Work goes through PRs (branch, PR, green CI, squash-merge).
 
-## State
+## Done on this branch (all checked with fakes, none on a real phone)
 
-- Every KDE Connect feature a user expects works both ways against the simulator (`tether_core::sim`), the
-  end-to-end suite (`crates/tether/tests/protocol_e2e.rs`), the feature suites (`testing/computer`,
-  `testing/media`) and the WebDriver window tests (`testing/ui/wd.sh`). docs/testing.md has the commands.
-- Earlier, the protocol core, pairing, texts and notifications were verified against real KDE Connect
-  26.08.2 (`testing/kdeconnect-peer`) and the owner's Samsung.
-- 1.1.0 added one window per phone app with Close (#8), the tray menu, tooltip and unread marks (#9),
-  notification icons and the phone camera where the phone still offers it (#10), and a Flatpak bundle built
-  by the release workflow (#11). The Flatpak's portal dialogs and tray were checked only by code and CI,
-  not in a real sandboxed session.
-- Not verified on a real phone: everything listed in QUEUE "Needs a real phone". That is the next step,
-  and the only one that needs the owner.
+- Mute during calls: `calls/mic.rs` mutes the default microphone via `wpctl` (else `pactl`), reads it
+  back each round, unmutes after the call only if Tether muted it. Window: Mute/Unmute button
+  (aria-pressed, "Microphone off" text), Ctrl+K entry. API `call_mute {muted}`; status `can_mute`, `muted`.
+- Keypad during an active call: AudioGateway1 `SendTones` one key per call (PipeWire passes the string
+  straight into one AT+VTS, which takes a single key), `call_tones {tones}`, `clean_tones`. Window:
+  Keypad button opens a 12-key grid, typing digits works, Escape closes.
+- Desktop pop-up for a ringing Bluetooth call with Answer / Decline / Text / Open Tether (`calls/popup.rs`,
+  over the watcher's own session connection, closed when the call stops ringing). KDE Connect's plain
+  "Incoming call" pop-up is skipped while Bluetooth calling is ready (`calls::rings_here`).
+- Switch between two calls: a waiting call's Answer holds the first (HoldAndAnswer); a held call's card
+  has "Switch to this call" (`call_swap` = SwapCalls, also in Ctrl+K). Mute shows only on the call being talked on.
+- Decline with a text: Text button on a ringing card, three quick replies or your own, `sms_send`.
+- Missed-call pop-up (KDE Connect telephony): "Send a text" (window event `compose`) and, when Bluetooth
+  calling is ready, "Call back" (`calls::dial`).
+- Tray: while a call is live, "Answer <caller>" / "Decline" or "Hang up on <caller>" and a "Mute the
+  microphone" check row after Open Tether, and a first tooltip line (`TrayState.call`).
+- Settings, Calls: "Calls through this computer" (Ready / Not set up yet + Show the steps, Call a number).
+- `tether call [answer|decline|hangup|pickup|mute|here|keys N|<number>]`; README lists calls.
+- Q23: command palette is an ARIA combobox.
+- Test fixes: `tray_e2e.sh` expected a menu without "Quiet mode" (failed on main); the Commands editor
+  window check could lose its Remove click during a re-render.
 
-## Traps found this session
+## How it's checked (all pass on the final build, 2026-11-26)
 
-- `tether-app` embeds `ui/` at compile time; `build.rs` now passes a hash of the files so edits recompile it
-  (docs/gotchas.md).
-- Android advertises plugins that are switched off, so capabilities alone can't tell whether a feature is
-  set up; the readiness checklist only says "Working" after data arrived.
-- `kdeconnect.runcommand`'s `commandList` is a JSON string, not an object (upstream and the Android app).
-- The repo's ruleset needs an approving review and allows squash/rebase only; the lead merges its own PRs
-  with `gh pr merge --squash --admin` once CI's Rust job is green.
+- `cargo test -p tether calls` (fake PipeWire + fake notification server + stand-in wpctl on a private
+  bus), tray unit tests, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace`.
+- `testing/ui/wd.sh testing/ui/test_calls.py` and `testing/ui/wd.sh` (full window suite).
+- `testing/ui/tray_e2e.sh` (answers, mutes, hangs up from the tray), `testing/ui/tray_xembed.sh`.
+- `python3 testing/calls/cli_e2e.py` (`tether call`), `python3 testing/calls/missed_e2e.py` (missed-call
+  pop-up buttons through `testing/calls/fake_notifications.py`).
+
+## Audited against PipeWire's source (master, 2026-11-26, spa/plugins/bluez5/backend-native.c)
+
+- Fixed: switching to a held call now uses SwapCalls (HoldAndAnswer needs a waiting call); keypad keys
+  go one per SendTones (PipeWire passes the string into one AT+VTS).
+- Fine as is: Call1.Hangup works for every state (CHUP, CHLD=1 or CHLD=0 as fits), HoldAndAnswer for a
+  waiting call, HangupAll, Dial, Transport Activate.
+
+## In progress
+
+- Nothing half-done.
+
+## Up next
+
+- Real-phone checks: everything in QUEUE "Needs a real phone", plus the new call features (keypad tones
+  reach phone menus, Mute silences the far end, pop-up buttons on GNOME/KDE, Switch on a held call).
+- Call actions now re-read the calls before replying (`Watcher::after_action`) and once more after a
+  poke. On real PipeWire, check that the window and `tether call` show the new state at once; if
+  PipeWire updates its objects only after replying, the second round (and its signals) cover it.
+- No Hold button for a single call: PipeWire (backend-native.c, master 2026-11) only sends AT+CHLD=2
+  from SwapCalls with a held call or HoldAndAnswer with active + waiting, and has nothing to hold one
+  call. Revisit if PipeWire adds it. Both fakes now refuse the same way PipeWire does.
 
 Delete this file once the real-phone checks in QUEUE are done.

@@ -5,6 +5,7 @@ Finds things by role and text, the way a person would, so layout changes don't b
 
 import os
 import sys
+import time
 from pathlib import Path
 
 from selenium import webdriver
@@ -309,9 +310,20 @@ try:
     def palette():
         d.find_element(By.TAG_NAME, "body").send_keys(Keys.CONTROL, "k")
         wait.until(EC.visibility_of_element_located((By.XPATH, "//*[contains(@class, 'palette')]//*[normalize-space(.)='Check for updates']")))
-        d.switch_to.active_element.send_keys(Keys.ESCAPE)
+        # A combobox for screen readers: the highlighted option follows the arrow keys.
+        field = d.switch_to.active_element
+        assert field.get_attribute("role") == "combobox"
+        assert field.get_attribute("aria-activedescendant") == "palette-opt-0"
+        field.send_keys(Keys.ARROW_DOWN)
+        second = d.find_element(By.ID, "palette-opt-1")
+        assert field.get_attribute("aria-activedescendant") == "palette-opt-1"
+        assert second.get_attribute("aria-selected") == "true"
+        field.send_keys("zzzz no such command")
+        wait.until(lambda _: d.find_element(By.CSS_SELECTOR, ".palette [role='status']").get_attribute("textContent") == "No matches")
+        assert field.get_attribute("aria-activedescendant") is None
+        field.send_keys(Keys.ESCAPE)
         wait.until(lambda _: not d.find_elements(By.CSS_SELECTOR, ".palette-backdrop"))
-    check("Ctrl+K offers Check for updates", palette)
+    check("Ctrl+K offers Check for updates, as a combobox", palette)
 
     def shots_dir():
         output = Path(os.environ.get("TETHER_SHOTS") or Path(os.environ["XDG_CONFIG_HOME"]).parent / "shots")
@@ -456,9 +468,23 @@ try:
         shell.send_keys("printf test")
         saved.find_element(By.XPATH, ".//button[text()='Save command']").click()
         wait.until(lambda _: any(c["command"] == "printf test" for c in json.loads(cfg.read_text()).get("commands", [])))
-        saved = wait.until(EC.visibility_of_element_located((By.XPATH, "//form[.//b[text()='Test command']]")))
-        saved.find_element(By.XPATH, ".//button[text()='Remove command']").click()
-        wait.until(lambda _: not any(c["name"] == "Test command" for c in json.loads(cfg.read_text()).get("commands", [])))
+        # Saving re-renders Settings once the reply arrives, which can replace the form between finding
+        # the button and clicking it; find it again then.
+        # A click on a form that is being replaced is lost without an error, so click until it lands.
+        remove = (By.XPATH, "//form[.//b[text()='Test command']]//button[text()='Remove command']")
+        gone = lambda: not any(c["name"] == "Test command" for c in json.loads(cfg.read_text()).get("commands", []))
+        for _ in range(5):
+            try:
+                wait.until(EC.element_to_be_clickable(remove)).click()
+            except StaleElementReferenceException:
+                pass
+            for _ in range(20):
+                if gone():
+                    break
+                time.sleep(0.1)
+            if gone():
+                break
+        assert gone(), "Remove command didn't save"
     check("Commands editor adds, edits and removes", commands_editor)
 
     def tray_note():

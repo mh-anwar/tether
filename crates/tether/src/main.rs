@@ -82,6 +82,12 @@ enum Cmd {
     Apps { app: Option<String> },
     /// Silence a ringing call.
     Mute,
+    /// Calls through this computer over Bluetooth. No argument shows the call. `answer`, `decline`,
+    /// `hangup`, `pickup` (answer if ringing, else hang up: one key for both), `mute` (the
+    /// microphone off, or back on), `here` (sound on this computer), `keys 1#` (keypad), or a number
+    /// to call it.
+    #[command(verbatim_doc_comment)]
+    Call { args: Vec<String> },
     /// Look for phones now.
     Refresh,
     /// Reach a phone by address, for networks where it can't be found automatically.

@@ -40,6 +40,9 @@ const ICONS = {
   music: '<path d="M9 18V6l11-2v12"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="17.5" cy="16" r="2.5"/>',
   call: '<path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a1 1 0 0 1-1 1A16 16 0 0 1 4 5a1 1 0 0 1 1-1Z"/>',
   hangup: '<path d="M3 14.5c5-4.7 13-4.7 18 0l-2.2 2.7-3.6-1.5v-3a12 12 0 0 0-6.4 0v3l-3.6 1.5L3 14.5Z"/>',
+  dialpad: '<circle cx="6" cy="3.5" r="1.3"/><circle cx="12" cy="3.5" r="1.3"/><circle cx="18" cy="3.5" r="1.3"/><circle cx="6" cy="9" r="1.3"/><circle cx="12" cy="9" r="1.3"/><circle cx="18" cy="9" r="1.3"/><circle cx="6" cy="14.5" r="1.3"/><circle cx="12" cy="14.5" r="1.3"/><circle cx="18" cy="14.5" r="1.3"/><circle cx="12" cy="20" r="1.3"/>',
+  mic: '<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/>',
+  'mic-off': '<path d="M15 9.5V6a3 3 0 0 0-5.6-1.5M9 9v2a3 3 0 0 0 5 2.2"/><path d="M5.5 11a6.5 6.5 0 0 0 10.8 4.9M18.5 11a6.5 6.5 0 0 1-.5 2.4M12 17.5V21M3 3l18 18"/>',
 };
 
 function icon(name, cls = '') {

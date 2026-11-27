@@ -1,0 +1,12 @@
+#!/bin/sh
+# Stand-in for WirePlumber's wpctl: just the two commands Tether's call mute uses, with the default
+# microphone's mute kept in $FAKE_WPCTL_STATE (1 or 0). Each call is appended to $FAKE_WPCTL_STATE.log.
+state=${FAKE_WPCTL_STATE:-${TMPDIR:-/tmp}/fake-wpctl-$(id -u)}
+echo "$*" >> "$state.log"
+case "$1 $2" in
+  "get-volume @DEFAULT_AUDIO_SOURCE@")
+    if [ "$(cat "$state" 2>/dev/null)" = 1 ]; then echo "Volume: 1.00 [MUTED]"; else echo "Volume: 1.00"; fi ;;
+  "set-mute @DEFAULT_AUDIO_SOURCE@")
+    case "$3" in 1|0) echo "$3" > "$state" ;; *) exit 1 ;; esac ;;
+  *) echo "fake wpctl: unsupported: $*" >&2; exit 1 ;;
+esac

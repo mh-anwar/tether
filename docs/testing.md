@@ -44,7 +44,15 @@ Setup on a new machine: `cargo install tauri-driver --locked`; WebKitWebDriver i
 Calls: `testing/ui/wd.sh testing/ui/test_calls.py` starts `testing/ui/fake_telephony.py` (a stand-in for
 PipeWire's `org.pipewire.Telephony`, driven by stdin: `gateway`, `ring <number>`, `remote_hangup`) on the
 window's session bus and checks setup steps, answer, decline, sound here, dial and hang up; it saves
-`call-*.png`. `cargo test -p tether calls` runs the daemon side against a fake on a private dbus-daemon.
+`call-*.png` (mute, keypad and two calls included). Mute uses the stand-in `testing/calls/wpctl`
+(`TETHER_WPCTL`, state in `FAKE_WPCTL_STATE`). `cargo test -p tether calls` runs the daemon side against a
+fake on a private dbus-daemon, with a fake notification server for the ringing pop-up's buttons.
+`testing/ui/tray_e2e.sh` also answers, mutes and hangs up a call from the tray menu.
+`python3 testing/calls/cli_e2e.py` drives `tether call` (status, pickup, mute, keys, decline, hang up, dial)
+against the fake telephony on a private bus. `python3 testing/calls/missed_e2e.py` has the fake phone send a
+missed call and checks the pop-up's Call back and Send a text buttons through a stand-in notification
+server (`testing/calls/fake_notifications.py`); Call back must make the phone dial. Both need `tether` and
+the `fake_phone` example built, and take `TETHER_UI_DIR`/`TETHER_PORT`.
 Real Bluetooth isn't on this box: sound and the phone's side need the owner's laptop.
 
 ## Tray icon

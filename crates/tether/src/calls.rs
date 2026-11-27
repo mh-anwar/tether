@@ -36,6 +36,8 @@ const DEVICE: &str = "org.bluez.Device1";
 const HFP_AG_UUID: &str = "0000111f-0000-1000-8000-00805f9b34fb";
 /// PipeWire parses ATD with `%30[^;]` (backend-native.c), so longer numbers never reach the phone.
 const MAX_NUMBER: usize = 30;
+/// Keypad presses arrive one or a few at a time; a pasted PIN or extension is the longest real use.
+const MAX_TONES: usize = 32;
 
 type Props = HashMap<String, OwnedVariant>;
 type Objects = HashMap<OwnedObjectPath, HashMap<String, Props>>;
@@ -50,6 +52,11 @@ pub struct Status {
     pub phone: Option<String>,
     /// True while the call's sound runs through this computer (the HFP audio link is up).
     pub audio_here: bool,
+    /// Whether this computer can mute its microphone (wpctl or pactl found); the window hides Mute
+    /// otherwise.
+    pub can_mute: bool,
+    /// True while a call is live and this computer's microphone is muted, by Tether or the desktop.
+    pub muted: bool,
     pub calls: Vec<Call>,
 }
 
@@ -253,6 +260,28 @@ pub fn clean_number(input: &str) -> Result<String> {
     Ok(out)
 }
 
+/// The keys HFP can send during a call (AT+VTS takes one DTMF character each: 0-9, *, #, A-D).
+pub fn clean_tones(input: &str) -> Result<String> {
+    let out: String = input
+        .chars()
+        .filter(|c| !c.is_whitespace())
+        .map(|c| c.to_ascii_uppercase())
+        .collect();
+    if out.is_empty() {
+        bail!("Press a key to send");
+    }
+    if let Some(c) = out
+        .chars()
+        .find(|c| !matches!(c, '0'..='9' | '*' | '#' | 'A'..='D'))
+    {
+        bail!("{c} isn't a key on a phone keypad");
+    }
+    if out.len() > MAX_TONES {
+        bail!("That's too many keys at once");
+    }
+    Ok(out)
+}
+
 type Lookup = Box<dyn Fn(&str) -> Option<String> + Send + Sync>;
 type Names = Box<dyn Fn() -> Vec<String> + Send + Sync>;
 
@@ -260,6 +289,9 @@ struct Inner {
     status: Status,
     tracker: Tracker,
     gateway: Option<OwnedObjectPath>,
+    /// Tether muted the microphone for the current call, so it unmutes it once the calls end. A
+    /// microphone muted before the call stays muted.
+    muted_by_us: bool,
 }
 
 pub struct Watcher {
@@ -267,6 +299,8 @@ pub struct Watcher {
     system: Option<Connection>,
     lookup: Lookup,
     names: Names,
+    mic: mic::Mic,
+    popups: Mutex<popup::Popups>,
     inner: Mutex<Inner>,
     poke: Notify,
     changed: tokio::sync::watch::Sender<Status>,
@@ -299,7 +333,13 @@ pub async fn run(svc: Service) {
             .map(|d| d.name)
             .collect()
     });
-    let w = Arc::new(Watcher::new(session, system, lookup, names));
+    let w = Arc::new(Watcher::new(
+        session,
+        system,
+        lookup,
+        names,
+        mic::Mic::detect(),
+    ));
     let _ = WATCHER.set(w.clone());
     let mut changes = w.subscribe();
     tokio::spawn(async move {
@@ -314,6 +354,21 @@ pub async fn run(svc: Service) {
 
 fn watcher() -> Result<&'static Arc<Watcher>> {
     WATCHER.get().context("Calls aren't ready yet")
+}
+
+/// True when calls go through this computer: the ringing call's pop-up comes from here, with Answer
+/// and Decline, rather than KDE Connect's plain one.
+pub fn rings_here() -> bool {
+    WATCHER.get().is_some_and(|w| w.status().blocker.is_none())
+}
+
+/// The calls as the tray shows them; None until the watcher runs.
+pub fn current() -> Option<Status> {
+    WATCHER.get().map(|w| w.status())
+}
+
+pub fn is_ringing(c: &Call) -> bool {
+    popup::ringing(c)
 }
 
 pub fn status() -> Value {
@@ -344,18 +399,33 @@ pub async fn audio_here() -> Result<()> {
     watcher()?.audio_here().await
 }
 
+pub async fn mute(muted: bool) -> Result<()> {
+    watcher()?.mute(muted).await
+}
+
+pub async fn swap(id: Option<&str>) -> Result<()> {
+    watcher()?.swap(id).await
+}
+
+pub async fn tones(tones: &str) -> Result<()> {
+    watcher()?.tones(tones).await
+}
+
 impl Watcher {
     fn new(
         session: Option<Connection>,
         system: Option<Connection>,
         lookup: Lookup,
         names: Names,
+        mic: mic::Mic,
     ) -> Self {
         Self {
             session,
             system,
             lookup,
             names,
+            mic,
+            popups: Mutex::default(),
             inner: Mutex::new(Inner {
                 status: Status {
                     blocker: Some("service"),
@@ -363,6 +433,7 @@ impl Watcher {
                 },
                 tracker: Tracker::default(),
                 gateway: None,
+                muted_by_us: false,
             }),
             poke: Notify::new(),
             changed: tokio::sync::watch::channel(Status::default()).0,
@@ -386,14 +457,65 @@ impl Watcher {
     async fn watch(&self) {
         let mut tel = signal_stream(self.session.as_ref(), TELEPHONY).await;
         let mut bt = signal_stream(self.system.as_ref(), BLUEZ).await;
+        let mut clicks = action_stream(self.session.as_ref()).await;
         let mut tick = tokio::time::interval(Duration::from_secs(5));
         loop {
             self.refresh().await;
             tokio::select! {
                 Some(_) = next(&mut tel) => {}
                 Some(_) = next(&mut bt) => {}
+                Some(m) = next_message(&mut clicks) => self.clicked(m).await,
                 _ = tick.tick() => {}
                 _ = self.poke.notified() => {}
+            }
+        }
+    }
+
+    /// A button on a call pop-up. The server tells every client about every click, so only ids of
+    /// our own pop-ups count.
+    async fn clicked(&self, m: zbus::Message) {
+        let Ok((id, action)) = m.body().deserialize::<(u32, String)>() else {
+            return;
+        };
+        let Some(call) = self.popups.lock().ok().and_then(|p| p.call_for(id)) else {
+            return;
+        };
+        let done = match action.as_str() {
+            "answer" => self.answer(Some(&call)).await,
+            "decline" => self.hangup(Some(&call)).await,
+            "text" => {
+                let number = self.find(Some(&call), |_| true).map(|c| c.number);
+                let done = self.hangup(Some(&call)).await;
+                if let Ok(number) = number {
+                    crate::tray::open_window_with(json!({"event": "compose", "number": number}))
+                        .await;
+                }
+                done
+            }
+            "default" => {
+                crate::tray::open_window().await;
+                Ok(())
+            }
+            _ => Ok(()),
+        };
+        if let Err(e) = done {
+            tracing::warn!("calls: {action} from the pop-up failed: {e}");
+        }
+    }
+
+    async fn update_popups(&self, calls: &[Call]) {
+        let Some(conn) = &self.session else { return };
+        let Ok((show, close)) = self.popups.lock().map(|mut p| p.diff(calls)) else {
+            return;
+        };
+        for id in close {
+            popup::close(conn, id).await;
+        }
+        for c in show {
+            if let Some(n) = popup::show(conn, &c).await {
+                if !self.popups.lock().is_ok_and(|mut p| p.shown(&c.id, n)) {
+                    popup::close(conn, n).await;
+                }
             }
         }
     }
@@ -409,30 +531,40 @@ impl Watcher {
         };
         let names = (self.names)();
         let (blocker, phone, gw) = summarize(gateways.as_deref(), &bt, &names);
+        let live = gw.is_some_and(|g| g.calls.iter().any(|c| c.state != "disconnected"));
+        let muted = self.settle_mic(live).await;
         let now = now_ms();
-        let Ok(mut inner) = self.inner.lock() else {
-            return;
-        };
-        let calls = inner.tracker.calls(
-            gw.map(|g| g.calls.as_slice()).unwrap_or(&[]),
-            &*self.lookup,
-            now,
-        );
-        let status = Status {
-            blocker,
-            phone,
-            audio_here: gw.is_some_and(|g| g.transport == "active"),
-            calls,
-        };
-        inner.gateway = gw.map(|g| g.path.clone());
-        if status != inner.status {
+        let changed = {
+            let Ok(mut inner) = self.inner.lock() else {
+                return;
+            };
+            let calls = inner.tracker.calls(
+                gw.map(|g| g.calls.as_slice()).unwrap_or(&[]),
+                &*self.lookup,
+                now,
+            );
+            let status = Status {
+                blocker,
+                phone,
+                audio_here: gw.is_some_and(|g| g.transport == "active"),
+                can_mute: self.mic.available(),
+                muted,
+                calls,
+            };
+            inner.gateway = gw.map(|g| g.path.clone());
+            if status == inner.status {
+                return;
+            }
             if status.blocker != inner.status.blocker {
                 info!("calls: {}", status.blocker.unwrap_or("ready"));
             }
             inner.status = status.clone();
-            drop(inner);
-            self.changed.send_replace(status);
-        }
+            status
+        };
+        // Pop-ups first, so a click can't arrive before its id is known.
+        self.update_popups(&changed.calls).await;
+        self.changed.send_replace(changed);
+        crate::tray::refresh();
     }
 
     fn session(&self) -> Result<&Connection> {
@@ -457,12 +589,19 @@ impl Watcher {
         .ok_or_else(|| anyhow!("That call has ended"))
     }
 
+    /// Re-reads at once, so whoever asked (the window, `tether call`) sees the result in the reply's
+    /// wake; a second round follows in case PipeWire updates its objects a moment after replying.
+    async fn after_action(&self) {
+        self.refresh().await;
+        self.poke.notify_one();
+    }
+
     async fn call_method(&self, path: &str, iface: &str, method: &str) -> Result<()> {
         self.session()?
             .call_method(Some(TELEPHONY), path, Some(iface), method, &())
             .await
             .map_err(friendly)?;
-        self.poke.notify_one();
+        self.after_action().await;
         Ok(())
     }
 
@@ -499,7 +638,84 @@ impl Watcher {
             )
             .await
             .map_err(friendly)?;
-        self.poke.notify_one();
+        self.after_action().await;
+        Ok(())
+    }
+
+    /// The microphone's mute while a call is live (read each round, so muting from the desktop shows
+    /// too). Once the calls end, gives back a microphone Tether muted: left muted, the next video
+    /// call would start silent with no sign why.
+    async fn settle_mic(&self, live: bool) -> bool {
+        if live {
+            return self.mic.muted().await.unwrap_or(false);
+        }
+        // Taken, not read: two rounds running at once must not both unmute, or the second could undo
+        // a mute made in between.
+        let ours = self
+            .inner
+            .lock()
+            .map(|mut i| std::mem::take(&mut i.muted_by_us))
+            .unwrap_or(false);
+        if ours {
+            match self.mic.set(false).await {
+                Ok(()) => info!("calls: microphone unmuted after the call"),
+                Err(e) => tracing::warn!("calls: couldn't unmute the microphone: {e}"),
+            }
+        }
+        false
+    }
+
+    pub async fn mute(&self, muted: bool) -> Result<()> {
+        if self.status().calls.is_empty() {
+            bail!("There's no call to mute");
+        }
+        self.mic.set(muted).await?;
+        if let Ok(mut i) = self.inner.lock() {
+            // Unmuting by hand hands the microphone back too: nothing to restore after the call.
+            i.muted_by_us = muted;
+        }
+        // Re-read now rather than on the next round, so whoever asked sees the new state at once.
+        self.refresh().await;
+        Ok(())
+    }
+
+    /// Two calls at once: the held one becomes active and the active one goes on hold (AT+CHLD=2,
+    /// sent by PipeWire's SwapCalls, which needs a held call; its HoldAndAnswer refuses unless a call
+    /// is waiting, see hfp_hf_swap_calls / hfp_hf_hold_and_answer in spa/plugins/bluez5/backend-native.c).
+    /// PipeWire has no way to hold a single call, so there is no Hold button.
+    pub async fn swap(&self, id: Option<&str>) -> Result<()> {
+        self.find(id, |c| c.state == "held")
+            .ok()
+            .filter(|c| c.state == "held")
+            .ok_or_else(|| anyhow!("There's no call on hold to switch to"))?;
+        let gw = self.gateway()?;
+        self.call_method(gw.as_str(), AG, "SwapCalls").await
+    }
+
+    /// Keypad presses during a call, for phone menus ("press 1") and PINs. The phone plays them into
+    /// the call; PipeWire sends one AT+VTS per key.
+    pub async fn tones(&self, tones: &str) -> Result<()> {
+        let tones = clean_tones(tones)?;
+        if !self.status().calls.iter().any(|c| c.state == "active") {
+            bail!("Keys can only be sent once the call is answered");
+        }
+        let gw = self.gateway()?;
+        // One key per call: PipeWire puts the whole string into a single AT+VTS (backend-native.c,
+        // hfp_hf_send_tones), but HFP's AT+VTS takes one DTMF key. Each reply comes after the phone's
+        // OK, so the keys go out in order.
+        let mut buf = [0u8; 4];
+        for key in tones.chars() {
+            self.session()?
+                .call_method(
+                    Some(TELEPHONY),
+                    gw.as_str(),
+                    Some(AG),
+                    "SendTones",
+                    &(&*key.encode_utf8(&mut buf),),
+                )
+                .await
+                .map_err(friendly)?;
+        }
         Ok(())
     }
 
@@ -535,6 +751,26 @@ async fn signal_stream(conn: Option<&Connection>, sender: &str) -> Option<zbus::
     zbus::MessageStream::for_match_rule(rule, conn?, std::num::NonZeroUsize::new(64))
         .await
         .ok()
+}
+
+async fn action_stream(conn: Option<&Connection>) -> Option<zbus::MessageStream> {
+    let rule = zbus::MatchRule::builder()
+        .msg_type(zbus::message::Type::Signal)
+        .sender(popup::NOTIFICATIONS)
+        .interface(popup::NOTIFICATIONS)
+        .member("ActionInvoked")
+        .build()
+        .ok()?;
+    zbus::MessageStream::for_match_rule(rule, conn?, std::num::NonZeroUsize::new(16))
+        .await
+        .ok()
+}
+
+async fn next_message(s: &mut Option<zbus::MessageStream>) -> Option<zbus::Message> {
+    match s {
+        Some(s) => s.next().await.and_then(|m| m.ok()),
+        None => std::future::pending().await,
+    }
 }
 
 async fn next(s: &mut Option<zbus::MessageStream>) -> Option<()> {
@@ -630,6 +866,9 @@ async fn read_bluetooth(conn: &Connection) -> Bluetooth {
     devices.sort_by(|a, b| a.address.cmp(&b.address));
     Bluetooth::Devices(devices)
 }
+
+mod mic;
+mod popup;
 
 #[cfg(test)]
 mod tests;

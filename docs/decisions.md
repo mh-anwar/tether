@@ -19,6 +19,12 @@
   goes through the desktop's PipeWire, so there's nothing to route. oFono would need a system service,
   root setup and its own audio path; talking HFP ourselves would fight PipeWire for the RFCOMM profile.
   Cost: needs PipeWire 1.4+ (Ubuntu 25.04, Fedora 42, Debian 13, Arch); older systems get setup steps.
+- **Call mute mutes this computer's default microphone (wpctl, else pactl), not the call.** HFP leaves
+  muting to the headset and PipeWire's telephony API has none; muting the microphone is what a headset's
+  button does. Shelling out to the tools every PipeWire desktop has avoids linking an audio library.
+  Tether gives the microphone back after the call only if it muted it, so a microphone muted before the
+  call stays muted. Mute is hidden where neither tool exists (some Flatpak runtimes). Ruled out: lowering
+  the HFP microphone gain (AT+VGM is a hint the phone may ignore, and it isn't silence).
 - **Window: Tauri with plain HTML/CSS/JS, no npm or bundler.** Uses the system WebKitGTK (small binary), and
   the UI builds with cargo alone. Phone text is only ever inserted as text, never as HTML.
 - **The window is a client of the daemon** and starts it if needed; the daemon holds an exclusive lock

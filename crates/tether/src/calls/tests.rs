@@ -122,6 +122,16 @@ fn numbers() {
     assert!(clean_number(&"1".repeat(31)).is_err());
 }
 
+#[test]
+fn keypad_tones() {
+    assert_eq!(clean_tones("1 2 3").unwrap(), "123");
+    assert_eq!(clean_tones("*#abcd").unwrap(), "*#ABCD");
+    assert!(clean_tones("").is_err());
+    assert!(clean_tones("1;ATH").is_err());
+    assert!(clean_tones("E").is_err());
+    assert!(clean_tones(&"1".repeat(33)).is_err());
+}
+
 // ---------- fake PipeWire telephony and BlueZ on a private bus ----------
 
 struct Bus(std::process::Child, String);
@@ -167,6 +177,7 @@ struct Fake {
     transport: String,
     calls: Vec<(String, String, String)>, // path, number, state
     dialed: Vec<String>,
+    tones: Vec<String>,
     next: u32,
 }
 
@@ -253,6 +264,20 @@ impl AudioGateway {
         self.0.lock().unwrap().dialed.push(number.clone());
         add_call(conn, &self.0, &number, "dialing").await;
     }
+    /// PipeWire refuses HoldAndAnswer without an active and a waiting call, and SwapCalls without a
+    /// held one (backend-native.c); both then send AT+CHLD=2.
+    async fn hold_and_answer(
+        &self,
+        #[zbus(connection)] conn: &Connection,
+    ) -> zbus::fdo::Result<()> {
+        chld2(&self.0, conn, &["active", "waiting"]).await
+    }
+    async fn swap_calls(&self, #[zbus(connection)] conn: &Connection) -> zbus::fdo::Result<()> {
+        chld2(&self.0, conn, &["held"]).await
+    }
+    fn send_tones(&self, tones: String) {
+        self.0.lock().unwrap().tones.push(tones);
+    }
     async fn hangup_all(&self, #[zbus(connection)] conn: &Connection) {
         let gone: Vec<_> = self
             .0
@@ -267,6 +292,67 @@ impl AudioGateway {
         }
         changed(conn, AG1).await;
     }
+}
+
+/// The desktop's notification server: records pop-ups and closes, and hands out ids from 41.
+#[derive(Default)]
+struct Notes {
+    shown: Vec<(u32, String, String, Vec<String>)>, // id, summary, body, actions
+    closed: Vec<u32>,
+}
+
+struct FakeNotifications(Arc<Mutex<Notes>>);
+
+#[interface(name = "org.freedesktop.Notifications")]
+impl FakeNotifications {
+    #[allow(clippy::too_many_arguments)]
+    fn notify(
+        &self,
+        _app: String,
+        _replaces: u32,
+        _icon: String,
+        summary: String,
+        body: String,
+        actions: Vec<String>,
+        _hints: HashMap<String, OwnedVariant>,
+        _timeout: i32,
+    ) -> u32 {
+        let mut n = self.0.lock().unwrap();
+        let id = 41 + n.shown.len() as u32;
+        n.shown.push((id, summary, body, actions));
+        id
+    }
+    fn close_notification(&self, id: u32) {
+        self.0.lock().unwrap().closed.push(id);
+    }
+}
+
+async fn eventually(what: &str, ok: impl Fn() -> bool) {
+    for _ in 0..100 {
+        if ok() {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    panic!("timed out waiting for {what}");
+}
+
+async fn chld2(fake: &Shared, conn: &Connection, needs: &[&str]) -> zbus::fdo::Result<()> {
+    {
+        let mut f = fake.lock().unwrap();
+        if !needs.iter().all(|n| f.calls.iter().any(|c| c.2 == *n)) {
+            return Err(zbus::fdo::Error::Failed("Invalid state".into()));
+        }
+        for c in f.calls.iter_mut() {
+            c.2 = match c.2.as_str() {
+                "active" => "held".into(),
+                "waiting" | "held" => "active".into(),
+                s => s.into(),
+            };
+        }
+    }
+    changed(conn, AG1).await;
+    Ok(())
 }
 
 struct Transport(Shared);
@@ -364,14 +450,48 @@ async fn drives_a_fake_phone_over_dbus() {
     let bluez = bus.conn().await;
     bluez.object_server().at("/", Bluez).await.unwrap();
     bluez.request_name(BLUEZ).await.unwrap();
+    let notes: Arc<Mutex<Notes>> = Arc::default();
+    let desktop = bus.conn().await;
+    desktop
+        .object_server()
+        .at(
+            "/org/freedesktop/Notifications",
+            FakeNotifications(notes.clone()),
+        )
+        .await
+        .unwrap();
+    desktop
+        .request_name("org.freedesktop.Notifications")
+        .await
+        .unwrap();
 
     let lookup: Lookup = Box::new(|n| (n == "+15551234567").then(|| "Alice".to_string()));
     let names: Names = Box::new(|| vec!["Galaxy S23".to_string()]);
+    // The repo's stand-in wpctl, with its microphone state in a folder of this test's own.
+    let dir = std::env::temp_dir().join(format!("tether-calls-mic-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let state = dir.join("muted");
+    let wpctl = dir.join("wpctl");
+    let stand_in = concat!(env!("CARGO_MANIFEST_DIR"), "/../../testing/calls/wpctl");
+    std::fs::write(
+        &wpctl,
+        format!(
+            "#!/bin/sh\nFAKE_WPCTL_STATE={} exec {stand_in} \"$@\"\n",
+            state.display()
+        ),
+    )
+    .unwrap();
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&wpctl, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    let mic_state = || std::fs::read_to_string(&state).unwrap_or_default();
     let w = Arc::new(Watcher::new(
         Some(bus.conn().await),
         Some(bus.conn().await),
         lookup,
         names,
+        mic::Mic::Wpctl(wpctl.clone()),
     ));
     let mut rx = w.subscribe();
     let bg = w.clone();
@@ -407,12 +527,51 @@ async fn drives_a_fake_phone_over_dbus() {
         ("incoming", true, Some("Alice"))
     );
 
-    w.answer(None).await.unwrap();
+    // The ringing call pops up on the desktop with Answer and Decline; Answer there picks it up.
+    eventually("the call pop-up", || {
+        !notes.lock().unwrap().shown.is_empty()
+    })
+    .await;
+    let (id, summary, body, actions) = notes.lock().unwrap().shown[0].clone();
+    assert_eq!(summary, "Incoming call");
+    assert!(
+        body.contains("Alice") && body.contains("+15551234567"),
+        "{body}"
+    );
+    for a in ["answer", "decline", "text", "default"] {
+        assert!(actions.contains(&a.to_string()), "{actions:?}");
+    }
+    // Another program's pop-up being clicked is none of ours.
+    desktop
+        .emit_signal(
+            None::<()>,
+            "/org/freedesktop/Notifications",
+            "org.freedesktop.Notifications",
+            "ActionInvoked",
+            &(7u32, "answer"),
+        )
+        .await
+        .unwrap();
+    desktop
+        .emit_signal(
+            None::<()>,
+            "/org/freedesktop/Notifications",
+            "org.freedesktop.Notifications",
+            "ActionInvoked",
+            &(id, "answer"),
+        )
+        .await
+        .unwrap();
     let s = until(&mut rx, "answered", |s| {
         s.calls.first().is_some_and(|c| c.state == "active")
     })
     .await;
     assert!(s.calls[0].since.is_some());
+    // Answered: its pop-up goes away.
+    eventually("the pop-up to close", || {
+        notes.lock().unwrap().closed == vec![id]
+    })
+    .await;
     // The phone refusing shows its reason rather than a generic failure.
     let err = w
         .answer(Some(&s.calls[0].id))
@@ -422,10 +581,73 @@ async fn drives_a_fake_phone_over_dbus() {
     assert!(err.contains("Not incoming"), "{err}");
 
     w.audio_here().await.unwrap();
-    until(&mut rx, "audio", |s| s.audio_here).await;
+    let s = until(&mut rx, "audio", |s| s.audio_here).await;
+    assert!(s.can_mute && !s.muted);
+
+    // A second call while talking rings as "waiting"; Answer holds the first, Switch goes back.
+    assert!(w.swap(None).await.is_err(), "nothing on hold yet");
+    add_call(&tel, &fake, "+15550000002", "waiting").await;
+    until(&mut rx, "waiting", |s| s.calls.len() == 2).await;
+    w.answer(None).await.unwrap();
+    let s = until(&mut rx, "held", |s| {
+        s.calls.iter().any(|c| c.state == "held") && s.calls.iter().any(|c| c.state == "active")
+    })
+    .await;
+    let held = s
+        .calls
+        .iter()
+        .find(|c| c.state == "held")
+        .unwrap()
+        .id
+        .clone();
+    w.swap(Some(&held)).await.unwrap();
+    until(&mut rx, "switched", |s| {
+        s.calls.iter().any(|c| c.id == held && c.state == "active")
+    })
+    .await;
+    let second = s.calls.iter().find(|c| c.id != held).unwrap().id.clone();
+    w.hangup(Some(&second)).await.unwrap();
+    until(&mut rx, "one call left", |s| s.calls.len() == 1).await;
+
+    w.tones("1 2#a").await.unwrap();
+    // One key per SendTones: HFP's AT+VTS takes a single key.
+    assert_eq!(fake.lock().unwrap().tones, ["1", "2", "#", "A"]);
+
+    w.mute(true).await.unwrap();
+    until(&mut rx, "muted", |s| s.muted).await;
+    assert_eq!(mic_state().trim(), "1");
 
     w.hangup(None).await.unwrap();
-    until(&mut rx, "hung up", |s| s.calls.is_empty()).await;
+    let s = until(&mut rx, "hung up", |s| s.calls.is_empty()).await;
+    assert!(!s.muted);
+    // Tether muted it for the call, so it gives the microphone back.
+    eventually("the microphone given back", || mic_state().trim() == "0").await;
+    assert!(w.mute(true).await.is_err(), "no call to mute");
+
+    // A microphone the desktop muted before the call shows as muted and stays muted afterwards.
+    std::fs::write(&state, "1").unwrap();
+    add_call(&tel, &fake, "+15551234567", "incoming").await;
+    until(&mut rx, "pre-muted call", |s| s.calls.len() == 1 && s.muted).await;
+    // Declined from its pop-up's Text button this time (the third pop-up: the call waiting above had
+    // the second), which also opens a new message to the caller.
+    eventually("the third pop-up", || {
+        notes.lock().unwrap().shown.len() == 3
+    })
+    .await;
+    let second = notes.lock().unwrap().shown[2].0;
+    desktop
+        .emit_signal(
+            None::<()>,
+            "/org/freedesktop/Notifications",
+            "org.freedesktop.Notifications",
+            "ActionInvoked",
+            &(second, "text"),
+        )
+        .await
+        .unwrap();
+    until(&mut rx, "pre-muted hung up", |s| s.calls.is_empty()).await;
+    assert_eq!(mic_state().trim(), "1");
+    std::fs::write(&state, "0").unwrap();
 
     w.dial("(555) 010-9999").await.unwrap();
     let s = until(&mut rx, "dialing", |s| s.calls.len() == 1).await;
@@ -448,4 +670,5 @@ async fn drives_a_fake_phone_over_dbus() {
     w.poke.notify_one();
     until(&mut rx, "service gone", |s| s.blocker == Some("service")).await;
     task.abort();
+    let _ = std::fs::remove_dir_all(&dir);
 }

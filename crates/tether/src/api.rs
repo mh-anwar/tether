@@ -317,6 +317,16 @@ async fn call(svc: &Service, method: &str, p: &Value) -> Result<Value> {
             .await
             .map(|_| json!(true)),
         "call_audio_here" => crate::calls::audio_here().await.map(|_| json!(true)),
+        "call_swap" => crate::calls::swap(p.get("id").and_then(Value::as_str))
+            .await
+            .map(|_| json!(true)),
+        "call_tones" => crate::calls::tones(s(p, "tones")?)
+            .await
+            .map(|_| json!(true)),
+        "call_mute" => {
+            let on = p.get("muted").and_then(Value::as_bool).unwrap_or(true);
+            crate::calls::mute(on).await.map(|_| json!(true))
+        }
         "apps_windows" => Ok(crate::apps::windows()),
         "apps_close" => Ok(crate::apps::close(p.get("package").and_then(Value::as_str))),
         _ => {

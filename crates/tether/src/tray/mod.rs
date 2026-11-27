@@ -125,6 +125,34 @@ pub(crate) struct TrayState {
     pub paused: bool,
     /// ... or summed up now and then (quiet mode).
     pub quiet: bool,
+    /// A Bluetooth call through this computer: the ringing one first, else the one being talked on.
+    pub call: Option<TrayCall>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq)]
+pub(crate) struct TrayCall {
+    pub id: String,
+    pub who: String,
+    pub ringing: bool,
+    pub can_mute: bool,
+    pub muted: bool,
+}
+
+fn tray_call() -> Option<TrayCall> {
+    let st = crate::calls::current()?;
+    let c = st
+        .calls
+        .iter()
+        .find(|c| crate::calls::is_ringing(c))
+        .or_else(|| st.calls.iter().find(|c| c.state == "active"))
+        .or_else(|| st.calls.first())?;
+    Some(TrayCall {
+        id: c.id.clone(),
+        who: c.name.clone().unwrap_or_else(|| c.number.clone()),
+        ringing: crate::calls::is_ringing(c),
+        can_mute: st.can_mute,
+        muted: st.muted,
+    })
 }
 
 impl TrayState {
@@ -157,6 +185,7 @@ fn snapshot(service: &Service) -> TrayState {
         mirroring: crate::notify::ENABLED.load(Ordering::Relaxed),
         paused: crate::notify::PAUSED.load(Ordering::Relaxed),
         quiet: crate::notify::quiet(),
+        call: tray_call(),
     }
 }
 
@@ -234,6 +263,12 @@ pub fn start(service: Service) {
     }
 }
 
+fn report(done: anyhow::Result<()>) {
+    if let Err(e) = done {
+        info!("tray: call action failed: {e}");
+    }
+}
+
 async fn run(service: &Service, action: Action) {
     match action {
         Action::Open => {
@@ -268,6 +303,9 @@ async fn run(service: &Service, action: Action) {
             );
             refresh();
         }
+        Action::Answer(id) => report(crate::calls::answer(Some(&id)).await),
+        Action::HangUp(id) => report(crate::calls::hangup(Some(&id)).await),
+        Action::ToggleMute(on) => report(crate::calls::mute(on).await),
         Action::Quit => {
             info!("tray: quitting");
             crate::api::quit_all();
@@ -338,6 +376,15 @@ pub(crate) fn tooltip(state: &TrayState) -> Vec<String> {
         .collect();
     if lines.is_empty() {
         lines.push("No phone paired yet".into());
+    }
+    // A call matters more than anything else here, so it goes first.
+    if let Some(c) = &state.call {
+        let line = match (c.ringing, c.muted) {
+            (true, _) => format!("{} is calling", c.who),
+            (false, true) => format!("On a call with {}, microphone off", c.who),
+            (false, false) => format!("On a call with {}", c.who),
+        };
+        lines.insert(0, line);
     }
     match state.unread {
         0 => {}
@@ -589,6 +636,7 @@ mod tests {
             mirroring: true,
             paused: false,
             quiet: false,
+            call: None,
         };
         assert_eq!(
             tooltip(&s),
@@ -614,6 +662,24 @@ mod tests {
         );
         let empty = TrayState::default();
         assert_eq!(tooltip(&empty), ["No phone paired yet"]);
+        let mut call = TrayCall {
+            id: "/c1".into(),
+            who: "Alice".into(),
+            ringing: true,
+            can_mute: true,
+            muted: false,
+        };
+        let on_call = |c: &TrayCall| TrayState {
+            call: Some(c.clone()),
+            ..TrayState::default()
+        };
+        assert_eq!(tooltip(&on_call(&call))[0], "Alice is calling");
+        call.ringing = false;
+        call.muted = true;
+        assert_eq!(
+            tooltip(&on_call(&call))[0],
+            "On a call with Alice, microphone off"
+        );
     }
 
     #[test]

@@ -173,6 +173,11 @@ pub async fn mirror(service: Service) {
                     .clone()
                     .or(c.number.clone())
                     .unwrap_or_else(|| "Unknown number".into());
+                // With the phone connected for calls over Bluetooth, the calls module shows the
+                // ringing call itself, with Answer and Decline.
+                if matches!(c.state, CallState::Ringing) && crate::calls::rings_here() {
+                    continue;
+                }
                 let title = match c.state {
                     CallState::Ringing => "Incoming call",
                     CallState::Missed => "Missed call",
@@ -183,7 +188,19 @@ pub async fn mirror(service: Service) {
                     .summary(title)
                     .body(&escape(&who))
                     .icon("call-start");
-                show(desk).await;
+                match (&c.state, c.number.clone().filter(|n| !n.trim().is_empty())) {
+                    (CallState::Missed, Some(number)) => {
+                        // Call back only where calls go through this computer; a text works always.
+                        if crate::calls::rings_here() {
+                            desk.action("callback", "Call back");
+                        }
+                        desk.action("text", "Send a text");
+                        tokio::spawn(missed_call_actions(desk, number, c.name.clone()));
+                    }
+                    _ => {
+                        show(desk).await;
+                    }
+                }
             }
             Event::Device(d) if d.pair == PairState::RequestedByPeer => {
                 let key = d.verification_key.unwrap_or_default();
@@ -197,6 +214,42 @@ pub async fn mirror(service: Service) {
             }
             _ => {}
         }
+    }
+}
+
+/// Shows a missed-call notification and acts on Call back or Send a text.
+async fn missed_call_actions(
+    desk: notify_rust::Notification,
+    number: String,
+    name: Option<String>,
+) {
+    let clicked = tokio::task::spawn_blocking(move || {
+        let handle = desk.show().ok()?;
+        let mut clicked = None;
+        handle.wait_for_action(|a| clicked = Some(a.to_string()));
+        clicked
+    })
+    .await
+    .ok()
+    .flatten();
+    match clicked.as_deref() {
+        Some("callback") => {
+            if let Err(e) = crate::calls::dial(&number).await {
+                let mut desk = notify_rust::Notification::new();
+                desk.appname("Tether")
+                    .summary("Couldn't call back")
+                    .body(&escape(&e.to_string()))
+                    .icon("call-start");
+                show(desk).await;
+            }
+        }
+        Some("text") => {
+            crate::tray::open_window_with(serde_json::json!({
+                "event": "compose", "number": number, "name": name,
+            }))
+            .await;
+        }
+        _ => {}
     }
 }
 

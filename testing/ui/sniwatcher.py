@@ -63,6 +63,64 @@ async def wait_for(check, seconds, what):
     fail(what)
 
 
+async def check_calls(menu):
+    """A Bluetooth call puts Answer / Decline, then Hang up and Mute at the top of the menu."""
+    root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    tel = await asyncio.create_subprocess_exec(
+        "uv", "run", "-q", "--no-project", "--with", "dbus-fast", "python",
+        os.path.join(root, "testing/ui/fake_telephony.py"),
+        stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE)
+
+    async def tell(cmd):
+        tel.stdin.write((cmd + "\n").encode())
+        await tel.stdin.drain()
+
+    async def heard(prefix):
+        while True:
+            line = (await asyncio.wait_for(tel.stdout.readline(), 10)).decode()
+            if not line:
+                fail(f"phone never got {prefix}")
+            if line.startswith(prefix):
+                return line.strip()
+
+    async def menu_rows():
+        _, l = await menu.call_get_layout(0, -1, [])
+        return {label(p): i for i, p in rows(l)}
+
+    async def row(text, seconds=15):
+        found = {}
+
+        async def shown():
+            found.update(await menu_rows())
+            return text in found
+        await wait_for(shown, seconds, f"no {text!r} row in the tray menu")
+        return found[text]
+
+    try:
+        await heard("ready")
+        await tell("gateway")
+        await tell("ring +15550123")
+        await menu.call_event(await row("Answer +15550123"), "clicked", Variant("s", ""), 0)
+        await heard("called Answer")
+        hang = await row("Hang up on +15550123")
+        await menu.call_event(await row("Mute the microphone"), "clicked", Variant("s", ""), 0)
+        await row("[x] Mute the microphone", 5)
+        await menu.call_event(hang, "clicked", Variant("s", ""), 0)
+        await heard("called Hangup")
+
+        async def no_call():
+            return not any(k.startswith("Hang up") for k in await menu_rows())
+        await wait_for(no_call, 10, "call rows stayed after hanging up")
+        print("calls: answered, muted and hung up from the tray")
+    finally:
+        # End of stdin stops the fake; killing only uv would leave its python holding our pipe.
+        tel.stdin.close()
+        try:
+            await asyncio.wait_for(tel.wait(), 5)
+        except asyncio.TimeoutError:
+            tel.kill()
+
+
 async def check(bus, name, item, received):
     launcher = []
     layout_updates = []
@@ -113,7 +171,7 @@ async def check(bus, name, item, received):
     labels = [label(p) for _, p in items]
     print("menu", labels)
     expected = ["Open Tether", "-", "Ring my phone", "Send files…", "-",
-                "Pause notification pop-ups", "-", "Quit Tether"]
+                "Pause notification pop-ups", "Quiet mode", "-", "Quit Tether"]
     if labels != expected:
         fail(f"menu {labels}")
     ids = {label(p): i for i, p in items}
@@ -148,6 +206,8 @@ async def check(bus, name, item, received):
         print("launcher", uri, props)
         if not uri.startswith("application://") or props.get("count", 0) < 1 or not props.get("count-visible"):
             fail(f"launcher badge {uri} {props}")
+
+    await check_calls(menu)
 
     await menu.call_event(ids["Quit Tether"], "clicked", Variant("s", ""), 0)
 

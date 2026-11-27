@@ -4,7 +4,7 @@ Mirrors the objects in pipewire spa/plugins/bluez5/telephony.c: /org/pipewire/Te
 phone (AudioGateway1 + AudioGatewayTransport1), its calls are /org/pipewire/Telephony/ag1/callN
 (Call1). Driven by lines on stdin, so a window test can act as the phone:
   gateway            the phone connects for calls
-  ring <number>      an incoming call
+  ring <number>      an incoming call ("waiting" while another call is active)
   remote_hangup      the other side hangs up every call
 Every method call is printed as "called <Method> <args>" for the test to check.
 
@@ -14,7 +14,7 @@ Run: uv run --no-project --with dbus-fast python testing/ui/fake_telephony.py
 import asyncio
 import sys
 
-from dbus_fast import Variant
+from dbus_fast import DBusError, Variant
 from dbus_fast.aio import MessageBus
 from dbus_fast.service import PropertyAccess, ServiceInterface, dbus_property, method
 
@@ -85,8 +85,29 @@ class Gateway(ServiceInterface):
             self.phone.remove(c)
 
     @method()
+    def SendTones(self, tones: "s"):
+        log("called SendTones", tones)
+
+    @method()
     def HoldAndAnswer(self):
+        # PipeWire sends AT+CHLD=2 for this only with an active and a waiting call (backend-native.c).
         log("called HoldAndAnswer")
+        self.chld2(["active", "waiting"])
+
+    @method()
+    def SwapCalls(self):
+        # ... and for this only with a held call.
+        log("called SwapCalls")
+        self.chld2(["held"])
+
+    def chld2(self, needs):
+        if not all(any(c.state == n for c in self.phone.calls) for n in needs):
+            raise DBusError("org.freedesktop.DBus.Error.Failed", "Invalid state")
+        for c in list(self.phone.calls):
+            if c.state == "active":
+                c.set_state("held")
+            elif c.state in ("waiting", "held"):
+                c.set_state("active")
 
     @dbus_property(access=PropertyAccess.READ)
     def Address(self) -> "s":
@@ -148,7 +169,8 @@ async def main():
         if cmd == "gateway":
             phone.connect()
         elif cmd == "ring":
-            phone.add(arg, "incoming")
+            # A second call while talking rings as "waiting", as on a real phone.
+            phone.add(arg, "waiting" if any(c.state == "active" for c in phone.calls) else "incoming")
         elif cmd == "remote_hangup":
             for c in list(phone.calls):
                 phone.remove(c)

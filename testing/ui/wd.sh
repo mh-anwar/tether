@@ -19,6 +19,9 @@ mkdir -p "$W"/cfg/tether "$W"/data "$W"/run && chmod 700 "$W"/run
 # Every run starts from the same phone-apps state: stand-in adb/scrcpy, never paired for apps.
 export FAKE_APPS_DIR=$W/apps-wd TETHER_ADB=$ROOT/testing/apps/adb TETHER_SCRCPY=$ROOT/testing/apps/scrcpy
 rm -rf "$FAKE_APPS_DIR" "$W/data/tether/apps-paired" "$W/data/tether/apps-connect-address" && mkdir -p "$FAKE_APPS_DIR"
+# Call mute goes through a stand-in wpctl; the microphone starts unmuted.
+export TETHER_WPCTL=$ROOT/testing/calls/wpctl FAKE_WPCTL_STATE=$W/mic-muted
+rm -f "$FAKE_WPCTL_STATE" "$FAKE_WPCTL_STATE.log"
 
 pids=()
 cleanup() {

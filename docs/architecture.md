@@ -144,10 +144,22 @@ listing each HFP-connected phone as `.../agN` with `org.pipewire.Telephony.Audio
 idle/pending/active/error = whether the call's sound is on the computer, `Activate` pulls it here with
 AT+BCC); each `agN` is an ObjectManager for its calls `.../agN/callM`, `...Call1` (`Answer`, `Hangup`,
 `LineIdentification` = number, `Name`, `State` active/held/dialing/alerting/incoming/waiting/
-disconnected). There is no mute in the API. BlueZ (system bus, `org.bluez` ObjectManager at `/`,
+disconnected). Keypad presses during a call go out with `SendTones` (one AT+VTS per key; the window's
+Keypad and `call_tones`). There is no mute in the API: `calls/mic.rs` mutes this computer's default
+microphone with `wpctl` (or `pactl`) instead, reads it back each round so muting from the desktop shows,
+and unmutes it when the calls end only if Tether muted it (`TETHER_WPCTL` points at a stand-in for tests,
+`testing/calls/wpctl`). BlueZ (system bus, `org.bluez` ObjectManager at `/`,
 `Device1` `Paired`/`Connected`/`UUIDs`, phones list the HFP AG UUID `0000111f-...`) only explains what's
 missing. The watcher re-reads both on any signal from either service and every 5 s, then pushes
-`{"event":"calls", blocker, phone, audio_here, calls: [{id, number, name, state, incoming, since}]}`.
+`{"event":"calls", blocker, phone, audio_here, can_mute, muted, calls: [{id, number, name, state,
+incoming, since}]}`. Ringing calls get a desktop pop-up from `calls/popup.rs` (Notify with
+`answer`/`decline`/`default` actions over the watcher's own session connection, closed with
+CloseNotification once the call stops ringing; ActionInvoked is matched to our own ids), and KDE
+Connect's plain ringing pop-up is skipped while `calls::rings_here()`. A held call switches back with
+`SwapCalls` (`call_swap`). Each status change also refreshes the tray (`TrayState.call`: Answer /
+Decline or Hang up / Mute rows and a tooltip line). `tether call` (client.rs) drives the same API
+methods. Missed calls from KDE Connect get "Call back" (when `rings_here`) and "Send a text" (window
+event `compose`) in notify.rs.
 `blocker`: service, bluetooth, adapter_off, pair, connect, or null when ready. The phone among several
 gateways is the one whose Bluetooth name matches a KDE Connect phone's name. Names come from the KDE
 Connect contacts. API: `call_status`, `call_answer {id?}` (a waiting call is answered with HoldAndAnswer),
